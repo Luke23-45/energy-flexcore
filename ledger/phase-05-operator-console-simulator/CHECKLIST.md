@@ -1,0 +1,52 @@
+# Exit-Gate Checklist — Phase 5: Operator Console and Simulator Integration
+
+- **Exit gate (§23 Stage 5):** "An operator can run a full simulated VPP scenario and inspect every scheduling and dispatch decision."
+- **How to use:** check an item only when the evidence named in its row exists and
+  is linked or filed. Evidence is a file path, a test-run output, or a review note —
+  never a bare assertion.
+
+## Gate items
+
+- [ ] **G5.1 Console scaffold + stack** — Evidence: build/lint/type-check/test output; generated API client matches OpenAPI (drift test); versions pinned and re-verified against official sources (P5.01).
+- [ ] **G5.2 Overview workspace** — Evidence: all five §20.1 item 1 elements with freshness; value types distinct; mode shown (P5.02).
+- [ ] **G5.3 Portfolios / Sites / Assets** — Evidence: per-workspace elements present; telemetry quality per value; grid-model version on Sites; role-visibility tests pass (P5.03).
+- [ ] **G5.4 Grid workspace** — Evidence: model version + timestamp on every outcome; margins per limit; uncovered parts labelled uncovered (P5.04).
+- [ ] **G5.5 Schedules workspace** — Evidence: schedule metadata + declared-objective selection; comparison enforces shared-input rule; superseded revisions visible (P5.05).
+- [ ] **G5.6 Dispatch workspace** — Evidence: states visually distinct; proposed never looks executed; rejections show failing constraint + evidence; approval confirms explicitly and records scope/limits/expiry (P5.06).
+- [ ] **G5.7 Market / Plugins / Admin** — Evidence: no fabricated signals/plugins/enrollments; synthetic labels; empty states tested (P5.07).
+- [ ] **G5.8 Simulation Lab workspace** — Evidence: scenarios with pinned inputs/versions/seeds; replay shows reproducibility verdict; results labelled simulated (P5.08).
+- [ ] **G5.9 Audit & Reports workspace** — Evidence: full decision chain per command; schedule-vs-actual from telemetry; failures/fallbacks with reasons; export preserves evidence refs (P5.09).
+- [ ] **G5.10 Freshness + value types workspace-wide** — Evidence: cross-workspace audit passes; legend present (P5.10).
+- [ ] **G5.11 State distinction + confirmations** — Evidence: states distinguishable without tooltips; confirmation required for every high-impact action (P5.11).
+- [ ] **G5.12 Accessibility + roles + demo honesty** — Evidence: role tests; keyboard-only approval workflow completes; nothing conveyed by colour alone; demo labels; browser-matrix results (P5.12).
+- [ ] **G5.13 Simulation honesty** — Evidence: mode indicator on every workspace; string review with no unqualified executed/delivered/applied string; lifecycle-fixture display review (P5.13).
+- [ ] **G5.14 Asset simulator integration** — Evidence: console runs against the real asset simulator via platform interfaces; dropout visible and handled (P5.14).
+- [ ] **G5.15 Grid adapter integration** — Evidence: scenario feasibility runs through the Phase 4 pipeline; versions displayed; feeder cases recorded honestly (P5.15).
+- [ ] **G5.16 HELICS federation** — Evidence: three-federate run with time synchronisation verified; HELICS role stated correctly; version/config per run (P5.16).
+- [ ] **G5.17 Simulator-track scoping** — Evidence: scoping table covering every §19.1 track; ANDES/HIL deferred explicitly (P5.17).
+- [ ] **G5.18 Scenario definition + replay** — Evidence: scenario record schema complete; replay uses only recorded inputs; §24 slice replayable (P5.18).
+- [ ] **G5.19 Replay reproducibility (THE GATE, part 1)** — Evidence: two clean runs match within pre-stated tolerances; negative control behaves as specified; verdicts in Simulation Lab; CI runs the check (P5.19).
+- [ ] **G5.20 Scenario library** — Evidence: synthetic + stressed scenarios present; each IEEE case included or excluded with a reason; scale-limit statement (P5.20).
+- [ ] **G5.21 Failure injection** — Evidence: every §19.2 layer 6 fault injectable with pre-registered outcome; outcomes match; console shows each fault's effect (P5.21).
+- [ ] **G5.22 Injection visibility** — Evidence: injections visible on affected workspaces; clean re-run works; reviewer walkthrough passes (P5.22).
+- [ ] **G5.23 Benchmarks + §19.4 metrics** — Evidence: metrics per scenario per applicable area; conditions recorded; no invented target (P5.23).
+- [ ] **G5.24 Performance + load** — Evidence: five platform measures + per-browser console figures, with conditions; load level stated (P5.24).
+- [ ] **G5.25 Live updates** — Evidence: live flow for telemetry/schedule/dispatch; disconnect shows stale state and re-syncs; trace IDs match audit; no cross-tenant leakage; no secrets (P5.25).
+- [ ] **G5.26 Console security** — Evidence: cross-tenant denial at API + console, audited; unauthorized approval blocked; step-up where configured (P5.26).
+- [ ] **G5.27 Mode enforcement** — Evidence: mode from configuration; non-simulator issue disabled and API-rejected in Simulation mode; mixed-mode display (P5.27).
+- [ ] **G5.28 CI gates** — Evidence: CI runs lint/type-check/test/build + drift + reproducibility; deliberate break fails CI; scans + SBOM; licenses recorded (P5.28).
+- [ ] **G5.29 Operator guide** — Evidence: guide covering all listed topics; limits stated; non-author review recorded (P5.29).
+- [ ] **G5.30 Exit-gate demonstration (THE GATE, part 2)** — Evidence: operator-run full §24 scenario with audit inspection and verified replay (demonstration record naming the operator); handover note filed; `verify_docs.py` + `validate_agent.py` output recorded (P5.30).
+- [ ] **G5.31 Alarm contract owned** — Evidence: alarm contract defined (or dated escalation with owner/date); Overview shows real alarms or explicit unavailable state; no fabricated alarms (P5.31).
+- [ ] **G5.32 Tenant-context display** — Evidence: tenant shown on every workspace; switch re-derives context; manipulated-request denial audited (P5.32).
+- [ ] **G5.33 Live-update ordering/dedup** — Evidence: reordered/redelivered streams display freshest state; stale discards counted; no duplicate side effects (P5.33).
+
+## Sign-off
+
+| Role | Name | Date | Evidence reviewed |
+|---|---|---|---|
+| Architect | | | G5.1, G5.13, G5.17, G5.30, G5.31 |
+| Power-systems engineer | | | G5.4–G5.5, G5.15–G5.16, G5.20, G5.23 |
+| Frontend engineer | | | G5.2–G5.12, G5.25, G5.32–G5.33 |
+| QA | | | G5.18–G5.22, G5.24, G5.28, G5.30 |
+| Security engineer | | | G5.26–G5.27 |

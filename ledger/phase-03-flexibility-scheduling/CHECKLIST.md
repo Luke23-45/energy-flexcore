@@ -1,0 +1,49 @@
+# Exit-Gate Checklist — Phase 3: Flexibility and Deterministic Schedule
+
+- **Exit gate (§23 Stage 3):** "Schedules pass asset/time-coupled constraints on defined synthetic cases."
+- **How to use:** check an item only when the evidence named in its row exists and
+  is linked or filed. Evidence is a file path, a test-run output, or a review note —
+  never a bare assertion.
+
+## Gate items
+
+- [ ] **G3.1 Capability contract frozen and versioned** — Evidence: versioned schema file + §11.1 coverage note (P3.01). All §11.1 constraint categories representable or explicitly unsupported.
+- [ ] **G3.2 Unknown provenance narrows the envelope** — Evidence: provenance rule + test where unknown limits produce a strictly smaller envelope (P3.02).
+- [ ] **G3.3 Time model fixed** — Evidence: horizon/interval/timezone/rollover definition + boundary tests (P3.03). Prior schedule never deleted by rollover.
+- [ ] **G3.4 Capability validation at the boundary** — Evidence: validator module + negative-case test results (P3.04).
+- [ ] **G3.5 BESS model exact per §11.2** — Evidence: hand-computed worked example matching to stated tolerance; simultaneous charge/discharge prevented or flagged (P3.05).
+- [ ] **G3.6 Degradation/reserve honest** — Evidence: placeholder status documented; reserve floor holds in all test schedules (P3.06).
+- [ ] **G3.7 BESS edge cases pass** — Evidence: SOC-boundary fixture results; clip/reject policy written down (P3.07).
+- [ ] **G3.8 P-Q envelope correct and bidirectional** — Evidence: apparent-power tests incl. negative-P; no `P ≥ 0` power-factor assumption (P3.08).
+- [ ] **G3.9 Volt-var/volt-watt scoped per profile** — Evidence: scoping table; no schedule relies on an unconfigured curve (P3.09).
+- [ ] **G3.10 Flexible load respects duration/recovery/rebound** — Evidence: horizon scenario test; synthetic baseline method named (P3.10).
+- [ ] **G3.11 EV departure SOC met; opt-out handled; V2X off by default** — Evidence: departure-SOC tests; opt-out re-derivation test; V2X default-off test (P3.11).
+- [ ] **G3.12 Envelope is a constrained aggregation** — Evidence: test where a binding shared constraint makes the envelope strictly less than the nameplate sum; central estimate + availability descriptor present (P3.12).
+- [ ] **G3.13 Envelope staleness enforced** — Evidence: trigger tests; stale-envelope schedule rejected or re-derived (P3.13).
+- [ ] **G3.14 Objective explicit and synthetic-labelled** — Evidence: objective config per schedule; weight-sensitivity test (P3.14).
+- [ ] **G3.15 Objective terms traceable** — Evidence: term-provenance table; dominance warning fires on fixture (P3.15).
+- [ ] **G3.16 PCC tracking at the declared PCC** — Evidence: loss-aware fixture test; multiple delivery points kept separate (P3.16).
+- [ ] **G3.17 Tier 1 behind the `Optimizer` port** — Evidence: dependency-direction check; LP/QP/MILP formulations declare problem class; HiGHS version pinned (P3.17).
+- [ ] **G3.18 Tier 2 continuous SOCP only** — Evidence: Clarabel fixture solve; integer input returns `unsupported`; Tier 1 vs Tier 2 cross-check recorded (P3.18).
+- [ ] **G3.19 Solver config, statuses, determinism** — Evidence: all six §12.6 statuses reachable in tests; infeasibility returns conflict evidence; replay test passes (P3.19).
+- [ ] **G3.20 Tier 3/4 guard in place** — Evidence: Tier 3/4 request returns `unsupported`; no Tier 3/4 path in the scheduler (P3.20).
+- [ ] **G3.21 §12.6 result contract complete** — Evidence: completeness tests per provider; input snapshot referenced on every result (P3.21).
+- [ ] **G3.22 Schedule revisions immutable, supersede linked** — Evidence: revision-chain tests; superseded schedules retrievable (P3.22).
+- [ ] **G3.23 Schedule comparison works on shared inputs** — Evidence: comparison API test; cross-input comparison rejected/labelled (P3.23).
+- [ ] **G3.24 Rolling horizon respects realised state** — Evidence: mid-horizon dropout scenario; past intervals unchanged (P3.24).
+- [ ] **G3.25 Unit/property coverage recorded** — Evidence: test output + coverage figure + explicit gap list (P3.25).
+- [ ] **G3.26 Deterministic synthetic scenarios pass (THE GATE)** — Evidence: three pinned scenarios (normal, PV ramp/forecast error, dropout) with pre-registered expected outcomes and tolerances; zero SOC/ramp/departure violations within tolerance (P3.26).
+- [ ] **G3.27 Benchmarks measured, no invented targets** — Evidence: benchmark report with hardware recorded; CI runs the scenario suite (P3.27).
+- [ ] **G3.28 API/events/persistence wired** — Evidence: OpenAPI contract tests; outbox atomicity test; cross-tenant denial test (P3.28).
+- [ ] **G3.29 Security review closed** — Evidence: review note + scan outputs; no unaddressed high-severity finding (P3.29).
+- [ ] **G3.30 Handover to Phase 4 filed** — Evidence: handover note listing contracts, versions, scenario results, and limitations; `verify_docs.py` + `validate_agent.py` output recorded (P3.30).
+- [ ] **G3.31 Synthetic forecast fixture owned by Phase 3** — Evidence: versioned fixture regenerating byte-identically from its seed; every value labelled synthetic; forecast version referenced by envelope and result records; no unlabelled forecast consumed (P3.31).
+
+## Sign-off
+
+| Role | Name | Date | Evidence reviewed |
+|---|---|---|---|
+| Architect | | | G3.1, G3.17–G3.20, G3.30 |
+| Power-systems engineer | | | G3.5–G3.16, G3.26 |
+| QA | | | G3.25–G3.27 |
+| Security engineer | | | G3.29 |
