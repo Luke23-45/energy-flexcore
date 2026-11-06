@@ -13,7 +13,65 @@
 
 > **Revision note (1.1):** This version resolves the release definition, canonical units and telemetry-quality contracts, control-authority deployment modes, and build/distribution form. It also corrects citation and editorial defects. The architecture and product scope are otherwise unchanged.
 >
-> **Changes in 1.1:** release ladder renumbered to Semantic Versioning; canonical units fixed at MW/MVAr/MWh with a per-model reactive-power sign; telemetry quality reduced to six canonical states; `SUPERSEDED` added to the command lifecycle; build/distribution and the four control-authority modes added in §21.4; §25 reframed as recommended and pending approval with explicit deferred-decision gates; citation and editorial defects corrected.
+> **Changes in 1.1:** release ladder renumbered to Semantic Versioning; canonical units fixed at MW/MVAr/MVA/MWh with a per-model reactive-power sign; telemetry quality reduced to six canonical states; `SUPERSEDED` added to the command lifecycle; build/distribution and the four control-authority modes added in §21.4; §25 reframed as recommended and pending approval with explicit deferred-decision gates; citation and editorial defects corrected.
+
+---
+
+## Document control
+
+| Field | Value |
+|---|---|
+| Document owner | Neryva product and principal engineering |
+| Status | Proposed baseline for design review; not approved for implementation |
+| Intended reviewers | Product, power systems, platform engineering, security/OT, legal |
+| Approval | Pending; the decisions that gate approval are listed in §25.2 |
+| Version history | 1.0 (6 November 2026) — initial report; 1.1 (7 November 2026) — current |
+| Source of truth | This Markdown file; exported DOCX/PDF copies are derivatives and are not authoritative |
+
+### Relationship to the foundations specification
+
+The canonical system-design baseline is `docs/foundations/Neryva_FlexCore_System_Design_Specification_v1.0` (PDF and DOCX). It defines the mandatory system conventions, including the unit and sign conventions restated in §10.2.
+
+This report elaborates the product definition, architecture, delivery plan, and open decisions on top of that baseline. The two documents carry independent version numbers: the foundations specification is v1.0 and this report is v1.1. Where they conflict, the foundations specification's mandatory conventions govern unless a deviation is recorded and approved as a design decision; where this report is silent, it makes no additional commitment.
+
+### How to read this document
+
+- **Product and scope:** §0–§2 — the decision, audience, release ladder, and initial asset/protocol boundary.
+- **Architecture:** §3–§13 — system context, modules, plugin model, software patterns, Rust stack, workspace, contracts, domain model, flexibility, optimization/validation, and research modules.
+- **Operations and assurance:** §14–§21 — command lifecycle, APIs and events, storage and tenancy, security, edge, simulation/testing, operator experience, and deployment.
+- **Delivery:** §22–§24 — governance and quality gates, roadmap, and the recommended first build.
+- **Decisions and references:** §25–§28 — recommended baselines, deferred decisions, glossary, sources, and closing statement.
+
+### Table of contents
+
+1. Product definition and application
+2. Scope by release
+3. System context and high-level architecture
+4. Core product modules
+5. Plugin-oriented architecture
+6. Software architecture and engineering patterns
+7. Rust-first technology architecture
+8. Rust workspace and repository structure
+9. Plugin contracts and core interfaces
+10. Domain model and data contracts
+11. Resource capability and flexibility modelling
+12. Scheduling, optimization, and grid validation
+13. Advanced research modules
+14. Command lifecycle and operational assurance
+15. APIs, events, and messaging
+16. Data storage and tenancy
+17. Security, safety, and operational trust
+18. Edge architecture
+19. Simulation, testing, and benchmark strategy
+20. Operator application design
+21. Deployment and operations
+22. Engineering governance and quality gates
+23. Implementation roadmap
+24. Build-first recommendation
+25. Recommended baseline decisions (pending approval)
+26. Glossary
+27. Research references and official documentation
+28. Closing statement
 
 ---
 
@@ -32,7 +90,7 @@ The first commercially credible product should target organizations that aggrega
 
 Utilities and distribution system operators (DSOs) are an important later audience, but FlexCore should not initially claim to be a fully qualified utility DERMS or a replacement for an ADMS. Direct ISO/RTO market participation is a region-specific integration, not a universal core function.
 
-The release path is explicit. **v0.1.0** is the first public release and is simulation-only: it can model, schedule, validate, and demonstrate the full decision chain, but it cannot write to physical devices. **v1.0.0** is the first pilot-ready release and defaults to operator-approved control. Bounded automation is a post-1.0 capability granted per deployment, site, and asset class after qualification; no release level by itself grants field authority.
+The release path is explicit. The **0.x line is simulation-only**: it can model, schedule, validate, and demonstrate the full decision chain, but it cannot write to physical devices. **v0.1.0** is the first public release and establishes the canonical asset, site, telemetry, and scenario-replay foundation. **v1.0.0** is the first pilot-ready release and defaults to operator-approved control. Bounded automation is a post-1.0 capability granted per deployment, site, and asset class after qualification; no release level by itself grants field authority.
 
 ### 0.1 What the product does
 
@@ -203,14 +261,16 @@ The architecture is extensible, but each release must be deliberately narrow. Ve
 | **v0.2.0 — Flexibility & Scheduling** | BESS/PV/load/EVSE models, flexibility envelopes, deterministic rolling-horizon scheduling, schedule comparisons | Simulation only |
 | **v0.3.0 — Dispatch Assurance** | Resource validation, network feasibility checks, command lifecycle, operator approvals, audit trail | Simulation and shadow mode |
 | **v0.4.0 — Site Integration** | First site adapter through OpenEMS; selected telemetry/protocol adapters; outbound edge connection | Read-only or test-lab control by default |
-| **v0.5.0 — Plugin SDK** | Versioned plugin contracts, plugin manifest, trusted built-in modules, constrained WASM plugin host, examples | No plugin can bypass dispatch gates |
+| **v0.5.0 — Plugin SDK** | Versioned plugin contracts, plugin manifest, trusted built-in modules, constrained WASM plugin host, examples | Simulation/shadow; no plugin can bypass dispatch gates |
 | **v1.0.0 — Pilot-ready FlexCore** | Stable operator workflow, reproducible benchmark, deployment/upgrade model, security review, site integration test harness | Operator-approved control is the default; production dispatch only after customer-specific acceptance and commissioning |
 | **v1.x — Advanced coordination** | DMPC/ADMM, expanded market adapters, topology-aware optimization research, portfolio analytics | Per-feature qualification; bounded automation may be granted per deployment |
 | **v2.x — Advanced grid intelligence** | GNN acceleration, safe MARL research, dynamic stability research, broader utility/DSO integrations | Shadow/simulation first; no automatic field authority by default |
 
 A version number does not imply regulatory certification or operational qualification. The control-authority mode actually enabled at a site is governed by §21.4 and the release gates in §22.3.
 
-## 2.2 First-release asset support
+## 2.2 Initial asset support
+
+Support accrues across the 0.x line; this table describes the target initial capability, not the v0.1.0 contents.
 
 | Asset type | Initial support | Later extension |
 |---|---|---|
@@ -221,11 +281,11 @@ A version number does not imply regulatory certification or operational qualific
 | Site meter | Telemetry, quality, PCC measurements | Vendor-specific metering and settlement interfaces |
 | Wind generation | Generic DER capability interface; later model | Wind-specific forecasts and controls |
 | Thermal storage / heat pumps | Generic flexible-load envelope initially | Dedicated state and comfort/process constraints |
-| Backup generation | Not a first-class v0.1.0 target | Add only with emissions, fuel, permit, and operating policy support |
+| Backup generation | Not a first-class 0.x target | Add only with emissions, fuel, permit, and operating policy support |
 
-## 2.3 First-release protocols and integration boundaries
+## 2.3 Initial protocols and integration boundaries
 
-No single release should attempt to implement every standard.
+No single release should attempt to implement every standard. Protocol work accrues across the 0.x line and is gated by the selected pilot partner and conformance plan.
 
 | Integration | Role | Initial posture |
 |---|---|---|
@@ -468,7 +528,7 @@ Do not use one execution mechanism for every plugin.
 - Apply memory, fuel/time, concurrency, output-size, and call-rate limits.
 - Grant specific scoped capabilities, for example `telemetry.read`, `schedule.propose`, or `forecast.publish`.
 
-Use WASI 0.2 / the supported Component Model baseline for the first plugin SDK. WASI 0.3 adds asynchronous functions, streams, and futures, but the Rust `wasm32-wasip3` target is documented as requiring nightly before the planned Rust 1.100 release on 12 November 2026. At the 6 November 2026 research cut-off, do not make WASI 0.3 a release blocker. Re-evaluate after stable toolchain and host compatibility mature. [R3]
+Use WASI 0.2 / the supported Component Model baseline for the first plugin SDK. WASI 0.3 adds asynchronous functions, streams, and futures, but the Rust `wasm32-wasip3` target is documented as requiring nightly before the planned Rust 1.100 release on 12 November 2026. At the 7 November 2026 research cut-off, do not make WASI 0.3 a release blocker. Re-evaluate after stable toolchain and host compatibility mature. [R3]
 
 Wasmtime provides Component Model embedding APIs and sandboxing mechanisms, but sandboxing must still be combined with host capability policy, resource limits, signatures, and isolation. [R4]
 
@@ -484,7 +544,7 @@ Use separate processes/containers with gRPC/Protobuf for:
 
 This isolates Python dependencies, crashes, CPU/GPU load, and research packages from the Rust control-plane runtime.
 
-### Explicitly rejected for v1: arbitrary Rust dynamic libraries
+### Explicitly rejected for the 1.x line: arbitrary Rust dynamic libraries
 
 Do not build a general-purpose native `.so`/`.dll` plugin loader using Rust trait objects across dynamic-library boundaries. Rust's native ABI has no stability guarantee. [R5]
 
@@ -506,7 +566,7 @@ runtime:
   kind: builtin-rust   # builtin-rust | wasm-component | grpc-worker
   entrypoint: optimizer.highs
 compatibility:
-  flexcoreApi: ">=1.0,<2.0"
+  flexcoreApi: ">=0.5,<1.0"
 capabilities:
   provides:
     - optimization.lp
@@ -526,7 +586,7 @@ resources:
   timeoutMs: 30000
 ```
 
-The actual manifest schema must be versioned, validated, and published with the plugin SDK. The example is illustrative, not a final schema.
+The actual manifest schema must be versioned, validated, and published with the plugin SDK. The example targets the v0.5.0 SDK; plugin packaging is not part of the v0.1.0 build. The example is illustrative, not a final schema.
 
 A plugin may declare what it provides and what it requires. Dependency resolution must detect missing capabilities, version incompatibility, cycles, and conflicting providers before activation.
 
@@ -550,7 +610,7 @@ stateDiagram-v2
   Failed --> Draining
 ```
 
-For command-producing plugins, activation or upgrade must not occur in the middle of an active dispatch transaction. Drain the plugin, stop accepting new work, finish or cancel pending operations, record the version change, and then replace it. No hot-reload of safety or dispatch providers in v1.
+For command-producing plugins, activation or upgrade must not occur in the middle of an active dispatch transaction. Drain the plugin, stop accepting new work, finish or cancel pending operations, record the version change, and then replace it. No hot-reload of safety or dispatch providers in the 1.x line.
 
 ## 5.7 Plugin authority model
 
@@ -712,7 +772,7 @@ Do not create a second general-purpose backend in Python. Python is for speciali
 
 Use the Cargo workspace for source/build cohesion. Cargo workspaces share a root lockfile and build output, making them suitable for a multi-crate product. [R15]
 
-The stack above is a recommended baseline, not an irreversible commitment. §25.1 records the review point for each major choice; dependency and licence validation remains part of the v0.1.0 gate.
+The stack above is a recommended baseline, not an irreversible commitment. §25.1 records the review point for each major choice; dependency and license validation remains part of the v0.1.0 gate.
 
 ## 7.4 Python numerical and research stack
 
@@ -721,7 +781,7 @@ The stack above is a recommended baseline, not an irreversible commitment. §25.
 | Data handling | NumPy, pandas, Polars where useful | Worker-local; exchange versioned records/arrays |
 | Distribution power flow | pandapower, OpenDSS, GridLAB-D | Choose per model class and unbalanced/three-phase requirement |
 | Energy-system optimization | PyPSA | Planning and network/energy-system studies, not a universal device protocol or substation controller |
-| LP / MILP | HiGHS through a suitable wrapper | LP/QP/MIP class; not an SOCP solver |
+| LP / MILP | HiGHS through a suitable wrapper | LP/QP/MIP class; not an SOCP solver. [R28] |
 | Convex SOCP | Clarabel Python/Rust implementation, CVXPY where suitable | Continuous conic problems; do not claim integer support |
 | Nonlinear optimization | IPOPT or selected solver provider | Local nonlinear optimization; no universal global optimum guarantee |
 | Dynamic stability | ANDES and/or PowerSimulationsDynamics | Separate transient/small-signal studies; not a replacement for distribution quasi-static power flow |
@@ -983,10 +1043,10 @@ Canonical internal units:
 - reactive power: **MVAr**;
 - apparent power: **MVA**;
 - energy: **MWh**;
-- voltage: per-unit on a declared base, or kV where explicitly unit-tagged;
-- current: kA with phase identification;
+- voltage: kV at the nominal base in the network model, per-unit in the solver representation, with the base declared explicitly;
+- current: A or per-unit on an explicit base, with phase identification;
 - frequency: Hz; and
-- SOC: stored as a fraction in [0,1], not a percentage unless the field explicitly says percent.
+- SOC: a fraction in [0,1] is the single canonical representation at the API boundary; percentages exist only as display or vendor-source values and are converted at the adapter.
 
 Sign conventions at the asset/site point of connection:
 
@@ -1107,7 +1167,7 @@ Q_i^{min}(P,V,m)\leq Q_{i,t}\leq Q_i^{max}(P,V,m)
 
 where `m` is the operating mode and `V` may be relevant to volt-var/watt-var capability. Charging and discharging must both be represented. Do not use a power-factor inequality that assumes `P >= 0` for a bidirectional asset.
 
-IEEE 1547-2018 defines DER interconnection and interoperability performance requirements. Its Clause 5 includes reactive-power and voltage/power-control capabilities; the exact capability and settings depend on the applicable category, performance requirements, utility profile, and equipment. It is not a universal specification for internal BMS cell-temperature protection. Equipment safety/protection remains a separate responsibility. [R18]
+IEEE 1547-2018 defines DER interconnection and interoperability performance requirements. Its Clause 5 includes reactive-power and voltage/power-control capabilities; the exact capability and settings depend on the applicable category, performance requirements, utility profile, and equipment. It is not a universal specification for internal BMS cell-temperature protection. Equipment safety/protection and conformance testing under IEEE 1547.1 remain separate responsibilities. [R18]
 
 ## 11.4 Flexible load model
 
@@ -1316,8 +1376,10 @@ stateDiagram-v2
   Proposed --> Rejected: malformed / unsupported
   Validated --> Feasible: network checks pass
   Validated --> Rejected: capability / network failure
+  Validated --> Superseded: newer approved schedule/command revision replaces it
   Feasible --> Approved: policy / operator authorization
   Feasible --> Rejected: authorization denied
+  Feasible --> Superseded: newer approved schedule/command revision replaces it
   Approved --> Issued: signed, sequenced command sent
   Issued --> Acknowledged: device/gateway accepts
   Issued --> Failed: NACK / timeout / transport failure
@@ -1326,11 +1388,13 @@ stateDiagram-v2
   Tracking --> Completed: acceptance criterion satisfied
   Tracking --> Failed: tracking deviation / timeout
   Tracking --> Expired: validity ends
-  Tracking --> Superseded: newer approved command replaces it
+  Tracking --> Superseded: newer approved schedule/command revision replaces it
+  Acknowledged --> Expired: validity ends before tracking completes
+  Acknowledged --> Superseded: newer approved schedule/command revision replaces it
   Approved --> Expired: validity ends before issue
-  Approved --> Superseded: newer approved command replaces it
+  Approved --> Superseded: newer approved schedule/command revision replaces it
   Issued --> Expired: validity ends before acknowledgement
-  Issued --> Superseded: newer approved command replaces it
+  Issued --> Superseded: newer approved schedule/command revision replaces it
   Approved --> Cancelled: operator/policy cancellation
   Issued --> Cancelled: supported cancellation semantics
   Failed --> Fallback: asset/site policy activated
@@ -1358,9 +1422,9 @@ Validation, feasibility, and authorization are distinct. Network feasibility is 
 | COMPLETED | Defined delivery criterion satisfied |
 | REJECTED | Candidate rejected before issue |
 | FAILED | Execution/communication/tracking failed |
-| EXPIRED | Validity window ended before execution/completion |
+| EXPIRED | Validity window ended before execution, application-level acceptance, or completion |
 | CANCELLED | Explicitly cancelled by an operator or policy before issue or while supported |
-| SUPERSEDED | Replaced by a newer approved command before completion; retained for audit and distinct from cancellation |
+| SUPERSEDED | Invalidated by a newer approved schedule/command revision before completion; retained for audit and distinct from explicit cancellation |
 | FALLBACK | Resource/site-specific fallback policy activated |
 
 ## 14.3 Command invariants
@@ -1370,6 +1434,8 @@ Every command must include:
 - unique command ID;
 - tenant, portfolio, site and asset IDs;
 - source subsystem and plugin/model version;
+- source schedule ID and schedule revision;
+- reason/action and actor or service identity;
 - target P/Q or supported control parameter;
 - units and sign convention;
 - valid-from and valid-until timestamps;
@@ -1378,11 +1444,11 @@ Every command must include:
 - idempotency key;
 - grid model and telemetry snapshot references;
 - validation evidence reference;
-- authorization decision reference;
+- authorization decision reference, including approved scope, limits, and expiry;
 - signature or authenticated transport identity; and
 - supersedes/superseded-by reference when a command replaces another.
 
-Commands must be rejected when stale, duplicated with conflicting payloads, out of sequence, outside capability, or missing required evidence.
+Commands must be rejected when stale, duplicated with conflicting payloads, out of sequence, outside capability, or missing required evidence. Partial fleet success is represented per asset; a portfolio-level acknowledgement is not inferred from the first responding device.
 
 ## 14.4 Asset-specific fallback
 
@@ -1457,13 +1523,18 @@ Initial domain events:
 - `ScheduleProposed`
 - `ScheduleValidated`
 - `FeasibilityCheckCompleted`
+- `DispatchProposed`
 - `DispatchApproved`
+- `DispatchRejected`
 - `DispatchIssued`
 - `DispatchAcknowledged`
 - `DispatchTrackingUpdated`
 - `DispatchCompleted`
 - `DispatchFailed`
 - `DispatchExpired`
+- `DispatchCancelled`
+- `DispatchSuperseded`
+- `DispatchFallbackActivated`
 - `PluginActivated`
 - `PluginFailed`
 - `OperatorActionRecorded`
@@ -1666,7 +1737,7 @@ Do not use a steady-state power-flow tool as evidence for transient frequency st
 
 Start with a small set of recognised cases and add scale gradually:
 
-- IEEE 13-node, 34-node, and 123-node distribution test feeders where licensing and model availability are confirmed;
+- IEEE 13-bus, 34-bus, and 123-bus distribution test feeders where licensing and model availability are confirmed;
 - IEEE 39-bus and 118-bus transmission test systems for selected grid studies;
 - synthetic portfolios with BESS, PV, flexible load, and EVSE;
 - multiple feeders/sites connected through a common substation constraint; and
@@ -1727,7 +1798,7 @@ The initial web console should expose these workspaces:
 
 # 21. Deployment and operations
 
-## 21.1 Deployment modes
+## 21.1 Hosting and deployment modes
 
 | Mode | Intended use | Components |
 |---|---|---|
@@ -1780,9 +1851,10 @@ Never put secrets or unnecessary personal/customer data in logs.
 |---|---|---|---|
 | Operator Console | Static React/TypeScript bundle served by the control plane or a CDN | Current and previous major versions of Chrome, Edge, Firefox, and Safari | Bundled with the server release; no native mobile or desktop client |
 | Control Plane | Linux x86-64 and ARM64 OCI image plus native binary | Linux container preferred; Windows/macOS only for development | Signed OCI image; Helm chart from v1.0.0 |
+| WASM Plugin Host | Linux x86-64/ARM64 container | Linux container with sandbox and capability policy | OCI image; enabled from v0.5.0 |
 | Numerical / Research Workers | Linux Python container images pinned by lockfile | Linux containers | OCI images matching the control-plane release |
 | Site Edge Agent | Linux x86-64/ARM64 container or systemd service | Linux at the site or in the OT DMZ | Versioned package/OCI image with signed updates |
-| CLI / Simulation Lab | Cross-platform Rust binary | Linux, macOS, and Windows | Release archives and developer package managers |
+| CLI / Simulation Lab | Cross-platform Rust CLI plus containerized simulator environment | CLI on Linux, macOS, and Windows; simulators in Linux containers | Release archives for the CLI; OCI images for the simulation environment |
 
 The public contracts — REST API, Protobuf schemas, plugin WIT interfaces, and plugin manifests — follow Semantic Versioning. The 0.x line may break contracts with a documented migration note; v1.0.0 freezes the public API and plugin contracts for the 1.x line. Every release publishes checksums, an SBOM, and a support matrix.
 
@@ -2011,6 +2083,8 @@ Build this vertical slice first:
 
 This proves the product's actual value: orchestration and validated coordination. Advanced AI can then improve a measured bottleneck instead of being introduced speculatively.
 
+This is the target vertical slice for the 0.x line. Its steps land across v0.1.0–v0.3.0; they are not all promised in the first public release.
+
 ---
 
 # 25. Recommended baseline decisions (pending approval)
@@ -2034,7 +2108,7 @@ The table records the recommended baseline, not irreversible commitments. Techno
 | Database? | PostgreSQL as source of truth; partitioned telemetry initially; optional time-series extension later |
 | API? | REST/OpenAPI externally; gRPC/Protobuf internally |
 | Build form? | Browser operator console + Linux control plane and workers + Linux site edge agent + CLI/simulation lab; no mobile app or single-desktop build |
-| First public release (v0.1.0)? | Simulation-only fleet registry, telemetry, flexibility, deterministic scheduling, network validation, and dispatch lifecycle |
+| First public release (v0.1.0)? | Simulation-only canonical asset/site models, simulator integration, telemetry ingestion, asset registry, portfolio views, and scenario replay |
 | Pilot release (v1.0.0)? | Stable operator workflow, reproducible benchmark, deployment/upgrade model, security review, and site integration test harness; operator-approved control by default |
 | Default control authority? | Simulation for v0.1.0, read-only/shadow for early pilots, operator-approved at v1.0.0; bounded automation post-1.0 per deployment only |
 | First research extensions? | DMPC/ADMM, GNN screening/warm-start, safe MARL in simulation/shadow mode |
@@ -2052,7 +2126,7 @@ These are the recommended implementation choices for the first build, with expli
 | gRPC/Protobuf internally; REST/OpenAPI externally | Typed worker contracts; broad enterprise integration | Client ecosystem demands GraphQL or another external style |
 | React + TypeScript console | Browser-native UI and strong ecosystem | Accessibility or bundle constraints cannot be met |
 | Wasmtime + WIT for untrusted plugins | Sandboxed, language-neutral extension surface | Component tooling is not stable enough for the v0.5.0 target |
-| Apache-2.0 core licence | Permissive, enterprise-compatible, open contribution model | Licence audit finds incompatible required dependencies |
+| Apache-2.0 core license | Permissive, enterprise-compatible, open contribution model | License audit finds incompatible required dependencies |
 
 No entry in this table is a certification, a permanent dependency, or a reason to delay the simulation-first slice in §24.
 
@@ -2065,7 +2139,7 @@ The report cannot make these foundational decisions on Neryva's behalf. Each is 
 | Target jurisdiction and market | Drives interconnection, market adapter, data residency, and liability | Phase 0; product + legal |
 | First portfolio and service | Determines asset mix, baseline method, and acceptance criteria | Phase 0; product |
 | Network class and model fidelity | Balanced radial distribution, unbalanced three-phase, and meshed transmission require different models and solvers | Phase 0; power systems |
-| Licence and dependency audit | Apache-2.0 compatibility of protocol stacks, solvers, models, and datasets | Before v0.1.0; legal + engineering |
+| License and dependency audit | Apache-2.0 compatibility of protocol stacks, solvers, models, and datasets | Before v0.1.0; legal + engineering |
 | First protocol and asset mix | Selects the pilot adapter and conformance tests | Before v0.4.0; product + integration |
 | Cyber and OT boundary review | Site-specific; not derivable from the architecture alone | Before any read-only pilot; security |
 
@@ -2141,7 +2215,7 @@ The report distinguishes established external facts from Neryva design recommend
 - [R22] EPRI, [Introduction to OpenDSS](https://opendss.epri.com/IntroductiontoOpenDSS.html).
 - [R23] PyPSA, [Official documentation](https://docs.pypsa.org/).
 - [R24] ANDES, [Official documentation](https://docs.andes.app/en/stable/). Power flow, time-domain/transient stability, eigenvalue analysis, and renewable-energy models.
-- [R26] NIST, [SP 800-82 Rev. 3 — final OT security guide](https://csrc.nist.gov/pubs/sp/800/82/r3/final) and [SP 800-82 Rev. 4 — initial public draft, 21 September 2026](https://csrc.nist.gov/pubs/sp/800/82/r4/ipd). Rev. 4 was a draft with comments due 30 November 2026 at the research cut-off.
+- [R26] NIST, [SP 800-82 Rev. 3 — final OT security guide](https://csrc.nist.gov/pubs/sp/800/82/r3/final) and [SP 800-82 Rev. 4 — initial public draft, 21 September 2026](https://csrc.nist.gov/pubs/sp/800/82/r4/ipd). As of the research cut-off, Rev. 4 was a draft with comments due 30 November 2026.
 - [R27] IEEE 2030.5 Working Group, [Standard for Smart Energy Profile Protocol](https://sagroups.ieee.org/2030-5/).
 - [R28] HiGHS, [Official project site](https://highs.dev/) and [documentation](https://ergo-code.github.io/HiGHS/dev/). The project lists LP, MIP, and QP support.
 - [R29] OpenADR Alliance, [OpenADR 3.0 introduction and certification](https://www.openadr.org/openadr-3-0). Certification status is distinct from implementing an API/profile.
