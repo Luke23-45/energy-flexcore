@@ -2,13 +2,18 @@
 ## Product Definition, System Design, and High-Level Architecture
 
 **Document type:** Product and Principal Engineering Architecture Report  
-**Version:** 1.0  
-**Status:** Proposed architectural baseline for design review; not a certification or permission for live grid control  
+**Version:** 1.1  
+**Status:** Proposed product and architectural baseline for design review; not a certification, not a safety case, and not permission for live grid control  
 **Prepared for:** Neryva  
-**Research cut-off:** 6 November 2026  
-**Primary implementation language:** Rust  
+**Research cut-off:** 7 November 2026  
+**Primary implementation language:** Rust (recommended and provisional; see §25.1)  
 **Supporting languages:** Python and TypeScript  
-**License recommendation:** Apache-2.0 for core software, with separate review for protocol specifications, datasets, models, and third-party dependencies
+**License recommendation:** Apache-2.0 for core software, with separate review for protocol specifications, datasets, models, and third-party dependencies  
+**Supersedes:** Version 1.0 (6 November 2026)
+
+> **Revision note (1.1):** This version resolves the release definition, canonical units and telemetry-quality contracts, control-authority deployment modes, and build/distribution form. It also corrects citation and editorial defects. The architecture and product scope are otherwise unchanged.
+>
+> **Changes in 1.1:** release ladder renumbered to Semantic Versioning; canonical units fixed at MW/MVAr/MWh with a per-model reactive-power sign; telemetry quality reduced to six canonical states; `SUPERSEDED` added to the command lifecycle; build/distribution and the four control-authority modes added in §21.4; §25 reframed as recommended and pending approval with explicit deferred-decision gates; citation and editorial defects corrected.
 
 ---
 
@@ -26,6 +31,8 @@ The first commercially credible product should target organizations that aggrega
 4. energy service companies and system integrators.
 
 Utilities and distribution system operators (DSOs) are an important later audience, but FlexCore should not initially claim to be a fully qualified utility DERMS or a replacement for an ADMS. Direct ISO/RTO market participation is a region-specific integration, not a universal core function.
+
+The release path is explicit. **v0.1.0** is the first public release and is simulation-only: it can model, schedule, validate, and demonstrate the full decision chain, but it cannot write to physical devices. **v1.0.0** is the first pilot-ready release and defaults to operator-approved control. Bounded automation is a post-1.0 capability granted per deployment, site, and asset class after qualification; no release level by itself grants field authority.
 
 ### 0.1 What the product does
 
@@ -60,7 +67,7 @@ Use a **plugin-oriented modular monolith** for the central platform, with explic
 
 ### 0.3 What is deliberately not promised
 
-The first release does not promise:
+The first public release and the v1.0.0 pilot baseline do not promise:
 
 - hard real-time or protection-grade control;
 - primary frequency response or synthetic inertia control;
@@ -99,7 +106,7 @@ FlexCore is a **multi-surface enterprise software product**:
 | Simulation Lab | CLI + web workflows + simulator adapters | Scenario creation, replay, stress testing, benchmarking, and demonstrations |
 | External API | REST/OpenAPI and selected gRPC APIs | Integration with enterprise systems and partner applications |
 
-The operator console is the primary user-facing application. The platform is not a single desktop binary. Site edge software is a separate deployment because it crosses an enterprise IT/operational technology boundary.
+The operator console is the primary user-facing application. The platform is not a mobile app and not a single desktop binary: the console runs in a supported evergreen browser, the control plane and workers run as Linux services or containers, and site edge software is a separate deployment because it crosses an enterprise IT/operational technology boundary. Supported browsers, operating systems, build artifacts, and distribution channels are defined in §21.4.
 
 ## 1.3 Primary users and audiences
 
@@ -186,22 +193,22 @@ The platform does not replace:
 
 # 2. Scope by release
 
-The architecture is extensible, but the first release must be deliberately narrow.
+The architecture is extensible, but each release must be deliberately narrow. Version labels below are product releases, not regulatory certifications.
 
 ## 2.1 Release definition
 
 | Release | Product capability | Control status |
 |---|---|---|
-| **0.1 — FlexCore Lab** | Canonical asset/site models, simulator integration, telemetry ingestion, asset registry, portfolio views, scenario replay | Simulation only |
-| **0.2 — Flexibility & Scheduling** | BESS/PV/load/EVSE models, flexibility envelopes, deterministic rolling-horizon scheduling, schedule comparisons | Simulation only |
-| **0.3 — Dispatch Assurance** | Resource validation, network feasibility checks, command lifecycle, operator approvals, audit trail | Simulation and shadow mode |
-| **0.4 — Site Integration** | First site adapter through OpenEMS; selected telemetry/protocol adapters; outbound edge connection | Read-only or test-lab control by default |
-| **0.5 — Plugin SDK** | Versioned plugin contracts, plugin manifest, trusted built-in modules, constrained WASM plugin host, examples | No plugin can bypass dispatch gates |
-| **1.0 — Pilot-ready FlexCore** | Stable operator workflow, reproducible benchmark, deployment/upgrade model, security review, site integration test harness | Production dispatch only after customer-specific acceptance and commissioning; default deployment remains shadow/approval mode |
-| **1.x — Advanced coordination** | DMPC/ADMM, expanded market adapters, topology-aware optimization research, portfolio analytics | Per-feature qualification |
-| **2.x — Advanced grid intelligence** | GNN acceleration, safe MARL research, dynamic stability research, broader utility/DSO integrations | Shadow/simulation first; no automatic field authority by default |
+| **v0.1.0 — FlexCore Lab (first public release)** | Canonical asset/site models, simulator integration, telemetry ingestion, asset registry, portfolio views, scenario replay | Simulation only; no device writes |
+| **v0.2.0 — Flexibility & Scheduling** | BESS/PV/load/EVSE models, flexibility envelopes, deterministic rolling-horizon scheduling, schedule comparisons | Simulation only |
+| **v0.3.0 — Dispatch Assurance** | Resource validation, network feasibility checks, command lifecycle, operator approvals, audit trail | Simulation and shadow mode |
+| **v0.4.0 — Site Integration** | First site adapter through OpenEMS; selected telemetry/protocol adapters; outbound edge connection | Read-only or test-lab control by default |
+| **v0.5.0 — Plugin SDK** | Versioned plugin contracts, plugin manifest, trusted built-in modules, constrained WASM plugin host, examples | No plugin can bypass dispatch gates |
+| **v1.0.0 — Pilot-ready FlexCore** | Stable operator workflow, reproducible benchmark, deployment/upgrade model, security review, site integration test harness | Operator-approved control is the default; production dispatch only after customer-specific acceptance and commissioning |
+| **v1.x — Advanced coordination** | DMPC/ADMM, expanded market adapters, topology-aware optimization research, portfolio analytics | Per-feature qualification; bounded automation may be granted per deployment |
+| **v2.x — Advanced grid intelligence** | GNN acceleration, safe MARL research, dynamic stability research, broader utility/DSO integrations | Shadow/simulation first; no automatic field authority by default |
 
-A version number does not imply regulatory certification or operational qualification.
+A version number does not imply regulatory certification or operational qualification. The control-authority mode actually enabled at a site is governed by §21.4 and the release gates in §22.3.
 
 ## 2.2 First-release asset support
 
@@ -210,27 +217,29 @@ A version number does not imply regulatory certification or operational qualific
 | BESS | Full simulated model; telemetry and capability model; schedule/dispatch proposal | Vendor-specific write adapters, degradation-aware dispatch, reserve qualification |
 | PV inverter | Simulated generation and curtailment capability; telemetry and setpoint model | Vendor/region-specific smart inverter control profiles |
 | Flexible C&I load | Aggregated availability, baseline, ramp, duration, recovery constraints | Device-specific HVAC/process/thermal models |
-| EVSE / EV fleet | Simulated charging flexibility; OCPP adapter interface | OCPP 2.0.1/2.1 profile support according to fleet/vendor capabilities and conformance testing |
+| EVSE / EV fleet | Simulated charging flexibility; OCPP adapter planned but not delivered in v0.1.0 | OCPP 2.0.1/2.1 profile support according to fleet/vendor capabilities and conformance testing |
 | Site meter | Telemetry, quality, PCC measurements | Vendor-specific metering and settlement interfaces |
 | Wind generation | Generic DER capability interface; later model | Wind-specific forecasts and controls |
 | Thermal storage / heat pumps | Generic flexible-load envelope initially | Dedicated state and comfort/process constraints |
-| Backup generation | Not a first-class v0.1 target | Add only with emissions, fuel, permit, and operating policy support |
+| Backup generation | Not a first-class v0.1.0 target | Add only with emissions, fuel, permit, and operating policy support |
 
 ## 2.3 First-release protocols and integration boundaries
 
-The first release should not attempt to implement every standard.
+No single release should attempt to implement every standard.
 
-| Integration | Role | First release posture |
+| Integration | Role | Initial posture |
 |---|---|---|
 | OpenEMS | Site-level EMS / edge integration | Priority integration for lab/demo and selected pilot sites |
 | OpenADR 3.0 | Demand-response program/event/report adapter | Adapter interface and test implementation; certification is separate and must not be claimed from protocol parsing alone [R29] |
 | SunSpec Modbus | Common DER/inverter/storage data models over Modbus | Read/telemetry first; write operations only in explicit test and qualified profiles |
 | OCPP 2.0.1 / 2.1 | EV charging station to charging-management-system protocol | Adapter planned; start with 2.0.1 or 2.1 according to target fleet and vendor support |
 | IEEE 2030.5 / CSIP | DER and smart-inverter communication profile | Later adapter, with regional profile and certification planning [R27] |
-| IEC 61850 | Substation automation / power-system information exchange | Later enterprise integration; not required for v0.1 |
+| IEC 61850 | Substation automation / power-system information exchange | Later enterprise integration; not required for v0.1.0 |
 | ISO/RTO-specific APIs | Market registration, bids, dispatch, telemetry, settlement | Region-specific market plugin; not a generic OpenADR mapping |
 
 FERC Order 2222 is a US regulatory framework whose implementation is mediated through individual RTO/ISO tariffs and requirements. It is not itself a protocol and does not create a universal market API. Regional requirements must be handled by market-specific adapters and configuration. [R1]
+
+Protocol posture is deliberate: v0.1.0 ships simulation adapters only. Implementing an adapter is not a conformance claim; each production adapter must pass the relevant conformance or interoperability suite before it is described as certified or qualified.
 
 ---
 
@@ -574,7 +583,7 @@ Provide named runtime profiles composed from ordered bundles. This is the cleane
 | `research-gnn` | Grid model provider, GNN worker, benchmark suite, no dispatch authority |
 | `research-marl` | Simulator, MARL worker, shadow action logger, safety evaluation, no device writes |
 
-A profile is an explicit, reviewable composition. It must not silently enable a control-capable plugin.
+A profile is an explicit, reviewable composition. It must not silently enable a control-capable plugin. v0.1.0 ships only the static built-in providers and the `sim-lab` profile; the `research-gnn` and `research-marl` profiles are not enabled in v0.1.0, and the constrained WASM plugin host with third-party composition is deferred to v0.5.0.
 
 ---
 
@@ -626,7 +635,7 @@ For an operation that must both update state and publish an event, use a transac
 For telemetry, tolerate duplicates and out-of-order messages using source sequence, event time, ingestion time, and idempotency keys.
 
 
-## 6.5 Design patterns to use deliberately
+## 6.4 Design patterns to use deliberately
 
 | Pattern | Where to use it | Guardrail |
 |---|---|---|
@@ -643,7 +652,7 @@ For telemetry, tolerate duplicates and out-of-order messages using source sequen
 
 Avoid service locator access to arbitrary application state, global mutable plugin registries, unbounded event handlers, and plugins that mutate another module's database tables.
 
-## 6.4 State storage strategy
+## 6.5 State storage strategy
 
 Use event sourcing selectively:
 
@@ -660,7 +669,7 @@ Do not use a single append-only event log as the only source of truth for all hi
 
 ## 7.1 Why Rust
 
-Rust is the recommended language for the authoritative control-plane core, API layer, event consumers, command lifecycle, plugin host, and site edge agent because these components benefit from:
+Rust is the recommended language for the authoritative control-plane core, API layer, event consumers, command lifecycle, plugin host, and site edge agent. The choice is provisional and should be revisited if the team cannot sustain Rust depth or a required protocol library lacks an adequate binding; see §25.1. These components benefit from:
 
 - compile-time memory and thread-safety guarantees;
 - explicit error handling;
@@ -702,6 +711,8 @@ Do not create a second general-purpose backend in Python. Python is for speciali
 | Testing | cargo test, property testing, integration tests, fuzzing where appropriate | Verify domain and contract invariants |
 
 Use the Cargo workspace for source/build cohesion. Cargo workspaces share a root lockfile and build output, making them suitable for a multi-crate product. [R15]
+
+The stack above is a recommended baseline, not an irreversible commitment. §25.1 records the review point for each major choice; dependency and licence validation remains part of the v0.1.0 gate.
 
 ## 7.4 Python numerical and research stack
 
@@ -966,18 +977,24 @@ A result without provenance and diagnostics is not eligible for operational cons
 
 Define one canonical convention and enforce it at every adapter boundary.
 
-Recommended initial convention at the asset/site point of connection:
+Canonical internal units:
+
+- active power: **MW**;
+- reactive power: **MVAr**;
+- apparent power: **MVA**;
+- energy: **MWh**;
+- voltage: per-unit on a declared base, or kV where explicitly unit-tagged;
+- current: kA with phase identification;
+- frequency: Hz; and
+- SOC: stored as a fraction in [0,1], not a percentage unless the field explicitly says percent.
+
+Sign conventions at the asset/site point of connection:
 
 - active power **P > 0 means export/injection into the grid**;
 - active power **P < 0 means import/consumption from the grid**;
-- reactive power **Q > 0 means reactive injection into the grid** under the platform's declared convention;
-- energy is in kWh/MWh as explicitly represented;
-- power is in kW/MW;
-- voltage is represented in per-unit or explicitly unit-tagged engineering units;
-- current is A/kA with phase identification; and
-- SOC is stored as a fraction in [0,1], not a percentage unless the field explicitly says percent.
+- reactive power sign is **not** a universal constant. Each grid model and device profile declares whether **Q > 0** means injection (generator convention) or consumption (load convention), and each adapter records the mapping it applies. Platform contracts carry the declared convention explicitly rather than assuming one.
 
-Adapters must map vendor/protocol conventions into the canonical model and record the mapping profile. Do not rely on implicit sign assumptions.
+Adapters must convert vendor/protocol units into the canonical units and record both the unit and sign mapping profile. Do not rely on implicit unit or sign assumptions. The UI may display kW/kWh and other scaled units, but persisted values and API contracts use the canonical units.
 
 ## 10.3 Time model
 
@@ -994,18 +1011,18 @@ Use UTC internally and retain the original site timezone for operator display an
 
 ## 10.4 Telemetry quality
 
-Telemetry values should carry quality metadata such as:
+Every telemetry value carries exactly one canonical quality state:
 
-- `GOOD`;
-- `ESTIMATED`;
-- `SUBSTITUTED`;
-- `STALE`;
-- `OUT_OF_RANGE`;
-- `UNSYNCHRONIZED`;
-- `COMMUNICATION_LOSS`; and
-- `UNRELIABLE`.
+| Canonical state | Meaning |
+|---|---|
+| `GOOD` | Valid, fresh, within range, and from a trusted source |
+| `SUSPECT` | Received and parsed, but a plausibility, range, or consistency check failed |
+| `BAD` | The source reports the value invalid, or a hard validation rule failed |
+| `MISSING` | No value was received for the expected interval |
+| `ESTIMATED` | Derived, interpolated, substituted, or model-generated rather than measured |
+| `STALE` | Last known value whose age exceeds the use-case freshness limit |
 
-A quality flag must not be silently converted into a normal reading. Every use case defines which quality states are acceptable.
+Richer source states — for example `SUBSTITUTED`, `OUT_OF_RANGE`, `UNSYNCHRONIZED`, `COMMUNICATION_LOSS`, and `UNRELIABLE` — must be mapped to one of these six states at the adapter boundary, with the original source code retained as diagnostic metadata. A quality flag must not be silently converted into a normal reading. Every use case defines which quality states are acceptable.
 
 ## 10.5 Protobuf and schema governance
 
@@ -1025,7 +1042,7 @@ Each asset exposes a time-indexed feasible operating set:
 \mathcal{X}_{i,t} = \{(P_{i,t}, Q_{i,t}, E_{i,t}, u_{i,t}) : \text{device and operating constraints hold}\}
 \]
 
-The capability model is not a single `max_kw` field. It may depend on:
+The capability model is not a single `max_mw` field. It may depend on:
 
 - active and reactive power;
 - energy/SOC;
@@ -1124,7 +1141,7 @@ OCPP 2.1 includes expanded smart-charging and V2X-related capabilities, but devi
 
 ## 11.6 Portfolio flexibility aggregation
 
-The portfolio flexibility envelope is a constrained aggregation, not simply the sum of nameplate kW.
+The portfolio flexibility envelope is a constrained aggregation, not simply the sum of nameplate MW.
 
 At minimum:
 
@@ -1309,6 +1326,11 @@ stateDiagram-v2
   Tracking --> Completed: acceptance criterion satisfied
   Tracking --> Failed: tracking deviation / timeout
   Tracking --> Expired: validity ends
+  Tracking --> Superseded: newer approved command replaces it
+  Approved --> Expired: validity ends before issue
+  Approved --> Superseded: newer approved command replaces it
+  Issued --> Expired: validity ends before acknowledgement
+  Issued --> Superseded: newer approved command replaces it
   Approved --> Cancelled: operator/policy cancellation
   Issued --> Cancelled: supported cancellation semantics
   Failed --> Fallback: asset/site policy activated
@@ -1316,6 +1338,7 @@ stateDiagram-v2
   Completed --> [*]
   Rejected --> [*]
   Cancelled --> [*]
+  Superseded --> [*]
   Fallback --> [*]
 ```
 
@@ -1336,7 +1359,8 @@ Validation, feasibility, and authorization are distinct. Network feasibility is 
 | REJECTED | Candidate rejected before issue |
 | FAILED | Execution/communication/tracking failed |
 | EXPIRED | Validity window ended before execution/completion |
-| CANCELLED | Command cancelled or superseded |
+| CANCELLED | Explicitly cancelled by an operator or policy before issue or while supported |
+| SUPERSEDED | Replaced by a newer approved command before completion; retained for audit and distinct from cancellation |
 | FALLBACK | Resource/site-specific fallback policy activated |
 
 ## 14.3 Command invariants
@@ -1354,8 +1378,9 @@ Every command must include:
 - idempotency key;
 - grid model and telemetry snapshot references;
 - validation evidence reference;
-- authorization decision reference; and
-- signature or authenticated transport identity.
+- authorization decision reference;
+- signature or authenticated transport identity; and
+- supersedes/superseded-by reference when a command replaces another.
 
 Commands must be rejected when stale, duplicated with conflicting payloads, out of sequence, outside capability, or missing required evidence.
 
@@ -1468,7 +1493,7 @@ A PostgreSQL transaction writes both authoritative state and an outbox record. A
 | TimescaleDB | Optional time-series extension | Evaluate as an optional deployment/profile; do not make proprietary/optional features mandatory for the open baseline |
 | S3-compatible object storage | Simulator artifacts, large datasets, model files, exports, reports, signed plugin packages | Separate large/blob data from OLTP |
 | NATS JetStream | Durable event/work stream | Messaging, not the authoritative business database |
-| Redis | Optional cache/rate-limit/session acceleration | Do not introduce in v0.1 unless measurements justify it |
+| Redis | Optional cache/rate-limit/session acceleration | Do not introduce in v0.1.0 unless measurements justify it |
 
 ## 16.2 Multi-tenancy
 
@@ -1747,6 +1772,31 @@ Measure ingestion delay, stale telemetry, queue depth, plugin health, solver dur
 
 Never put secrets or unnecessary personal/customer data in logs.
 
+## 21.4 Build form, distribution, and control authority
+
+### Build and distribution form
+
+| Surface | Build artifact | Runtime | Distribution |
+|---|---|---|---|
+| Operator Console | Static React/TypeScript bundle served by the control plane or a CDN | Current and previous major versions of Chrome, Edge, Firefox, and Safari | Bundled with the server release; no native mobile or desktop client |
+| Control Plane | Linux x86-64 and ARM64 OCI image plus native binary | Linux container preferred; Windows/macOS only for development | Signed OCI image; Helm chart from v1.0.0 |
+| Numerical / Research Workers | Linux Python container images pinned by lockfile | Linux containers | OCI images matching the control-plane release |
+| Site Edge Agent | Linux x86-64/ARM64 container or systemd service | Linux at the site or in the OT DMZ | Versioned package/OCI image with signed updates |
+| CLI / Simulation Lab | Cross-platform Rust binary | Linux, macOS, and Windows | Release archives and developer package managers |
+
+The public contracts — REST API, Protobuf schemas, plugin WIT interfaces, and plugin manifests — follow Semantic Versioning. The 0.x line may break contracts with a documented migration note; v1.0.0 freezes the public API and plugin contracts for the 1.x line. Every release publishes checksums, an SBOM, and a support matrix.
+
+### Control-authority deployment modes
+
+| Mode | Authority | Writes to devices | Default use |
+|---|---|---|---|
+| Simulation | None | No | v0.1.0; development, demonstration, benchmarking |
+| Read-only / shadow | None; computes and compares proposed actions against measurements | No | Early pilots and commissioning |
+| Operator-approved | Each command requires an authorized human approval | Yes, after approval | v1.0.0 default |
+| Bounded automation | Pre-approved policy envelope with limits, expiry, and automatic fallback | Yes, inside the envelope only | Post-1.0, per deployment, site, and asset class after qualification |
+
+Control-authority mode is a deployment and per-site setting, not something a plugin can select. A deployment may run mixed modes by site or asset class. Promotion to a higher-authority mode requires the release gates in §22.3 plus site-specific acceptance.
+
 ---
 
 # 22. Engineering governance and quality gates
@@ -1797,10 +1847,12 @@ A release cannot be labelled pilot-ready until:
 - edge offline/degraded modes are tested;
 - plugin permission boundaries are tested;
 - simulator benchmark results are reproducible;
-- backup/restore and upgrade/rollback are tested; and
+- backup/restore and upgrade/rollback are tested;
+- the supported browser/OS matrix in §21.4 is tested;
+- the target control-authority mode in §21.4 has passed its own qualification; and
 - a deployment-specific cyber and operational risk review is complete.
 
-A production field pilot additionally requires site owner approval, device/vendor integration tests, local safety review, commissioning, and any applicable market/interconnection qualification.
+A production field pilot additionally requires site owner approval, device/vendor integration tests, local safety review, commissioning, and any applicable market/interconnection qualification. Unresolved Phase 0 gates in §25.2 must be closed for the deployment jurisdiction, network class, and protocol mix before that deployment is promoted beyond read-only mode.
 
 ---
 
@@ -1819,9 +1871,10 @@ Deliverables:
 - command-state machine;
 - grid model contract;
 - threat model and deployment diagram;
-- initial ADR set.
+- initial ADR set; and
+- owners and target dates for the deferred decisions in §25.2.
 
-Exit gate: engineering, product, and power-systems reviewers agree on the first workflow and protected invariants.
+Exit gate: engineering, product, and power-systems reviewers agree on the first workflow and protected invariants, and every §25.2 gate has an owner, a decision venue, and a date. Work on physical control remains blocked until the relevant gates close.
 
 ## Stage 1 — Modular Rust foundation
 
@@ -1960,9 +2013,11 @@ This proves the product's actual value: orchestration and validated coordination
 
 ---
 
-# 25. Final architectural decisions
+# 25. Recommended baseline decisions (pending approval)
 
-| Question | Decision |
+The table records the recommended baseline, not irreversible commitments. Technology rows name the review point or trigger that would reopen them.
+
+| Question | Recommended baseline |
 |---|---|
 | What is FlexCore? | Open-source VPP orchestration and distribution-aware DER coordination platform |
 | Is it an app? | Yes: enterprise web console + backend control plane + optional site edge agent + simulation/research environment |
@@ -1970,17 +2025,51 @@ This proves the product's actual value: orchestration and validated coordination
 | What does it coordinate? | BESS, PV, flexible loads, EVSE, meters, site EMS, and later additional DER types |
 | Is it a utility DERMS today? | No. It is a VPP/DER orchestration platform with a roadmap toward broader DERMS capabilities |
 | Is it a grid protection controller? | No. Protection and fast local controls remain in local hardware/controllers |
-| Primary language? | Rust for the authoritative platform and edge services |
+| Primary language? | Rust for the authoritative platform and edge services (provisional; see §25.1) |
 | Numerical/ML language? | Python in isolated workers |
-| Frontend? | React + TypeScript web application |
+| Frontend? | React + TypeScript web application (provisional; see §25.1) |
 | Backend style? | DDD + hexagonal architecture + modular monolith + microkernel/plugin composition |
-| Plugin model? | Static Rust providers, sandboxed WASM/WIT plugins, and out-of-process gRPC workers |
-| Messaging? | NATS JetStream with idempotent consumers and transactional outbox |
+| Plugin model? | Static Rust providers in v0.x; sandboxed WASM/WIT plugins and out-of-process gRPC workers from v0.5.0; no arbitrary Rust dylib loading |
+| Messaging? | NATS JetStream with idempotent consumers and transactional outbox (provisional; see §25.1) |
 | Database? | PostgreSQL as source of truth; partitioned telemetry initially; optional time-series extension later |
 | API? | REST/OpenAPI externally; gRPC/Protobuf internally |
-| First release? | Simulation-first fleet registry, telemetry, flexibility, deterministic scheduling, network validation, and dispatch lifecycle |
+| Build form? | Browser operator console + Linux control plane and workers + Linux site edge agent + CLI/simulation lab; no mobile app or single-desktop build |
+| First public release (v0.1.0)? | Simulation-only fleet registry, telemetry, flexibility, deterministic scheduling, network validation, and dispatch lifecycle |
+| Pilot release (v1.0.0)? | Stable operator workflow, reproducible benchmark, deployment/upgrade model, security review, and site integration test harness; operator-approved control by default |
+| Default control authority? | Simulation for v0.1.0, read-only/shadow for early pilots, operator-approved at v1.0.0; bounded automation post-1.0 per deployment only |
 | First research extensions? | DMPC/ADMM, GNN screening/warm-start, safe MARL in simulation/shadow mode |
 | Production control? | Only after customer-specific security, equipment, HIL, commissioning, and operating acceptance |
+
+## 25.1 Provisional technology choices
+
+These are the recommended implementation choices for the first build, with explicit revisit triggers:
+
+| Choice | Rationale | Revisit trigger |
+|---|---|---|
+| Rust control plane and edge agent | Memory safety, strong state-machine types, one backend language | Team cannot sustain Rust depth, or a required protocol library has no adequate binding |
+| NATS JetStream | Durable at-least-once events and work distribution with simple operations | Operational burden or delivery semantics do not fit a target deployment |
+| PostgreSQL | Transactional source of truth, mature constraints, RLS where enforced | Measured telemetry volume requires a dedicated time-series store |
+| gRPC/Protobuf internally; REST/OpenAPI externally | Typed worker contracts; broad enterprise integration | Client ecosystem demands GraphQL or another external style |
+| React + TypeScript console | Browser-native UI and strong ecosystem | Accessibility or bundle constraints cannot be met |
+| Wasmtime + WIT for untrusted plugins | Sandboxed, language-neutral extension surface | Component tooling is not stable enough for the v0.5.0 target |
+| Apache-2.0 core licence | Permissive, enterprise-compatible, open contribution model | Licence audit finds incompatible required dependencies |
+
+No entry in this table is a certification, a permanent dependency, or a reason to delay the simulation-first slice in §24.
+
+## 25.2 Deferred decisions and gates
+
+The report cannot make these foundational decisions on Neryva's behalf. Each is an explicit Phase 0 or v1.0.0 gate and must not be silently assumed.
+
+| Decision | Why it is deferred | Gate / owner |
+|---|---|---|
+| Target jurisdiction and market | Drives interconnection, market adapter, data residency, and liability | Phase 0; product + legal |
+| First portfolio and service | Determines asset mix, baseline method, and acceptance criteria | Phase 0; product |
+| Network class and model fidelity | Balanced radial distribution, unbalanced three-phase, and meshed transmission require different models and solvers | Phase 0; power systems |
+| Licence and dependency audit | Apache-2.0 compatibility of protocol stacks, solvers, models, and datasets | Before v0.1.0; legal + engineering |
+| First protocol and asset mix | Selects the pilot adapter and conformance tests | Before v0.4.0; product + integration |
+| Cyber and OT boundary review | Site-specific; not derivable from the architecture alone | Before any read-only pilot; security |
+
+Recommended defaults pending confirmation: v0.x targets balanced radial distribution feeders; pandapower is the primary power-flow provider; unbalanced three-phase modelling enters the track from v0.4.0; meshed transmission operation is out of scope.
 
 ---
 
@@ -2017,7 +2106,7 @@ This proves the product's actual value: orchestration and validated coordination
 
 # 27. Research references and official documentation
 
-The report distinguishes established external facts from Neryva design recommendations. The following sources were consulted for the architecture and current ecosystem assessment. Accessed 6 November 2026 unless otherwise stated.
+The report distinguishes established external facts from Neryva design recommendations. The following sources were consulted for the architecture and current ecosystem assessment. Accessed 7 November 2026 unless otherwise stated. Reference numbers are stable identifiers and are deliberately not presented in numeric order.
 
 **Product, market, and regulatory context**
 
@@ -2045,7 +2134,7 @@ The report distinguishes established external facts from Neryva design recommend
 **Energy protocols, simulators, and grid tools**
 
 - [R16] HELICS, [Official documentation](https://docs.helics.org/en/latest/). Modular cyber-physical energy co-simulation framework with APIs for multiple languages and simulators.
-- [R18] IEEE Standards Association, [IEEE 1547-2018](https://standards.ieee.org/ieee/1547/5915/) and National Renewable Energy Laboratory, [Clause-by-clause summary of IEEE Std 1547-2018](https://www.nlr.gov/grid/ieee-standard-1547/clause). IEEE 1547 covers DER interconnection/interoperability and includes reactive-power and voltage/power-control requirements.
+- [R18] IEEE Standards Association, [IEEE 1547-2018](https://standards.ieee.org/ieee/1547/5915/) and National Laboratory of the Rockies (NLR), [Clause-by-clause summary of IEEE Std 1547-2018](https://www.nlr.gov/grid/ieee-standard-1547/clause). IEEE 1547 covers DER interconnection/interoperability and includes reactive-power and voltage/power-control requirements.
 - [R19] Open Charge Alliance, [OCPP protocol versions](https://openchargealliance.org/protocols/open-charge-point-protocol/) and [OCPP FAQ](https://openchargealliance.org/faq/). OCPP 2.1 was released in 2025 and includes expanded V2X/DER and smart-charging capability; device support and certification remain implementation-specific.
 - [R20] pandapower, [Power flow documentation](https://pandapower.readthedocs.io/en/latest/powerflow.html), including balanced and three-phase/asymmetric power flow.
 - [R21] GridLAB-D, [Power-flow user guide](https://gridlab-d.readthedocs.io/en/docs/docs/3.0%20-%20Modeling%20Reference/Modules/Powerflow/00-Powerflow_Introduction/) and [overview](https://gridlab-d.readthedocs.io/en/latest/docs/0.0%20-%20GridLAB-D%E2%84%A2/0.1%20-%20Introduction/). Distribution simulation including unbalanced three-phase modelling.
