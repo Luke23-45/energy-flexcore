@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+node_modules/
+target/
+dist/
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+.vscode/
+.idea/
+
+*.log
+
+# Skill discovery links created by tools/setup_agent.py.
+# Links, not copies; regenerate with `python tools/setup_agent.py --all`.
+.agents/skills/
+.claude/skills/
+.opencode/
