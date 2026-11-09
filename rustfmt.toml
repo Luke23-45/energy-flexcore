@@ -1,0 +1,11 @@
+# P1.02 — Project formatting policy (Phase 1)
+#
+# Explicit, reviewed settings; stable-channel options only (no nightly-only
+# keys such as group_imports). Edition matches the workspace edition (2024,
+# default since Rust 1.85 — see RESEARCH.md §1).
+edition = "2024"
+hard_tabs = false
+tab_spaces = 4
+max_width = 100
+newline_style = "Auto"
+use_small_heuristics = "Default"

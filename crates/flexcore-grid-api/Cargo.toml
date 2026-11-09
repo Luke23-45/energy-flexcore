@@ -1,0 +1,58 @@
+# P4.02 — flexcore-grid-api manifest: the `GridModelProvider` port (report
+# §9.1), the versioned network-model IR, the mandatory `ScopeDeclaration`, the
+# transport-neutral `GridModelBackend` seam (decision note
+# ledger/phase-04-grid-feasibility-dispatch/01_02_grid_provider.md,
+# D-P4.02-1), the canonical-units translation layer, and the Rust-side
+# pandapower-path provider (P4.01/P4.02).
+#
+# Provider-path decision (recorded in
+# ledger/phase-04-grid-feasibility-dispatch/01_02_grid_provider.md,
+# D-P4.02-1 — the P3.17 D-P3.17-1 pattern): the AC power-flow evaluation
+# executes in the Python numerical worker running the pinned provider
+# (pandapower 3.5.6, BSD-3-Clause — RESEARCH.md §1, checked 2026-11-07).
+# This manifest therefore contains NO provider binding, NO transport
+# dependency, and NO async runtime: the Rust side talks to the worker through
+# the in-crate transport-neutral `GridModelBackend` trait, whose worker
+# adapter lands in a later wave (the P3.19 precedent).
+#
+# Dependency policy: CORE crate. Allowed edges: flexcore-contracts plus
+# serde/serde_json/time. No tokio/sqlx/axum, no Python binding, no gRPC
+# client. tests/dependency_direction.rs enforces the exact set.
+#
+# NOTE FOR THE COORDINATOR (P4.02 handover; root manifest and
+# tools/check_dependency_rule.py were NOT edited by this subtask):
+#   1. Add to `[workspace] members` in the root Cargo.toml:
+#          "crates/flexcore-grid-api",
+#   2. Add to `[workspace.dependencies]` (single-version source):
+#          flexcore-grid-api = { path = "crates/flexcore-grid-api" }
+#   3. In tools/check_dependency_rule.py add the member directory
+#      "crates/flexcore-grid-api" to MEMBER_DIRS, the package name
+#      "flexcore-grid-api" to CORE_CRATES, and the allowed internal edge set
+#      {"flexcore-contracts"} to ALLOWED_INTERNAL_EDGES (serde/serde_json/
+#      time sit outside the internal-edge check, exactly as for
+#      flexcore-optimization-api).
+#
+# NOTE FOR THE COORDINATOR (P4.01 Python pin; the worker requirements file is
+# outside this subtask's ownership — full detail: 01_02_grid_provider.md §2):
+#   4. In the Python numerical worker's requirements/lockfile
+#      (apps/worker — the P3.19 pattern), pin exactly:
+#          pandapower==3.5.6
+#      (RESEARCH.md §1: verified 2026-11-07, PyPI release files; released
+#      7 October 2026. License BSD-3-Clause — D4 audit input; the formal D4
+#      audit is OPEN. pandapower 4.0.0 is listed as upcoming with no release
+#      date — do not plan against it, RESEARCH.md §6 task 4.)
+#   5. The worker adapter implementing `GridModelBackend` is a LATER-WAVE
+#      deliverable (D-P4.02-1); until it lands, this crate compiles and its
+#      tests run against the in-crate backend doubles only.
+
+[package]
+name = "flexcore-grid-api"
+description = "Grid-model provider contract for Neryva FlexCore: the GridModelProvider port, versioned network-model IR, mandatory scope declarations, the transport-neutral backend seam, and the canonical-units translation layer (P4.02)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-contracts = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }

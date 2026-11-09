@@ -1,0 +1,60 @@
+# P3.17 — flexcore-optimization-api manifest: the `Optimizer` port (report §9.1),
+# the solver-neutral problem IR, the §12.6 result contract, the provider-owned
+# solver configuration, and the Tier 1 (LP/QP/MILP) provider.
+#
+# Provider-path decision (recorded in
+# ledger/phase-03-flexibility-scheduling/17_optimizer_port.md, D-P3.17-1):
+# Tier 1 routes through the Python optimization worker (highspy 1.15.1, MIT —
+# D4 audit input). This manifest therefore contains NO solver binding, NO
+# transport dependency, and NO async runtime: the Rust side talks to the
+# worker through the in-crate transport-neutral `Tier1Backend` trait, whose
+# worker adapter lands in P3.19.
+#
+# Dependency policy: CORE crate. Allowed edges: flexcore-contracts plus
+# serde/serde_json/time. No tokio/sqlx/axum, no solver crate, no gRPC client.
+#
+# NOTE FOR THE COORDINATOR (P3.17 handover; root manifest and
+# tools/check_dependency_rule.py were NOT edited by this subtask):
+#   1. Add to `[workspace] members` in the root Cargo.toml:
+#          "crates/flexcore-optimization-api",
+#   2. Add to `[workspace.dependencies]` (single-version source):
+#          flexcore-optimization-api = { path = "crates/flexcore-optimization-api" }
+#   3. In tools/check_dependency_rule.py add the member directory
+#      "crates/flexcore-optimization-api" to MEMBER_DIRS, the package name
+#      "flexcore-optimization-api" to CORE_CRATES, and the allowed internal
+#      edge set {"flexcore-contracts"} to ALLOWED_INTERNAL_EDGES
+#      (serde/serde_json/time sit outside the internal-edge check, exactly as
+#      for flexcore-contracts itself).
+#
+# NOTE FOR THE COORDINATOR (P3.18 handover; no manifest was edited by this
+# subtask — coordinator owns manifests. Full detail:
+# ledger/phase-03-flexibility-scheduling/18_clarabel_tier2.md §3):
+#   1. Add to [workspace.dependencies] in the root Cargo.toml:
+#          clarabel = "=0.11.1"
+#      (the RUST crate Clarabel.rs 0.11.1 — NOT the R package 0.11.3;
+#      RESEARCH.md §2, checked 2026-11-07. Apache-2.0.)
+#   2. Add to this crate's [dependencies]:
+#          clarabel = { workspace = true }
+#   3. The exact-equality manifest scan in
+#      tests/dependency_direction.rs has already been updated to admit
+#      exactly this one additional dependency (and nothing else); once the
+#      lines above land, the whole crate compiles and its tests run.
+#   4. tools/check_dependency_rule.py: if it validates external dependencies
+#      of CORE_CRATES, add "clarabel" to the allowed external set for
+#      flexcore-optimization-api.
+
+[package]
+name = "flexcore-optimization-api"
+description = "Solver/provider contract for Neryva FlexCore: the Optimizer port, solver-neutral problem IR, §12.6 result contract, and the Tier 1 provider (P3.17)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-contracts = { workspace = true }
+# P3.18 Tier 2 (coordinator): the RUST crate Clarabel.rs 0.11.1 (NOT the R
+# package 0.11.3) — RESEARCH.md §2, Apache-2.0, D4 audit input. Convex conic
+# only; no integer variables (P3.18 discipline).
+clarabel = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }

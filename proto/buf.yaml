@@ -1,0 +1,21 @@
+# P1.18 — Buf governance for internal Protobuf contracts (report §10.5,
+# §15.1; §22.2 CI gates). This file lives at the module root (the directory
+# that will contain .proto files).
+#
+# DECISION (recorded, ledger P1.18 step 2): NO .proto files exist in Phase 1.
+# The internal worker RPC contracts land with the first Python worker RPC in
+# Phase 7. This configuration lands now so that the first .proto file is
+# born under lint + breaking-change discipline, not retrofitted later.
+#
+# Versioning rule (report §21.4): Protobuf schemas follow SemVer discipline;
+# the 0.x line may break contracts with a documented migration note; v1.0.0
+# freezes the public API and plugin contracts for the 1.x line.
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

@@ -1,0 +1,45 @@
+# P2.14/P2.15 — flexcore-simulator manifest: the deterministic synthetic
+# telemetry simulator, the Phase 2 `TelemetrySource` provider (exactly one
+# provider in the Phase 2 set, P2.11 step 5).
+#
+# Placement decision (P2.14 step 1, recorded once): the simulator lives as a
+# `crates/` provider crate (`crates/flexcore-simulator`), not under
+# `plugins/builtin/asset-simulator/`. Rationale: it implements the
+# `TelemetrySource` port and nothing else about the ingestion path, it is
+# built-in Phase 2 code (not a WASM/gRPC plugin — the plugin SDK is v0.5.0),
+# and the §8.1 target tree already puts built-in providers that are part of
+# the monolith composition on the crates side. It is a composition-side
+# provider: it may depend on flexcore-contracts, flexcore-domain and
+# flexcore-ports (the port contract types), and on serde/serde_json/time for
+# scenario parsing and the `time`-backed contract timestamps. It depends on
+# NO infrastructure (no database, no broker, no async runtime) — the only
+# port it implements is `TelemetrySource`.
+#
+# NOTE FOR THE COORDINATOR (P2.14 handover): the root `Cargo.toml` was not
+# edited by this subtask. Add to `[workspace] members`:
+#
+#     "crates/flexcore-simulator",
+#
+# and, if the path dependency is wanted in the single-version table, to
+# `[workspace.dependencies]`:
+#
+#     flexcore-simulator = { path = "crates/flexcore-simulator" }
+#
+# `tools/check_dependency_rule.py` classifies members via MEMBER_DIRS /
+# COMPOSITION_CRATES: add "crates/flexcore-simulator" to MEMBER_DIRS and the
+# package name "flexcore-simulator" to COMPOSITION_CRATES when the member is
+# added (this crate is composition-side, so the core-crate edge policy does
+# not apply to it; nothing may depend ON it except apps).
+[package]
+name = "flexcore-simulator"
+description = "Deterministic synthetic telemetry simulator: the Phase 2 TelemetrySource provider with scenario-driven fault injection (P2.14/P2.15)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }
+flexcore-ports = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }

@@ -35,10 +35,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   5. Circulate the note to product, power systems, platform engineering, security/OT, and legal reviewers (§Document control, "Intended reviewers").
 - **Deliverable / output:** `ledger/phase-00-product-freeze/` scope note (or a docs note referenced from it) titled "FlexCore v0.1.0 scope and non-goals", versioned, with reviewer sign-off lines.
 - **Acceptance criteria / exit check:**
-  - [ ] The note contains the full §0.3 list with no item dropped or softened.
-  - [ ] The note states the four primary audiences and the five "not the initial target" groups from §1.3.
-  - [ ] The note states the §1.6 responsibility boundary in full.
-  - [ ] At least one reviewer from each of the five intended-reviewer groups has signed off or recorded an objection.
+  - [x] The note contains the full §0.3 list with no item dropped or softened. — implemented, awaiting human build/test
+  - [x] The note states the four primary audiences and the five "not the initial target" groups from §1.3. — implemented, awaiting human build/test
+  - [x] The note states the §1.6 responsibility boundary in full. — implemented, awaiting human build/test
+  - [ ] At least one reviewer from each of the five intended-reviewer groups has signed off or recorded an objection. — NOT MET: reviewer sign-off is a human action; sign-off lines left blank in 01_scope_and_non_goals.md (blocker in HANDOVER.md)
 - **Owner role:** Product
 - **Dependencies:** None (first subtask).
 - **Verification method:** Reviewer checklist against §0.3, §1.3, §1.6 line by line; `tools/verify_docs.py` passes if the note lives in the report tree.
@@ -56,9 +56,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. Record what is explicitly deferred to "later use cases" (§1.5 second list: wholesale market bidding, ancillary-service qualification, reserve forecasting, multi-aggregator coordination, DMPC, GNN/MARL, dynamic stability).
 - **Deliverable / output:** "First buyer and first use cases" section in the Phase 0 freeze record, naming the buyer, the in-scope use cases, and the deferred list.
 - **Acceptance criteria / exit check:**
-  - [ ] Exactly one first buyer is named, or the decision is explicitly deferred to D2 with owner, venue, and date (P0.28).
-  - [ ] Each §1.5 first-generation use case is marked in-scope for v0.1.0, staged to a later stage, or out of scope — none left unmarked.
-  - [ ] All eight "later use cases" are listed as deferred, with no delivery date promised.
+  - [x] Exactly one first buyer is named, or the decision is explicitly deferred to D2 with owner, venue, and date (P0.28). — implemented, awaiting human build/test
+  - [x] Each §1.5 first-generation use case is marked in-scope for v0.1.0, staged to a later stage, or out of scope — none left unmarked. — implemented, awaiting human build/test
+  - [x] All eight "later use cases" are listed as deferred, with no delivery date promised. — implemented, awaiting human build/test
 - **Owner role:** Product
 - **Dependencies:** P0.01
 - **Verification method:** Traceability matrix: every §1.5 use case appears exactly once with a disposition.
@@ -76,9 +76,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. If not decided: name the owner (product + legal), the decision venue, and the target date; record the recommended default for simulation work only (no jurisdiction assumed; market integration stays a region-specific adapter, §25).
 - **Deliverable / output:** D1 decision record (decided with ADR, or scheduled with owner/venue/date) in `.agent/DECISIONS.md` and the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] D1 is either decided (ADR filed, consequences listed) or scheduled (owner + venue + date recorded).
-  - [ ] No Phase 0/1/2 artefact names a jurisdiction or market as decided unless D1 is decided.
-  - [ ] The record states that Order 2222 is not a protocol and does not create a universal market API.
+  - [x] D1 is either decided (ADR filed, consequences listed) or scheduled (owner + venue + date recorded). — implemented, awaiting human build/test
+  - [x] No Phase 0/1/2 artefact names a jurisdiction or market as decided unless D1 is decided. — implemented, awaiting human build/test
+  - [x] The record states that Order 2222 is not a protocol and does not create a universal market API. — implemented, awaiting human build/test
 - **Owner role:** Product + legal
 - **Dependencies:** P0.01, P0.02
 - **Verification method:** Inspect `.agent/DECISIONS.md` D1 row; grep later-phase artefacts for jurisdiction claims.
@@ -96,9 +96,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. If decided, file an ADR; if not, record owner (product), venue, and target date.
 - **Deliverable / output:** D2 decision record; first-portfolio definition sheet (sites, assets, service, acceptance criteria).
 - **Acceptance criteria / exit check:**
-  - [ ] D2 is either decided (ADR filed) or scheduled (owner + venue + date).
-  - [ ] The first-portfolio sheet names asset mix, site count, and service, and cites §2.2 for each asset's support level.
-  - [ ] The baseline-method question is recorded as open or decided — not silently assumed.
+  - [x] D2 is either decided (ADR filed) or scheduled (owner + venue + date). — implemented, awaiting human build/test
+  - [x] The first-portfolio sheet names asset mix, site count, and service, and cites §2.2 for each asset's support level. — implemented, awaiting human build/test
+  - [x] The baseline-method question is recorded as open or decided — not silently assumed. — implemented, awaiting human build/test
 - **Owner role:** Product
 - **Dependencies:** P0.02, P0.03 (baseline method may depend on D1)
 - **Verification method:** Traceability: portfolio sheet items map to §2.2 rows; D2 row in `.agent/DECISIONS.md` updated.
@@ -117,9 +117,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   5. Record the consequence for later phases: Phase 2 grid-model reference field must carry model class and version (P2 subtasks reference this); Phase 4 feasibility work depends on this decision.
 - **Deliverable / output:** D3 decision record; network-class statement for the 0.x line.
 - **Acceptance criteria / exit check:**
-  - [ ] D3 is either decided (ADR filed) or scheduled (owner + venue + date).
-  - [ ] The network-class statement names the 0.x default and its revisit trigger, and labels the default as a recommendation.
-  - [ ] Meshed transmission is recorded as out of scope for 0.x unless D3 decides otherwise.
+  - [x] D3 is either decided (ADR filed) or scheduled (owner + venue + date). — implemented, awaiting human build/test
+  - [x] The network-class statement names the 0.x default and its revisit trigger, and labels the default as a recommendation. — implemented, awaiting human build/test
+  - [x] Meshed transmission is recorded as out of scope for 0.x unless D3 decides otherwise. — implemented, awaiting human build/test
 - **Owner role:** Power systems
 - **Dependencies:** P0.01
 - **Verification method:** D3 row in `.agent/DECISIONS.md`; network-class statement cross-checked against §12.4 and §25.2.
@@ -137,9 +137,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. For each, record the consequence of deciding late (e.g. D4 late blocks public release; D6 late blocks any pilot promotion beyond simulation).
 - **Deliverable / output:** D4/D5/D6 scheduled-gate records in `.agent/DECISIONS.md` and the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] Each of D4, D5, D6 has an owner, a decision venue, and a target date recorded.
-  - [ ] Each record states its gate (before v0.1.0 / before v0.4.0 / before any read-only pilot).
-  - [ ] No Phase 0 artefact describes D4/D5/D6 as decided.
+  - [x] Each of D4, D5, D6 has an owner, a decision venue, and a target date recorded. — implemented, awaiting human build/test
+  - [x] Each record states its gate (before v0.1.0 / before v0.4.0 / before any read-only pilot). — implemented, awaiting human build/test
+  - [x] No Phase 0 artefact describes D4/D5/D6 as decided. — implemented, awaiting human build/test
 - **Owner role:** Product (coordinator); legal + engineering (D4); product + integration (D5); security (D6)
 - **Dependencies:** P0.01
 - **Verification method:** Inspect `.agent/DECISIONS.md` D4–D6 rows.
@@ -160,12 +160,12 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   7. Cross-check every line against foundations §6; record any conflict and resolve in favour of the foundations document, with a deviation ADR if the report is to be followed instead. Record the known SOC representation divergence explicitly (see acceptance): foundations §6.2 permits "fraction in [0,1] or percent, but one representation is selected per API and stated explicitly", while report §10.2 mandates fraction [0,1] at the API boundary. The report rule is the stricter selection that foundations §6.2 permits — a compatible refinement, not a conflict — and the freeze records it as such in P0.26.
 - **Deliverable / output:** "Canonical units and sign conventions" contract table (one page, normative), referenced by Phase 1 (API contracts) and Phase 2 (telemetry model).
 - **Acceptance criteria / exit check:**
-  - [ ] All seven canonical units are listed with no kW/kWh in any contract row.
-  - [ ] P > 0 = export is stated with the point-of-connection qualifier.
-  - [ ] The reactive-power rule states per-model/per-profile declaration and per-adapter mapping; no universal Q sign is assumed anywhere.
-  - [ ] SOC [0,1] at the API boundary is stated; percentage handling is adapter-only.
-  - [ ] Foundations §6 cross-check is recorded, with zero unresolved conflicts.
-  - [ ] The SOC representation divergence is recorded in the P0.26 table: foundations §6.2 permits fraction or percent per API; the report's fraction-only rule is recorded as the stricter selection permitted by §6.2, not as a conflict.
+  - [x] All seven canonical units are listed with no kW/kWh in any contract row. — implemented, awaiting human build/test
+  - [x] P > 0 = export is stated with the point-of-connection qualifier. — implemented, awaiting human build/test
+  - [x] The reactive-power rule states per-model/per-profile declaration and per-adapter mapping; no universal Q sign is assumed anywhere. — implemented, awaiting human build/test
+  - [x] SOC [0,1] at the API boundary is stated; percentage handling is adapter-only. — implemented, awaiting human build/test
+  - [x] Foundations §6 cross-check is recorded, with zero unresolved conflicts. — implemented, awaiting human build/test
+  - [x] The SOC representation divergence is recorded in the P0.26 table: foundations §6.2 permits fraction or percent per API; the report's fraction-only rule is recorded as the stricter selection permitted by §6.2, not as a conflict. — implemented, awaiting human build/test
 - **Owner role:** Power systems + platform engineering
 - **Dependencies:** P0.01
 - **Verification method:** Line-by-line comparison against §10.2 and foundations §6; later phases cite this table by ID (no re-definition allowed).
@@ -185,11 +185,11 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   6. State the foundations §6.4 estimation rule and carry it forward: estimation/interpolation is explicit, tagged, bounded by policy, and disallowed for safety-critical authorization unless approved. The disallowance has no carrier in Phase 2 (telemetry only) — it is recorded here and handed to Phase 4, where command authorization first exists, as a constraint on any authorization decision that would rely on ESTIMATED values.
 - **Deliverable / output:** Telemetry-quality vocabulary table in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] Exactly six states, each with the §10.4 meaning reproduced.
-  - [ ] The exactly-one rule and the source-mapping rule are stated.
-  - [ ] The non-silencing rule is stated.
-  - [ ] The foundations §6.4 estimation rule is stated, including that estimation is disallowed for safety-critical authorization unless approved, with the Phase 4 carry-forward recorded.
-  - [ ] No seventh state is introduced anywhere in Phase 0 artefacts.
+  - [x] Exactly six states, each with the §10.4 meaning reproduced. — implemented, awaiting human build/test
+  - [x] The exactly-one rule and the source-mapping rule are stated. — implemented, awaiting human build/test
+  - [x] The non-silencing rule is stated. — implemented, awaiting human build/test
+  - [x] The foundations §6.4 estimation rule is stated, including that estimation is disallowed for safety-critical authorization unless approved, with the Phase 4 carry-forward recorded. — implemented, awaiting human build/test
+  - [x] No seventh state is introduced anywhere in Phase 0 artefacts. — implemented, awaiting human build/test
 - **Owner role:** Power systems + platform engineering
 - **Dependencies:** P0.07
 - **Verification method:** Comparison against §10.4; grep Phase 0 artefacts for non-canonical quality names.
@@ -207,9 +207,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. State the clock-quality rule: clock drift is a threat-model item (§17.4) and a data-quality input; synchronisation status is recorded where available.
 - **Deliverable / output:** Time-model definition in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] All time fields from §10.3 are defined; `event_time` and `ingest_time` are distinguished in every later schema (Phase 1/2 reference this).
-  - [ ] UTC-internal rule and DST rule are stated.
-  - [ ] Clock-quality/synchronisation status is a recorded field, not an assumption.
+  - [x] All time fields from §10.3 are defined; `event_time` and `ingest_time` are distinguished in every later schema (Phase 1/2 reference this). — implemented, awaiting human build/test
+  - [x] UTC-internal rule and DST rule are stated. — implemented, awaiting human build/test
+  - [x] Clock-quality/synchronisation status is a recorded field, not an assumption. — implemented, awaiting human build/test
 - **Owner role:** Platform engineering
 - **Dependencies:** P0.07
 - **Verification method:** Comparison against §10.3; Phase 1/2 schema reviews cite this definition.
@@ -228,10 +228,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   5. Record the BESS (§11.2), inverter P–Q envelope (§11.3), flexible load (§11.4), and EV fleet (§11.5) model vocabularies as definitions to be implemented in Phase 3 — not as Phase 0 implementations.
 - **Deliverable / output:** Asset and capability vocabulary in the Phase 0 freeze record, with the §2.2 support table reproduced.
 - **Acceptance criteria / exit check:**
-  - [ ] All 14 §10.1 entities are listed with key fields.
-  - [ ] The §2.2 table is reproduced with "initial support" and "later extension" columns intact; backup generation is marked not a first-class 0.x target.
-  - [ ] The "not a single max_mw" rule and the measured/configured/inferred/unknown rule are stated.
-  - [ ] BESS/P–Q/load/EV model sections are marked "vocabulary only — implementation is Phase 3".
+  - [x] All 14 §10.1 entities are listed with key fields. — implemented, awaiting human build/test
+  - [x] The §2.2 table is reproduced with "initial support" and "later extension" columns intact; backup generation is marked not a first-class 0.x target. — implemented, awaiting human build/test
+  - [x] The "not a single max_mw" rule and the measured/configured/inferred/unknown rule are stated. — implemented, awaiting human build/test
+  - [x] BESS/P–Q/load/EV model sections are marked "vocabulary only — implementation is Phase 3". — implemented, awaiting human build/test
 - **Owner role:** Power systems
 - **Dependencies:** P0.02, P0.04
 - **Verification method:** Comparison against §10.1, §11.1–§11.6, §2.2.
@@ -252,12 +252,12 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   7. State the §14.5 boundary: dispatch is not hard real-time; no primary-frequency, synthetic-inertia, relay, inverter inner-loop, or sub-cycle control claims.
 - **Deliverable / output:** Command-lifecycle freeze document: transition table + state definitions + invariants + rejection rules + fallback rule.
 - **Acceptance criteria / exit check:**
-  - [ ] All 14 states appear (8 forward + 6 terminal/fallback states).
-  - [ ] Every transition in the §14.1 diagram appears in the table; no transition is added that the diagram does not show.
-  - [ ] SUPERSEDED and CANCELLED are distinguished (per `.agent/WRITING.md`).
-  - [ ] All §14.3 invariant fields are listed; none is dropped.
-  - [ ] The three-gate distinction and the acknowledgement ≠ physical delivery rule are stated.
-  - [ ] The no-universal-fallback rule is stated.
+  - [x] All 14 states appear (8 forward + 6 terminal/fallback states). — implemented, awaiting human build/test
+  - [x] Every transition in the §14.1 diagram appears in the table; no transition is added that the diagram does not show. — implemented, awaiting human build/test
+  - [x] SUPERSEDED and CANCELLED are distinguished (per `.agent/WRITING.md`). — implemented, awaiting human build/test
+  - [x] All §14.3 invariant fields are listed; none is dropped. — implemented, awaiting human build/test
+  - [x] The three-gate distinction and the acknowledgement ≠ physical delivery rule are stated. — implemented, awaiting human build/test
+  - [x] The no-universal-fallback rule is stated. — implemented, awaiting human build/test
 - **Owner role:** Power systems + platform engineering
 - **Dependencies:** P0.07, P0.09
 - **Verification method:** Transition-table diff against §14.1 diagram (mechanical check: each diagram edge appears once); invariant checklist against §14.3.
@@ -278,12 +278,12 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   7. Record the foundations §7.7 feasibility-check extras that the report §12.5 list does not name, as checks to carry into Phase 4 (cross-reference, not a second list here): tap/phase-shifter limits, emergency vs normal ratings, topology/model revision, measurement freshness, and operating-state consistency. Phase 4 owns the checks; this step only prevents them from being silently dropped because §12.5 does not list them.
 - **Deliverable / output:** Grid-model contract in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] GridModel fields from §10.1 are listed in full.
-  - [ ] The versioned-model rule and the "stale/incomplete model is not a pass" rule are stated.
-  - [ ] AC power flow ≠ AC-OPF is stated.
-  - [ ] The SOCP-relaxation exactness warning is stated.
-  - [ ] The foundations §7.7 extras (tap/phase-shifter limits, emergency/normal ratings, topology/model revision, measurement freshness, operating-state consistency) are recorded as Phase 4 carry-forwards.
-  - [ ] No provider is selected as "the" grid provider in Phase 0.
+  - [x] GridModel fields from §10.1 are listed in full. — implemented, awaiting human build/test
+  - [x] The versioned-model rule and the "stale/incomplete model is not a pass" rule are stated. — implemented, awaiting human build/test
+  - [x] AC power flow ≠ AC-OPF is stated. — implemented, awaiting human build/test
+  - [x] The SOCP-relaxation exactness warning is stated. — implemented, awaiting human build/test
+  - [x] The foundations §7.7 extras (tap/phase-shifter limits, emergency/normal ratings, topology/model revision, measurement freshness, operating-state consistency) are recorded as Phase 4 carry-forwards. — implemented, awaiting human build/test
+  - [x] No provider is selected as "the" grid provider in Phase 0. — implemented, awaiting human build/test
 - **Owner role:** Power systems
 - **Dependencies:** P0.05, P0.10
 - **Verification method:** Comparison against §10.1, §12.4, §12.5.
@@ -302,9 +302,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   5. State the BESS binary-variable rule (§11.2): do not label a model with binary charge/discharge variables as a continuous SOCP.
 - **Deliverable / output:** Solver-class discipline table in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] HiGHS is described as LP/QP/MIP only; Clarabel as convex conic, not MISOCP; IPOPT as local only — in every Phase 0 artefact.
-  - [ ] The four tiers from §12.3 are reproduced.
-  - [ ] The provider-contract declaration list from §7.4 is reproduced.
+  - [x] HiGHS is described as LP/QP/MIP only; Clarabel as convex conic, not MISOCP; IPOPT as local only — in every Phase 0 artefact. — implemented, awaiting human build/test
+  - [x] The four tiers from §12.3 are reproduced. — implemented, awaiting human build/test
+  - [x] The provider-contract declaration list from §7.4 is reproduced. — implemented, awaiting human build/test
 - **Owner role:** Power systems
 - **Dependencies:** P0.12
 - **Verification method:** Grep Phase 0 artefacts for "SOCP" claims attached to HiGHS, "MISOCP" attached to Clarabel, and "global" attached to IPOPT — zero hits required.
@@ -322,10 +322,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. State the outbox rule (§6.3, §15.5): state change + outbox record in one PostgreSQL transaction; publisher publishes to NATS and marks delivered after broker acknowledgement; consumers keep idempotency keys/inbox records.
 - **Deliverable / output:** Event-vocabulary table in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] All 26 §15.3 events are listed, spelled exactly as in the report.
-  - [ ] The events-are-facts rule and the at-least-once/idempotency rule are stated.
-  - [ ] The transactional-outbox four-step sequence from §6.3 is reproduced.
-  - [ ] No event name is also used as a command name anywhere in Phase 0.
+  - [x] All 26 §15.3 events are listed, spelled exactly as in the report. — implemented, awaiting human build/test
+  - [x] The events-are-facts rule and the at-least-once/idempotency rule are stated. — implemented, awaiting human build/test
+  - [x] The transactional-outbox four-step sequence from §6.3 is reproduced. — implemented, awaiting human build/test
+  - [x] No event name is also used as a command name anywhere in Phase 0. — implemented, awaiting human build/test
 - **Owner role:** Platform engineering
 - **Dependencies:** P0.08, P0.11
 - **Verification method:** Comparison against §15.3; count check (26 events).
@@ -344,10 +344,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   5. State the schema rule: do not expose raw database schemas as public API contracts (§10.5).
 - **Deliverable / output:** API-surface freeze note in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] All 16 §15.2 resources are listed under `/api/v1`.
-  - [ ] The five API styles from §15.1 are stated with their purposes.
-  - [ ] The no-arbitrary-command-endpoint prohibition is stated.
-  - [ ] The SemVer/migration-note rule for 0.x vs 1.x is stated.
+  - [x] All 16 §15.2 resources are listed under `/api/v1`. — implemented, awaiting human build/test
+  - [x] The five API styles from §15.1 are stated with their purposes. — implemented, awaiting human build/test
+  - [x] The no-arbitrary-command-endpoint prohibition is stated. — implemented, awaiting human build/test
+  - [x] The SemVer/migration-note rule for 0.x vs 1.x is stated. — implemented, awaiting human build/test
 - **Owner role:** Platform engineering
 - **Dependencies:** P0.10, P0.11, P0.14
 - **Verification method:** Comparison against §15.1–§15.2, §10.5, §21.4.
@@ -366,10 +366,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   5. State the storage-strategy rule (§6.5): event sourcing selectively (append-oriented history for command lifecycle, approvals, plugin/config/security actions); current-state tables for assets, schedules, configuration, portfolio state; time-series tables for telemetry; object storage for large artifacts; never a single append-only log as the only source of truth for high-volume telemetry.
 - **Deliverable / output:** Tenancy and storage principles note in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] All six §16.1 storage rows are reproduced with roles intact.
-  - [ ] All seven §16.2 tenancy rules are stated, including the RLS table-owner caveat.
-  - [ ] The per-data-class retention rule is stated with no universal retention value chosen.
-  - [ ] The §6.5 selective-event-sourcing rule is stated.
+  - [x] All six §16.1 storage rows are reproduced with roles intact. — implemented, awaiting human build/test
+  - [x] All seven §16.2 tenancy rules are stated, including the RLS table-owner caveat. — implemented, awaiting human build/test
+  - [x] The per-data-class retention rule is stated with no universal retention value chosen. — implemented, awaiting human build/test
+  - [x] The §6.5 selective-event-sourcing rule is stated. — implemented, awaiting human build/test
 - **Owner role:** Platform engineering + security
 - **Dependencies:** P0.10, P0.15
 - **Verification method:** Comparison against §16.1–§16.3, §6.5; Phase 1 migration review checks `tenant_id` presence per table.
@@ -389,11 +389,11 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   6. State the scope limit: these are system requirements, not a certification claim.
 - **Deliverable / output:** Threat-model and security-baseline document in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] Rev. 3 final / Rev. 4 draft status is stated correctly with dates.
-  - [ ] All five zones and the inter-zone flow rule are stated.
-  - [ ] All §17.3 controls are listed; none is dropped.
-  - [ ] All 10 §17.4 threats and all 10 §17.5 invariants are reproduced.
-  - [ ] The "not a certification claim" qualifier is present.
+  - [x] Rev. 3 final / Rev. 4 draft status is stated correctly with dates. — implemented, awaiting human build/test
+  - [x] All five zones and the inter-zone flow rule are stated. — implemented, awaiting human build/test
+  - [x] All §17.3 controls are listed; none is dropped. — implemented, awaiting human build/test
+  - [x] All 10 §17.4 threats and all 10 §17.5 invariants are reproduced. — implemented, awaiting human build/test
+  - [x] The "not a certification claim" qualifier is present. — implemented, awaiting human build/test
 - **Owner role:** Security + platform engineering
 - **Dependencies:** P0.01, P0.16
 - **Verification method:** Comparison against §17.1–§17.5; NIST status cross-checked in `RESEARCH.md`.
@@ -411,10 +411,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. State the terminology rule (`.agent/WRITING.md`): use "operator-approved control", not "manual control" or "human-in-the-loop"; use "read-only / shadow mode", not "passive mode".
 - **Deliverable / output:** Control-authority freeze note in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] All four modes are tabulated with authority, writes, and default use.
-  - [ ] The mode-is-a-deployment-setting rule and the mixed-modes rule are stated.
-  - [ ] The 0.x simulation-only rule and the v1.0.0 operator-approved default are stated.
-  - [ ] No Phase 0 artefact promises field control in any 0.x release.
+  - [x] All four modes are tabulated with authority, writes, and default use. — implemented, awaiting human build/test
+  - [x] The mode-is-a-deployment-setting rule and the mixed-modes rule are stated. — implemented, awaiting human build/test
+  - [x] The 0.x simulation-only rule and the v1.0.0 operator-approved default are stated. — implemented, awaiting human build/test
+  - [x] No Phase 0 artefact promises field control in any 0.x release. — implemented, awaiting human build/test
 - **Owner role:** Product + security
 - **Dependencies:** P0.01, P0.11, P0.17
 - **Verification method:** Comparison against §21.4, §2.1; grep Phase 0 artefacts for field-control promises in 0.x — zero hits required.
@@ -436,10 +436,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   8. State the composition profiles (§5.8): `sim-lab`, `vpp-operator`, `site-edge`, `research-gnn`, `research-marl`; v0.1.0 ships only static built-in providers and the `sim-lab` profile; WASM host is deferred to v0.5.0.
 - **Deliverable / output:** Plugin-model freeze note in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] The protected-kernel rule names safety, authority, tenant isolation, audit integrity, and command lifecycle as non-replaceable.
-  - [ ] All three execution classes and the dylib rejection are stated.
-  - [ ] The §5.7 permission table is reproduced, including the never-granted rows.
-  - [ ] v0.1.0 is stated as static built-in providers + `sim-lab` profile only.
+  - [x] The protected-kernel rule names safety, authority, tenant isolation, audit integrity, and command lifecycle as non-replaceable. — implemented, awaiting human build/test
+  - [x] All three execution classes and the dylib rejection are stated. — implemented, awaiting human build/test
+  - [x] The §5.7 permission table is reproduced, including the never-granted rows. — implemented, awaiting human build/test
+  - [x] v0.1.0 is stated as static built-in providers + `sim-lab` profile only. — implemented, awaiting human build/test
 - **Owner role:** Platform engineering
 - **Dependencies:** P0.11, P0.17, P0.18
 - **Verification method:** Comparison against §5.1–§5.8.
@@ -458,11 +458,11 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   5. Reproduce the §21.4 build/distribution table (console static bundle; control plane Linux x86-64/ARM64 OCI image + native binary; WASM host from v0.5.0; Python workers pinned by lockfile; edge agent container/systemd; CLI cross-platform + containerized simulators) and the release rule (checksums, SBOM, support matrix per release; Helm chart from v1.0.0).
 - **Deliverable / output:** Deployment and build-form freeze note in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] All five §21.1 modes are listed with intended use.
-  - [ ] The Compose-first / Helm-later rule is stated.
-  - [ ] All §21.2 recovery capabilities and the central-outage rule are stated.
-  - [ ] The §21.3 correlation list and the no-secrets-in-logs rule are stated.
-  - [ ] The §21.4 distribution table is reproduced; no mobile app or single-desktop build is promised.
+  - [x] All five §21.1 modes are listed with intended use. — implemented, awaiting human build/test
+  - [x] The Compose-first / Helm-later rule is stated. — implemented, awaiting human build/test
+  - [x] All §21.2 recovery capabilities and the central-outage rule are stated. — implemented, awaiting human build/test
+  - [x] The §21.3 correlation list and the no-secrets-in-logs rule are stated. — implemented, awaiting human build/test
+  - [x] The §21.4 distribution table is reproduced; no mobile app or single-desktop build is promised. — implemented, awaiting human build/test
 - **Owner role:** Platform engineering
 - **Dependencies:** P0.15, P0.18, P0.19
 - **Verification method:** Comparison against §21.1–§21.4.
@@ -480,10 +480,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. Cross-link each ADR to the freeze subtask(s) that supply its evidence (e.g. ADR-011 → P0.03; ADR-009 → P0.12, P0.13).
 - **Deliverable / output:** Twelve ADR files (or one ADR set document with twelve sections), each with the five required parts.
 - **Acceptance criteria / exit check:**
-  - [ ] All twelve ADRs exist, each with context, decision, alternatives, consequences, and revisit conditions.
-  - [ ] No ADR claims a decision that D1–D6 leave open (e.g. ADR-011 must not name a jurisdiction).
-  - [ ] Each ADR cites the report section(s) it records.
-  - [ ] ADR status is "proposed" pending Stage 0 review — none marked "accepted" before the gate.
+  - [x] All twelve ADRs exist, each with context, decision, alternatives, consequences, and revisit conditions. — implemented, awaiting human build/test
+  - [x] No ADR claims a decision that D1–D6 leave open (e.g. ADR-011 must not name a jurisdiction). — implemented, awaiting human build/test
+  - [x] Each ADR cites the report section(s) it records. — implemented, awaiting human build/test
+  - [x] ADR status is "proposed" pending Stage 0 review — none marked "accepted" before the gate. — implemented, awaiting human build/test
 - **Owner role:** Principal engineering (author); product, power systems, security/OT, legal (reviewers)
 - **Dependencies:** P0.01–P0.20
 - **Verification method:** Checklist per ADR against §22.1; `tools/verify_docs.py` if ADRs live in the report tree.
@@ -500,9 +500,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   3. Mark the console as Phase 5 work; Phase 0 freezes scope only.
 - **Deliverable / output:** Console-scope note in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] All twelve workspaces are listed.
-  - [ ] All nine §20.2 display rules are stated.
-  - [ ] The note states the console is not built in Phase 0–2.
+  - [x] All twelve workspaces are listed. — implemented, awaiting human build/test
+  - [x] All nine §20.2 display rules are stated. — implemented, awaiting human build/test
+  - [x] The note states the console is not built in Phase 0–2. — implemented, awaiting human build/test
 - **Owner role:** Product
 - **Dependencies:** P0.08, P0.11, P0.15
 - **Verification method:** Comparison against §20.1–§20.2.
@@ -521,10 +521,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   5. State the threshold rule (§19.4): do not set arbitrary universal targets such as "zero violations in 1,000 cases proves safety" or "ADMM converges in 30 iterations"; set acceptance thresholds after defining the model, service, benchmark, and operational risk.
 - **Deliverable / output:** Simulation/testing/benchmark strategy note in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] All six tracks, ten test layers, and benchmark cases are listed.
-  - [ ] The two tool-boundary rules and the 10,000-bus scale rule are stated.
-  - [ ] The metrics table is reproduced.
-  - [ ] The no-arbitrary-targets rule is stated.
+  - [x] All six tracks, ten test layers, and benchmark cases are listed. — implemented, awaiting human build/test
+  - [x] The two tool-boundary rules and the 10,000-bus scale rule are stated. — implemented, awaiting human build/test
+  - [x] The metrics table is reproduced. — implemented, awaiting human build/test
+  - [x] The no-arbitrary-targets rule is stated. — implemented, awaiting human build/test
 - **Owner role:** Power systems + platform engineering
 - **Dependencies:** P0.05, P0.12, P0.13
 - **Verification method:** Comparison against §19.1–§19.4.
@@ -542,9 +542,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. Record which slice steps Phase 0 enables (none implemented — Phase 0 freezes the vocabulary the slice uses) and which Phase 1 enables (the foundation the slice runs on).
 - **Deliverable / output:** Vertical-slice map in the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] All ten steps are listed and each is mapped to at least one §23 stage.
-  - [ ] The "not all in v0.1.0" caveat is stated.
-  - [ ] No step is claimed as delivered by Phase 0.
+  - [x] All ten steps are listed and each is mapped to at least one §23 stage. — implemented, awaiting human build/test
+  - [x] The "not all in v0.1.0" caveat is stated. — implemented, awaiting human build/test
+  - [x] No step is claimed as delivered by Phase 0. — implemented, awaiting human build/test
 - **Owner role:** Principal engineering
 - **Dependencies:** P0.02, P0.10–P0.15, P0.19
 - **Verification method:** Comparison against §24 and §23.
@@ -562,10 +562,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. Confirm the report's [R1]–[R29] citations used by Phase 0 still resolve (FERC fact sheet, IEEE 1547 page, NIST SP 800-82 pages).
 - **Deliverable / output:** Cut-off check note in `RESEARCH.md` (§"Cut-off check").
 - **Acceptance criteria / exit check:**
-  - [ ] Every Phase 0 external claim has a source + check date in `RESEARCH.md`.
-  - [ ] Post-cut-off changes (if any) are listed with their effect on Phase 0 decisions, or "none affecting Phase 0" is recorded with evidence.
-  - [ ] Rust 1.100 is recorded as not-yet-stable on 7 November 2026 (planned 12 November 2026).
-  - [ ] No Phase 0 claim relies on a source that could not be reached without saying so.
+  - [x] Every Phase 0 external claim has a source + check date in `RESEARCH.md`. — implemented, awaiting human build/test
+  - [x] Post-cut-off changes (if any) are listed with their effect on Phase 0 decisions, or "none affecting Phase 0" is recorded with evidence. — implemented, awaiting human build/test
+  - [x] Rust 1.100 is recorded as not-yet-stable on 7 November 2026 (planned 12 November 2026). — implemented, awaiting human build/test
+  - [x] No Phase 0 claim relies on a source that could not be reached without saying so. — implemented, awaiting human build/test
 - **Owner role:** Principal engineering
 - **Dependencies:** P0.03, P0.05, P0.13, P0.17 (sources those subtasks cite)
 - **Verification method:** Re-open each cited URL; record HTTP/date outcome.
@@ -584,10 +584,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   5. Record the two known representation divergences as compatible refinements in the table (neither is a conflict, and neither may be left implicit): (a) SOC representation — foundations §6.2 permits fraction in [0,1] or percent with one representation selected per API and stated explicitly, while report §10.2 mandates fraction [0,1] at the API boundary (P0.07 records the fraction-only rule as the stricter permitted selection); (b) CANCELLED/SUPERSEDED — foundations §9.1 merges them into one state-definition row, while report §14.2 distinguishes them and P0.11 follows the report (the distinction is a refinement the foundations row does not forbid).
 - **Deliverable / output:** Foundations cross-check table (convention | report § | foundations § | match/conflict | resolution).
 - **Acceptance criteria / exit check:**
-  - [ ] Every foundations §6 mandatory convention appears in the table.
-  - [ ] Zero unresolved conflicts remain; each conflict has a resolution recorded.
-  - [ ] The two known representation divergences (SOC per §6.2 vs §10.2; CANCELLED/SUPERSEDED per §9.1 vs §14.2) appear in the table as compatible refinements with their resolutions.
-  - [ ] Silent areas are listed as silent, not filled in by assumption.
+  - [x] Every foundations §6 mandatory convention appears in the table. — implemented, awaiting human build/test
+  - [x] Zero unresolved conflicts remain; each conflict has a resolution recorded. — implemented, awaiting human build/test
+  - [x] The two known representation divergences (SOC per §6.2 vs §10.2; CANCELLED/SUPERSEDED per §9.1 vs §14.2) appear in the table as compatible refinements with their resolutions. — implemented, awaiting human build/test
+  - [x] Silent areas are listed as silent, not filled in by assumption. — implemented, awaiting human build/test
 - **Owner role:** Principal engineering
 - **Dependencies:** P0.07–P0.13, P0.16–P0.18
 - **Verification method:** Independent re-read of foundations §6 by a second reviewer; table reviewed at the Stage 0 gate.
@@ -605,9 +605,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   4. State the Phase 1 entry condition: the Stage 0 exit gate (P0.28) has passed.
 - **Deliverable / output:** Handover pack index (one page) at the end of this ledger's freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] Every P0.01–P0.26 deliverable appears in the index with location + status.
-  - [ ] Open questions are listed, with the gate that owns each.
-  - [ ] The Phase 1 entry condition is stated.
+  - [x] Every P0.01–P0.26 deliverable appears in the index with location + status. — implemented, awaiting human build/test
+  - [x] Open questions are listed, with the gate that owns each. — implemented, awaiting human build/test
+  - [x] The Phase 1 entry condition is stated. — implemented, awaiting human build/test
 - **Owner role:** Principal engineering
 - **Dependencies:** P0.01–P0.26
 - **Verification method:** Phase 1 lead confirms each handover artefact is readable and versioned before Phase 1 starts.
@@ -624,9 +624,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   3. Record the escalation rule: a gate whose date passes undecided blocks the dependent work (D1–D3 block Stage 1 start; D4 blocks v0.1.0; D5 blocks Stage 6; D6 blocks pilot promotion).
 - **Deliverable / output:** Gate table in `.agent/DECISIONS.md` (updated D1–D6 rows) and the Phase 0 freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] All six gates have a named owner, a venue, and a target date.
-  - [ ] The escalation rule is stated per gate.
-  - [ ] No gate is recorded as "TBD" at the Stage 0 exit gate.
+  - [ ] All six gates have a named owner, a venue, and a target date. — NOT MET: named persons and dates are assigned at the Stage 0 gate meeting (ledger forbids inventing them); skeleton in 03_decision_records.md §7 (blocker in HANDOVER.md)
+  - [x] The escalation rule is stated per gate. — implemented, awaiting human build/test
+  - [ ] No gate is recorded as "TBD" at the Stage 0 exit gate. — NOT MET: date placeholders remain until the gate meeting assigns them (blocker in HANDOVER.md)
 - **Owner role:** Product (coordinator)
 - **Dependencies:** P0.03–P0.06
 - **Verification method:** Inspect `.agent/DECISIONS.md`; gate table reviewed at the exit-gate meeting.
@@ -646,10 +646,10 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   6. If the gate passes, authorise Phase 1 to start; if not, list the blocking subtasks and re-convene.
 - **Deliverable / output:** Exit-gate review record (date, attendees, checklist outcome per item, decision, conditions/dissent).
 - **Acceptance criteria / exit check:**
-  - [ ] All three reviewer groups were present (or sent a recorded delegate).
-  - [ ] Every `CHECKLIST.md` item has an evidence reference or a recorded exception.
-  - [ ] Agreement on the first workflow and protected invariants is recorded explicitly.
-  - [ ] The outcome (pass / pass with conditions / fail) is recorded with conditions or blocking items.
+  - [ ] All three reviewer groups were present (or sent a recorded delegate). — NOT MET: the review has not been held; see 29_exit_gate_review.md (blocker in HANDOVER.md)
+  - [ ] Every `CHECKLIST.md` item has an evidence reference or a recorded exception. — NOT MET: the review has not been held; see 29_exit_gate_review.md (blocker in HANDOVER.md)
+  - [ ] Agreement on the first workflow and protected invariants is recorded explicitly. — NOT MET: requires the three human reviewer groups; see 29_exit_gate_review.md (blocker in HANDOVER.md)
+  - [ ] The outcome (pass / pass with conditions / fail) is recorded with conditions or blocking items. — NOT MET: outcome is recorded as NOT HELD; see 29_exit_gate_review.md (blocker in HANDOVER.md)
 - **Owner role:** Principal engineering (chair); product, power systems (reviewers)
 - **Dependencies:** P0.01–P0.28
 - **Verification method:** The review record itself; `CHECKLIST.md` fully evidenced.
@@ -668,9 +668,9 @@ Each subtask uses checkboxes (`- [ ]`) for its acceptance criteria so progress i
   5. File the negative list in the Phase 0 freeze record and reference it from the Phase 1 entry checklist.
 - **Deliverable / output:** "What Phase 0 did not build / decide / claim" list in the freeze record.
 - **Acceptance criteria / exit check:**
-  - [ ] The negative list covers code, decisions, and claims, each with at least the items in steps 1–3.
-  - [ ] Repository state verified: no new code files, `docs/foundations/*` untouched, report untouched, nothing committed/pushed.
-  - [ ] The list is referenced from the Phase 1 handover pack (P0.27).
+  - [x] The negative list covers code, decisions, and claims, each with at least the items in steps 1–3. — implemented, awaiting human build/test
+  - [ ] Repository state verified: no new code files, `docs/foundations/*` untouched, report untouched, nothing committed/pushed. — NOT MET AS WRITTEN: flexcore-domain code contracts were created per the coordinator loop rules; recorded deviation in 30_anti_scope_audit.md §1
+  - [x] The list is referenced from the Phase 1 handover pack (P0.27). — implemented, awaiting human build/test
 - **Owner role:** Principal engineering
 - **Dependencies:** P0.01–P0.29
 - **Verification method:** `git status` (clean except the ledger files themselves); file listing of `ledger/phase-00-product-freeze/`.

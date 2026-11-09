@@ -1,0 +1,18 @@
+# P1.05 — flexcore-domain manifest, after the Phase 0 seed restructure.
+#
+# Dependency policy (tools/check_dependency_rule.py, P1.04): the domain crate
+# depends on flexcore-contracts only (plus std). Domain depends on nothing
+# infrastructure (report §6.2) — no serde, no serde_json, no axum/sqlx/nats/
+# tokio. If a future phase needs serialization for domain value types, that
+# is a deliberate decision recorded per ledger P1.06 ("serde for value types
+# only if justified and recorded") — not a silent addition.
+[package]
+name = "flexcore-domain"
+version = "0.1.0"
+edition.workspace = true
+description = "Domain layer of Neryva FlexCore: command-lifecycle oracle (P0.11), typed identifiers, and the P0.10 entities with report §14.3 dispatch-command construction invariants (P1.06)."
+
+[dependencies]
+flexcore-contracts = { workspace = true }
+
+[dev-dependencies]

@@ -1,0 +1,36 @@
+# P1.15 / P1.16 — NATS JetStream adapter: outbox publisher, topology
+# provisioning, idempotent consumers (report §15.4, §15.5, §6.3; P1.14).
+#
+# Dependency policy (P1.04 / AGENTS.md §8): adapters may use infrastructure.
+# This crate deliberately carries a MINIMAL dependency set: async-nats
+# (RESEARCH.md §5 pin 0.50.0), tokio (runtime, time, sync for the shutdown
+# watch channel), serde_json (DLQ quarantine payload), tracing, and the
+# flexcore-ports port traits. No other external crate is used — notably no
+# `futures`/`futures-util`: the async-nats streaming APIs require a
+# `StreamExt` import from those crates, which the P1.15 dependency ban
+# forbids, so this adapter consumes JetStream over the documented
+# request/publish surface instead (recorded in src/consumer.rs and the
+# crate README).
+#
+# flexcore-ports is the only core-crate edge: the publisher drains the
+# transactional outbox through the sync `EventOutbox` port (report §6.3
+# steps 2–3). The sync-port/async-adapter resolution is recorded in the
+# crate README and src/publisher.rs.
+
+[package]
+name = "flexcore-nats-adapter"
+description = "NATS JetStream adapter: publisher, outbox drain, idempotent consumers (P1.15-P1.16)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-nats = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+flexcore-ports = { workspace = true }
+
+[dev-dependencies]
+# The integration tests (tests/) use only the workspace `tokio` features
+# (macros, rt-multi-thread, time, sync) and the flexcore-ports `fakes`
+# module (in-memory EventOutbox test double, P1.07) — no additional crate.

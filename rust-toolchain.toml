@@ -1,0 +1,14 @@
+# P1.02 — Pinned Rust toolchain (Phase 1)
+#
+# Pinned EXACT per `ledger/phase-01-rust-foundation/RESEARCH.md` §1:
+# Rust 1.99.1 stable was the current stable on 7 November 2026 (point release
+# 15 October 2026). Rust 1.100 was PLANNED for 12 November 2026 — after the
+# research cut-off — and must NOT be adopted from the planned date alone:
+# a bump requires reading the release notes and a `cargo +beta test` pass on
+# the full workspace first (1.100 carries above-normal breakage risk:
+# never-type stabilization and Cargo target-layout v2).
+#
+# Policy: exact pin; bump only deliberately, with a recorded pin change.
+[toolchain]
+channel = "1.99.1"
+profile = "default"

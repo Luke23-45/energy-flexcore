@@ -1,0 +1,43 @@
+# P1.13 — flexcore-postgres-adapter manifest: the PostgreSQL adapter.
+#
+# Composition-side crate (`tools/check_dependency_rule.py`): adapters may use
+# infrastructure. Dependency justification:
+# - sqlx (workspace pin 0.9.0, RESEARCH.md §4): runtime-query API only
+#   (`sqlx::query`); the compile-time `query!` macros need generated
+#   sqlx-data that cannot be produced here without a database build step
+#   (recorded decision, crate README).
+# - tokio (workspace): the port traits are SYNC (P1.07 recorded rule); the
+#   adapter bridges them onto async sqlx with a dedicated private runtime
+#   per store (recorded decision, crate README).
+# - serde_json: the outbox `payload` jsonb and the audit reference columns
+#   are written as JSON values; the outbox `event_type`/`schema_version`
+#   columns are derived from the serialized envelope (recorded mapping).
+# - time: timestamptz binding/decoding (sqlx `time` feature) and the
+#   SystemClock implementation of the clock port.
+# - flexcore-contracts / flexcore-domain: value types and entities the
+#   repositories map to and from.
+# - flexcore-ports: the port traits this adapter implements.
+# - flexcore-storage: the UnitOfWork transactional-boundary vocabulary
+#   (P1.10) — the adapter's unit of work finalizes into the storage crate's
+#   `FinalizedUnitOfWork`, honouring the recorded adapter contract.
+# - flexcore-audit: the append-only `AuditSink` port and `AuditRecord`.
+# - flexcore-events: NOT depended on — the outbox port (flexcore-ports)
+#   carries the fields the adapter persists; `event_type`/`schema_version`
+#   are classified structurally from the serialized envelope payload.
+[package]
+name = "flexcore-postgres-adapter"
+description = "PostgreSQL adapter: repositories, migrations, RLS tenant context, outbox write, audit sink (P1.13)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sqlx = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }
+flexcore-ports = { workspace = true }
+flexcore-storage = { workspace = true }
+flexcore-audit = { workspace = true }

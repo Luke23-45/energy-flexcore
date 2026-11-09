@@ -1,0 +1,30 @@
+# P1.07 — flexcore-ports manifest: capability interfaces, no implementations.
+#
+# Dependency policy (tools/check_dependency_rule.py): flexcore-ports may
+# depend on flexcore-contracts and flexcore-domain ONLY (plus std). No
+# external crate of any kind — no serialization library, no async runtime,
+# no database or broker client. The ports are sync traits; if asynchrony is
+# ever needed, the adapter decides how to bridge it (recorded in the crate
+# README), never the port.
+#
+# Why flexcore-storage and flexcore-events are NOT dependencies even though
+# the outbox port speaks their vocabulary: both edges are outside the
+# allowed set above. The port-side `OutboxWrite` therefore carries exactly
+# the parts of the storage `TransactionalWrite` and the events `OutboxRecord`
+# that this crate can name (see `src/event_outbox.rs`); the adapter maps the
+# parts 1:1 onto the real types (P1.13), and the mapping is recorded in the
+# crate README.
+#
+# Single-home rule (recorded by P1.10 step 1): repository-abstraction traits
+# live HERE. The append-only audit write port lives in flexcore-audit (a
+# recorded P1.10 exception); this crate does not re-export it because the
+# ports -> audit edge is not in the allowed dependency set.
+[package]
+name = "flexcore-ports"
+description = "Capability interfaces (ports) with no implementations (P1.07)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }

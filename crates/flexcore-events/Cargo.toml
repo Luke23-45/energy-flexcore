@@ -1,0 +1,23 @@
+# P1.09 — flexcore-events manifest: the §15.3 event vocabulary as typed
+# payloads, plus the event envelope and the transactional-outbox record type.
+#
+# Dependency policy (tools/check_dependency_rule.py): flexcore-events may
+# depend on flexcore-contracts and flexcore-domain only (plus std, serde,
+# time). No NATS/PostgreSQL import in this crate — the broker adapter lives
+# in flexcore-nats-adapter (P1.15) and the outbox store in the PostgreSQL
+# adapter (P1.13). serde_json is a dev-dependency only: the outbox record
+# stores the serialized payload as a string produced by the caller.
+[package]
+name = "flexcore-events"
+description = "Domain-event vocabulary and outbox abstraction (P1.09; P0.14)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+time = { workspace = true }
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

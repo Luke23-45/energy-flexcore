@@ -1,0 +1,41 @@
+# P1.08 — flexcore-application manifest: use cases and orchestration, ports
+#         only.
+#
+# Dependency policy (tools/check_dependency_rule.py): flexcore-application
+# may depend on flexcore-contracts, flexcore-domain, flexcore-ports, and
+# flexcore-events (plus std) — and on NOTHING else. No infrastructure, no
+# async runtime, and no external crate of any kind, including no
+# serialization library: the wire rendering of an event envelope is an
+# injected seam (`EventPayloadEncoder`), implemented by the composition
+# root, which owns the serialization library. The use cases depend only on
+# the port traits (flexcore-ports) — the fakes for the tests come from the
+# ports crate's public `fakes` module, which is itself infrastructure-free.
+#
+# Why flexcore-events is a dependency: the use cases assemble the typed
+# `DomainEvent` (the frozen §15.3 vocabulary), the versioned
+# `EventEnvelope`, and the destination subject for the outbox write — the
+# event schema is the events crate's, not ours to restate.
+[package]
+name = "flexcore-application"
+description = "Use cases and orchestration, ports only (P1.08)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }
+flexcore-ports = { workspace = true }
+flexcore-events = { workspace = true }
+# P3.21 — the §12.6 result-contract types (OptimizationResult, SolverConfig)
+# are REUSED from flexcore-optimization-api (single home; never restated).
+# The crate is a port-contract core crate (no infrastructure), so the edge
+# is consistent with the hexagonal layering.
+#
+# NOTE FOR THE COORDINATOR (P3.21 handover; this manifest edge was added by
+# the P3.21 subtask, tools/check_dependency_rule.py was NOT edited — it is
+# outside the subtask's file ownership):
+#   In tools/check_dependency_rule.py, add "flexcore-optimization-api" to
+#   ALLOWED_INTERNAL_EDGES["flexcore-application"] (decision record
+#   ledger/phase-03-flexibility-scheduling/21_result_contract.md, D-P3.21-5).
+#   Until then the dependency-rule check reports this edge as a violation.
+flexcore-optimization-api = { workspace = true }

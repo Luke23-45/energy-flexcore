@@ -1,0 +1,404 @@
+{
+ "meta": {
+  "scenario_id": "synthetic-portfolio-phase3-b-pv-ramp",
+  "name": "Phase 3 scenario (b): PV ramp / forecast error (SYNTHETIC)",
+  "version": "v1",
+  "synthetic": true,
+  "description": "P3.26 deterministic scenario (b): the same pinned portfolio and seed as scenario (a) with the P3.31 forecast-error variant as the labelled forecast input — forecast-fixture-v1-error-pv-ramp.json asserts a downward PV ramp of 80 percent of the clear-sky value inside 12:00-13:00 UTC (fixture intervals 720-779). The scenario artefact itself is unchanged from (a) (the error lives in the versioned forecast fixture, never silently in the scenario); the pairing is recorded in the phase3 pin block. Pinned Phase 3 scenario inputs (ledger P3.26): scheduling grid 24 h / 15-min intervals (P3.03 defaults); solver Tier 1 HiGHS 1.15.1 (MIT, pinned) via the worker adapter and Tier 2 Clarabel.rs 0.11.1 (Apache-2.0, pinned), thread_count 1, config digest recorded per solve; replay tolerance 1e-9 (DEFAULT_REPLAY_TOLERANCE); master seed 20260601 with the recorded per-asset derivation; forecast input the SYNTHETIC P3.31 fixture forecast-fixture-v1.json (scenario b: forecast-fixture-v1-error-pv-ramp.json). All values are synthetic; expected outcomes are PRE-REGISTERED in ledger/phase-03-flexibility-scheduling/25_26_tests_scenarios.md and were written before any run (they are UNRUN at authoring time)."
+ },
+ "portfolio": {
+  "tenant": {
+   "tenant_key": "tenant-flexcore-demo"
+  },
+  "portfolio": {
+   "portfolio_key": "portfolio-demo",
+   "operator": "Neryva simulated operator",
+   "market_region": "DE-LABEL-ONLY",
+   "market_region_note": "Label only (P2.02): market region must not drive market logic; D1 is open."
+  },
+  "sites": [
+   {
+    "site_key": "site-north",
+    "timezone": "Europe/Berlin",
+    "timezone_note": "Display-only metadata (P0.09); canonical timestamps are UTC on the scenario clock.",
+    "reactive_sign_convention": "INJECTION_POSITIVE",
+    "reactive_note": "Declared per site (P0.07 s3; P2.04 D-T4): this convention travels on every reactive-power record; Q > 0 means injection.",
+    "pcc": {
+     "pcc_key": "pcc-north",
+     "grid_model_reference": {
+      "model": "synthetic-feeder-a",
+      "version": "v1"
+     },
+     "grid_model_note": "Reference only - no power-flow code exists in Phase 2 (D3 open)."
+    },
+    "assets": [
+     {
+      "asset_key": "site-north-bess-1",
+      "asset_type": "BESS",
+      "rated_power_mw": 2.0,
+      "rated_energy_mwh": 4.0,
+      "capability_profile_ref": "cap/bess-default",
+      "capability_note": "Reference only - capability-profile contents are Phase 3 (P2.02 step 6).",
+      "bus_ref": "bus-north-lv-1",
+      "behaviour_profile": {
+       "profile_id": "bess_daily_cycle",
+       "synthetic": true,
+       "assumptions": "Synthetic rectangular-efficiency daily dispatch; no electrochemical, temperature, degradation, or state-of-health model; constant efficiency; no auxiliary consumption; instantaneous power transitions; availability constant true.",
+       "params": {
+        "charge_window_utc": [
+         "01:00",
+         "05:00"
+        ],
+        "discharge_window_utc": [
+         "18:00",
+         "21:00"
+        ],
+        "charge_power_mw": 1.0,
+        "discharge_power_mw": 1.5,
+        "initial_soc": 0.5,
+        "soc_floor": 0.05,
+        "soc_ceiling": 0.95,
+        "round_trip_efficiency": 0.9,
+        "operating_mode_states": [
+         "CHARGING",
+         "DISCHARGING",
+         "IDLE"
+        ],
+        "health_state": "NOMINAL",
+        "availability": true
+       }
+      }
+     },
+     {
+      "asset_key": "site-north-pv-1",
+      "asset_type": "PV",
+      "rated_power_mw": 1.5,
+      "capability_profile_ref": "cap/pv-curtailable",
+      "capability_note": "Reference only; curtailment is noted but NOT exercised in Phase 2 - no Phase 2 mechanism reduces PV output below the shape (P2.13 s5.2).",
+      "bus_ref": "bus-north-lv-1",
+      "behaviour_profile": {
+       "profile_id": "pv_clear_sky",
+       "synthetic": true,
+       "assumptions": "Synthetic clear-sky cosine bell, zero at night; NO weather model (no clouds, irradiance series, or forecasts); no temperature, soiling, or derating model beyond the peak factor; no inverter clipping dynamics beyond the rated-power cap; fixed azimuth/tilt; availability constant true.",
+       "params": {
+        "sunrise_utc": "05:30",
+        "sunset_utc": "21:00",
+        "peak_factor": 0.85,
+        "curtailment_exercised": false
+       }
+      }
+     },
+     {
+      "asset_key": "site-north-load-1",
+      "asset_type": "FLEXIBLE_LOAD",
+      "rated_peak_mw": 0.8,
+      "capability_profile_ref": "cap/load-reducible",
+      "capability_note": "Reference only; the reducible range travels as scenario data for Phase 3 - no Phase 2 flexibility computation exists.",
+      "bus_ref": "bus-north-lv-1",
+      "behaviour_profile": {
+       "profile_id": "load_baseline_reducible",
+       "synthetic": true,
+       "assumptions": "Synthetic baseline shape (morning and evening peaks over a near-flat night); NO metered or measured data behind it; no weather or occupancy model; NO baseline method - the baseline is a scenario-declared shape, not a computed estimate (D1/D2 open); no per-appliance disaggregation; seeded jitter only.",
+       "params": {
+        "baseline_shape": "morning_evening_peaks",
+        "reducible_range_mw": 0.3,
+        "emit_baseline_reference": true,
+        "jitter_fraction": 0.02
+       }
+      }
+     },
+     {
+      "asset_key": "site-north-evse-1",
+      "asset_type": "EVSE",
+      "rated_power_mw": 0.05,
+      "capability_profile_ref": "cap/evse-windowed",
+      "bus_ref": "bus-north-lv-1",
+      "behaviour_profile": {
+       "profile_id": "evse_connection_windows",
+       "synthetic": true,
+       "assumptions": "Deterministic daily connection windows; NO mobility or traffic model (connections follow the declared windows, not arrival-time distributions); one aggregate EV per EVSE; constant charging efficiency; NO V2G discharge in Phase 2; instantaneous transitions at window boundaries; seeded jitter only.",
+       "params": {
+        "connection_windows_utc": [
+         [
+          "17:30",
+          "08:00"
+         ]
+        ],
+        "charging_power_mw": 0.05,
+        "initial_soc": 0.3,
+        "soc_target": 0.9,
+        "emit_energy": true,
+        "jitter_fraction": 0.01
+       }
+      }
+     },
+     {
+      "asset_key": "site-north-meter-1",
+      "asset_type": "SITE_METER",
+      "rated_power_mw": 3.0,
+      "capability_profile_ref": "cap/meter-pcc",
+      "bus_ref": "pcc-north",
+      "behaviour_profile": {
+       "profile_id": "site_meter_aggregate",
+       "synthetic": true,
+       "assumptions": "Active power is the aggregated SUM of the site's assets' net active power at each tick - a consistency fixture; a real PCC meter would include non-modelled load and losses. Reactive power is a configured constant under the site's declared convention.",
+       "params": {
+        "q_constant_mvar": 0.1
+       }
+      }
+     }
+    ]
+   },
+   {
+    "site_key": "site-south",
+    "timezone": "Europe/Berlin",
+    "timezone_note": "Display-only metadata (P0.09); canonical timestamps are UTC on the scenario clock.",
+    "reactive_sign_convention": "CONSUMPTION_POSITIVE",
+    "reactive_note": "Declared per site (P0.07 s3; P2.04 D-T4) - deliberately DIFFERENT from site-north so cross-site convention handling is exercised; Q > 0 means consumption.",
+    "pcc": {
+     "pcc_key": "pcc-south",
+     "grid_model_reference": {
+      "model": "synthetic-feeder-a",
+      "version": "v1"
+     },
+     "grid_model_note": "Reference only - no power-flow code exists in Phase 2 (D3 open)."
+    },
+    "assets": [
+     {
+      "asset_key": "site-south-bess-1",
+      "asset_type": "BESS",
+      "rated_power_mw": 1.0,
+      "rated_energy_mwh": 2.0,
+      "capability_profile_ref": "cap/bess-default",
+      "capability_note": "Reference only - capability-profile contents are Phase 3 (P2.02 step 6).",
+      "bus_ref": "bus-south-lv-1",
+      "behaviour_profile": {
+       "profile_id": "bess_daily_cycle",
+       "synthetic": true,
+       "assumptions": "Same synthetic profile family as site-north-bess-1; parameters differ; no electrochemical, temperature, degradation, or state-of-health model; constant efficiency; instantaneous transitions; availability constant true.",
+       "params": {
+        "charge_window_utc": [
+         "00:30",
+         "04:30"
+        ],
+        "discharge_window_utc": [
+         "17:00",
+         "20:30"
+        ],
+        "charge_power_mw": 0.5,
+        "discharge_power_mw": 0.8,
+        "initial_soc": 0.4,
+        "soc_floor": 0.05,
+        "soc_ceiling": 0.95,
+        "round_trip_efficiency": 0.9,
+        "operating_mode_states": [
+         "CHARGING",
+         "DISCHARGING",
+         "IDLE"
+        ],
+        "health_state": "NOMINAL",
+        "availability": true
+       }
+      }
+     },
+     {
+      "asset_key": "site-south-pv-1",
+      "asset_type": "PV",
+      "rated_power_mw": 2.5,
+      "capability_profile_ref": "cap/pv-curtailable",
+      "capability_note": "Reference only; curtailment is noted but NOT exercised in Phase 2 (P2.13 s5.2).",
+      "bus_ref": "bus-south-lv-1",
+      "behaviour_profile": {
+       "profile_id": "pv_clear_sky",
+       "synthetic": true,
+       "assumptions": "Synthetic clear-sky cosine bell, zero at night; NO weather model; no temperature, soiling, or derating model beyond the peak factor; fixed azimuth/tilt; availability constant true.",
+       "params": {
+        "sunrise_utc": "05:30",
+        "sunset_utc": "21:00",
+        "peak_factor": 0.9,
+        "curtailment_exercised": false
+       }
+      }
+     },
+     {
+      "asset_key": "site-south-load-1",
+      "asset_type": "FLEXIBLE_LOAD",
+      "rated_peak_mw": 1.2,
+      "capability_profile_ref": "cap/load-reducible",
+      "capability_note": "Reference only; the reducible range travels as scenario data for Phase 3.",
+      "bus_ref": "bus-south-lv-1",
+      "behaviour_profile": {
+       "profile_id": "load_baseline_reducible",
+       "synthetic": true,
+       "assumptions": "Synthetic baseline shape; NO metered data; no weather or occupancy model; NO baseline method - a scenario-declared shape (D1/D2 open); seeded jitter only.",
+       "params": {
+        "baseline_shape": "morning_evening_peaks",
+        "reducible_range_mw": 0.4,
+        "emit_baseline_reference": true,
+        "jitter_fraction": 0.02
+       }
+      }
+     },
+     {
+      "asset_key": "site-south-evse-1",
+      "asset_type": "EVSE",
+      "rated_power_mw": 0.15,
+      "capability_profile_ref": "cap/evse-windowed",
+      "bus_ref": "bus-south-lv-1",
+      "behaviour_profile": {
+       "profile_id": "evse_connection_windows",
+       "synthetic": true,
+       "assumptions": "Deterministic daily connection windows; NO mobility model; one aggregate EV per EVSE; constant charging efficiency; NO V2G in Phase 2; seeded jitter only.",
+       "params": {
+        "connection_windows_utc": [
+         [
+          "06:00",
+          "09:00"
+         ],
+         [
+          "16:00",
+          "19:00"
+         ]
+        ],
+        "charging_power_mw": 0.15,
+        "initial_soc": 0.25,
+        "soc_target": 0.85,
+        "emit_energy": true,
+        "jitter_fraction": 0.01
+       }
+      }
+     },
+     {
+      "asset_key": "site-south-meter-1",
+      "asset_type": "SITE_METER",
+      "rated_power_mw": 3.5,
+      "capability_profile_ref": "cap/meter-pcc",
+      "bus_ref": "pcc-south",
+      "behaviour_profile": {
+       "profile_id": "site_meter_aggregate",
+       "synthetic": true,
+       "assumptions": "Active power is the aggregated SUM of the site's assets' net active power at each tick - a consistency fixture, not a physical PCC model. Reactive power is a configured constant under the site's declared convention.",
+       "params": {
+        "q_constant_mvar": 0.05
+       }
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "horizon": {
+  "start": "2026-06-01T00:00:00Z",
+  "duration_hours": 24,
+  "clock_note": "The scenario clock is deterministic simulation time (P0.09 s5), distinct from wall-clock time. Window and curve times are scenario-clock UTC."
+ },
+ "cadence": {
+  "default_seconds": 60,
+  "default_note": "1-minute default (D-SC3): 1440 samples/asset/day - enough for freshness, staleness, bucketing, and partitioning coverage at a volume the pipeline handles without backpressure drama. Per-asset overrides possible; none used in v1.",
+  "per_asset_overrides": {}
+ },
+ "seeds": {
+  "master_seed": 20260601,
+  "derivation": "seed(asset_key) = master_seed XOR splitmix64(FNV-1a-64(asset_key))",
+  "derivation_note": "One master seed plus a recorded per-asset derivation rule (D-SC4): adding an asset in a future version does not perturb existing assets' streams. The RNG algorithm and seed handling are recorded with the simulator (P2.14 step 2). Profiles without randomness (PV clear-sky, baseline shapes) consume no randomness."
+ },
+ "faults": {
+  "enabled": false,
+  "freshness_limit_seconds": 90,
+  "injections": [],
+  "note": "scenario (b): no fault injections — the stressor is the forecast error variant, not telemetry"
+ },
+ "expected_quality": {
+  "plan_note": "P2.25 per-asset expected-quality plan: the expected STORED outcome per injected asset over the 24-hour horizon, tied one-to-one to the P2.15 fault types in faults.injections. With faults disabled (the exit-gate default) every asset expects GOOD at every tick and full coverage (1440 ticks per emitted quantity per asset). With the fault plan enabled, each entry below names the expected DEVIATION inside its window; every tick outside every window stays GOOD. expected_quality_in_window is the quality state the platform is expected to end up with for that window: drop produces NO frame, so the interval is covered only by the gap detector's synthesized MISSING markers (P2.04 D-T6) and the coverage accounting credits it as an EXPECTED gap - never as an unexplained one. All other fault types still emit one value per tick, so they do not reduce coverage; their expected states are recorded so stored states can be checked against the plan rather than guessed.",
+  "freshness_limit_seconds": 90,
+  "per_asset": [
+   {
+    "asset_key": "site-north-bess-1",
+    "fault": "drop",
+    "from": "2026-06-01T02:00:00Z",
+    "until": "2026-06-01T02:10:00Z",
+    "expected_quality_in_window": "MISSING",
+    "coverage_in_window": "expected_gap"
+   },
+   {
+    "asset_key": "site-south-bess-1",
+    "fault": "delay",
+    "from": "2026-06-01T03:00:00Z",
+    "until": "2026-06-01T03:10:00Z",
+    "expected_quality_in_window": "STALE",
+    "coverage_in_window": "covered"
+   },
+   {
+    "asset_key": "site-north-load-1",
+    "fault": "source_invalid",
+    "from": "2026-06-01T05:00:00Z",
+    "until": "2026-06-01T05:10:00Z",
+    "expected_quality_in_window": "BAD",
+    "coverage_in_window": "covered"
+   },
+   {
+    "asset_key": "site-north-evse-1",
+    "fault": "duplicate",
+    "from": "2026-06-01T06:00:00Z",
+    "until": "2026-06-01T06:10:00Z",
+    "expected_quality_in_window": "GOOD",
+    "coverage_in_window": "covered",
+    "expected_note": "the exact duplicate is acknowledged (P2.09); exactly one stored row per tick"
+   },
+   {
+    "asset_key": "site-south-pv-1",
+    "fault": "out_of_order",
+    "from": "2026-06-01T07:00:00Z",
+    "until": "2026-06-01T07:10:00Z",
+    "expected_quality_in_window": "GOOD",
+    "coverage_in_window": "covered",
+    "expected_note": "the held frame is stored late; arrival order never changes the stored quality (P2.09)"
+   },
+   {
+    "asset_key": "site-south-load-1",
+    "fault": "conflicting_duplicate",
+    "from": "2026-06-01T08:00:00Z",
+    "until": "2026-06-01T08:10:00Z",
+    "expected_quality_in_window": "GOOD",
+    "coverage_in_window": "covered",
+    "expected_note": "the conflicting copy is quarantined with a reason (P2.09); the original row stands"
+   },
+   {
+    "asset_key": "site-north-pv-1",
+    "fault": "out_of_range",
+    "from": "2026-06-01T10:00:00Z",
+    "until": "2026-06-01T10:10:00Z",
+    "expected_quality_in_window": "SUSPECT",
+    "coverage_in_window": "covered"
+   }
+  ]
+ },
+ "phase3": {
+  "owner_phase": "Phase 3 (P3.26) — synthetic deterministic scenario; not field data",
+  "scheduling_grid": {
+   "horizon_hours": 24,
+   "interval_seconds": 900,
+   "semantics": "start-inclusive, end-exclusive (P3.03)"
+  },
+  "forecast_input": "scenarios/synthetic-portfolio/forecast-fixture-v1-error-pv-ramp.json (v1-error-pv-ramp)",
+  "solver_pins": {
+   "tier1": {
+    "solver": "HiGHS",
+    "version": "1.15.1",
+    "license": "MIT",
+    "class": "LP/QP/MILP (never SOCP — AGENTS.md rule 4)"
+   },
+   "tier2": {
+    "solver": "Clarabel.rs",
+    "version": "0.11.1",
+    "license": "Apache-2.0",
+    "class": "continuous conic incl. SOCP; no integer variables"
+   },
+   "thread_count": 1,
+   "replay_tolerance": 1e-09,
+   "note": "real-solve legs are VERIFY-BUILD-gated until the worker adapter is built"
+  },
+  "master_seed": 20260601,
+  "expected_outcomes": "see ledger/phase-03-flexibility-scheduling/25_26_tests_scenarios.md (pre-registered, unrun)"
+ }
+}

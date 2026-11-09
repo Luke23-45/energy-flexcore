@@ -1,0 +1,108 @@
+# P1.03 — FlexCore Cargo workspace (Phase 1)
+#
+# Report §8.1/§8.2: modular monolith, hexagonal dependency rule.
+# Members are exactly the crates with real Phase 1 code (P1.03 step 3);
+# no future crate (flexcore-kernel, optimization/grid APIs) is listed.
+#
+# Dependency policy: see `tools/check_dependency_rule.py` (P1.04) and
+# `ledger/phase-01-rust-foundation/` for the policy document. Adapters and
+# apps may use infrastructure; the eight core crates may not.
+#
+# License field: deliberately UNSET — the repository has no license file and
+# D4 (license and dependency audit) is OPEN. Apache-2.0 is a recommendation,
+# not a decision (`.agent/DECISIONS.md`). Set `license` or `license-file`
+# only when D4 closes.
+#
+# Version pins come from `ledger/phase-01-rust-foundation/RESEARCH.md`
+# (checked 7 November 2026). serde/serde_json/time carry only a major-line
+# pin because RESEARCH.md did not record an exact version for them — the
+# human resolves the exact version in the first `Cargo.lock` and records it
+# (RESEARCH.md §8 open verification task 1).
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/flexcore-contracts",
+    "crates/flexcore-domain",
+    "crates/flexcore-ports",
+    "crates/flexcore-application",
+    "crates/flexcore-events",
+    "crates/flexcore-storage",
+    "crates/flexcore-audit",
+    "crates/flexcore-authz",
+    "crates/flexcore-optimization-api",
+    "crates/flexcore-grid-api",
+    "crates/adapters/postgres",
+    "crates/adapters/nats",
+    "crates/flexcore-simulator",
+    "apps/control-plane",
+    "apps/sim-runner",
+    "apps/worker",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+# `license` intentionally omitted — D4 open (see header comment).
+
+[workspace.dependencies]
+# Async runtime (RESEARCH.md §2 — Tokio 1.54.1; never 1.54.0, CVE-2026-115567).
+tokio = { version = "1.54.1", features = [
+    "rt-multi-thread",
+    "macros",
+    "signal",
+    "time",
+    "net",
+    "sync",
+    "io-util",
+] }
+# HTTP API (RESEARCH.md §3 — Axum 0.8.9, MSRV 1.80).
+axum = "0.8.9"
+tower = "0.5.3"
+tower-http = { version = "0.7.0", features = ["trace", "timeout", "limit-request"] }
+# Persistence (RESEARCH.md §4 — SQLx 0.9.0, MSRV 1.94.0; offline mode always on).
+sqlx = { version = "0.9.0", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+    "migrate",
+    "time",
+    "json",
+] }
+# Messaging (RESEARCH.md §5 — async-nats 0.50.0; NATS server 2.15.x).
+async-nats = "0.50.0"
+# Serialization (exact versions resolved in the first lockfile; see header).
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Timestamps in contracts (ledger P1.05 names "chrono/time"; `time` chosen —
+# exact version resolved in the first lockfile and recorded, RESEARCH.md §8/§7).
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+# Observability (RESEARCH.md §7 — tracing 0.1.44 / tracing-subscriber 0.3.23;
+# secondary-source pins, re-verify at build time).
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+# OpenAPI (RESEARCH.md §7 — utoipa 5.5.0; utoipa-gen is a separate version
+# line, do not pin it independently).
+utoipa = { version = "5.5.0", features = ["axum_extras"] }
+# Tier 2 convex-conic solver (RESEARCH.md §2 — Clarabel.rs 0.11.1, the native
+# Rust crate; NOT the R package 0.11.3). LP/QP/SOCP/SDP/expo/power cones;
+# NO integer variables — never MISOCP (P3.18 discipline).
+clarabel = "=0.11.1"
+
+# Internal crates (single version source for the workspace).
+flexcore-contracts = { path = "crates/flexcore-contracts" }
+flexcore-domain = { path = "crates/flexcore-domain" }
+flexcore-ports = { path = "crates/flexcore-ports" }
+flexcore-application = { path = "crates/flexcore-application" }
+flexcore-events = { path = "crates/flexcore-events" }
+flexcore-storage = { path = "crates/flexcore-storage" }
+flexcore-audit = { path = "crates/flexcore-audit" }
+flexcore-authz = { path = "crates/flexcore-authz" }
+flexcore-optimization-api = { path = "crates/flexcore-optimization-api" }
+flexcore-grid-api = { path = "crates/flexcore-grid-api" }
+flexcore-postgres-adapter = { path = "crates/adapters/postgres" }
+flexcore-nats-adapter = { path = "crates/adapters/nats" }
+flexcore-simulator = { path = "crates/flexcore-simulator" }
+
+# Patch policy: no [patch] entries without an ADR and a recorded upstream
+# issue (P1.03 step 5).

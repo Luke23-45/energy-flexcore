@@ -1,0 +1,28 @@
+# P1.11 — flexcore-authz manifest: authorization decision types, scope types,
+#         and deny-by-default policy evaluation (ledger P1.11).
+#
+# Dependency justification (tools/check_dependency_rule.py; allowed edges for
+# this crate are flexcore-contracts and flexcore-domain):
+# - flexcore-domain: the P1.06 `TenantContext` (evaluation always runs against
+#   a claims-derived context — P0.16 rule 5) and the typed identifiers
+#   `TenantId` / `SiteId` / `AssetId` that the scope types are typed over.
+#   The tenant-context type itself is NOT duplicated here: it stays in the
+#   domain crate, where its only constructor is the claims constructor.
+# - flexcore-contracts: dev-dependency ONLY — `FlexUuid` to build typed IDs
+#   in tests. No library-code use, so it stays out of `[dependencies]` and
+#   the public surface of this crate is domain-typed only.
+# - No serde (and no other external crate): decisions, scopes, and policies
+#   are in-process values, not wire types. When a later phase serialises
+#   audit evidence or policy sets, that is a deliberate, recorded decision —
+#   not a silent addition (P1.04 policy; same rule the domain crate records).
+[package]
+name = "flexcore-authz"
+description = "Authorization decision/scope/context types, deny-by-default (P1.11)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-domain = { workspace = true }
+
+[dev-dependencies]
+flexcore-contracts = { workspace = true }

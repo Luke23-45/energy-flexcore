@@ -1,0 +1,16 @@
+# P1.18 — Code generation plan (forward-looking; activates with the first
+# .proto files in Phase 7). The Rust control plane consumes prost types; the
+# Python workers consume protoc-generated stubs. Plugin versions are pinned
+# at activation time and recorded in the Phase 7 RESEARCH.md — never floated.
+version: v2
+managed:
+  enabled: true
+plugins:
+  # Rust (control plane side) — pinned at Phase 7 activation.
+  - remote: buf.build/community/neoeinstein-prost
+    out: ../crates/adapters/proto-gen/src
+    opt:
+      - compile_well_known_types
+  # Python (worker side) — pinned at Phase 7 activation.
+  - remote: buf.build/protocolbuffers/python
+    out: ../workers/proto-gen

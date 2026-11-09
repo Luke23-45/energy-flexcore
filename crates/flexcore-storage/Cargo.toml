@@ -1,0 +1,44 @@
+# P1.10 — flexcore-storage manifest: non-port persistence abstractions.
+#
+# Single-home rule (ledger P1.10 step 1, recorded): repository-abstraction
+# traits live in flexcore-ports (P1.07), NOT here. This crate holds only the
+# non-port persistence abstractions that are not ports: the UnitOfWork
+# transactional-boundary type, the TransactionalWrite outbox write model, and
+# the RetentionPolicy configuration type.
+#
+# Dependency justification (tools/check_dependency_rule.py; allowed edges for
+# this crate are flexcore-contracts, flexcore-domain, flexcore-events):
+# - flexcore-events: `TransactionalWrite` carries the real
+#   `flexcore_events::outbox::OutboxRecord`, so the "state change + outbox
+#   record in ONE transaction" rule (report §6.3 step 1, §15.5) is expressed
+#   against the actual record type the adapter must persist.
+# - flexcore-domain: `StateChangeDescriptor` carries the typed `TenantId` so a
+#   state change names its tenant scope the same way every other layer does
+#   (P0.16 rule 1). No other domain type is used.
+# - flexcore-contracts: runtime NOT depended on (dev-dependency only — the
+#   tests build `TenantId` fixtures from `FlexUuid`).
+# - serde: the retention policy is a deployment-configuration type (P0.16 §4:
+#   "retention is configurable by customer contract, regional market rules,
+#   and applicable privacy/security requirements"); it is deserialized from
+#   deployment configuration, so it needs serde, and `#[serde(default)]`
+#   guarantees missing classes stay unset (never a universal period).
+# - No sqlx, no tokio, no serde_json at runtime: this crate defines no
+#   persistence implementation and no JSON serialization of its own; the
+#   PostgreSQL adapter (P1.13) owns SQL, connections, and transactions.
+#   `time` is a dev-dependency only (the tests construct UTC timestamps for
+#   the outbox record fixtures; the crate itself names no `time` type).
+[package]
+name = "flexcore-storage"
+description = "Non-port persistence abstractions (P1.10)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+flexcore-domain = { workspace = true }
+flexcore-events = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+time = { workspace = true }
+flexcore-contracts = { workspace = true }

@@ -1,0 +1,19 @@
+-- P2.19 -- Migration 0011 up: read grant for the API runtime role on the
+--          telemetry table (decision D-H5 in
+--          ledger/phase-02-asset-telemetry/19_20_historical_retention.md).
+--
+-- The P2.19 historical view is served by the control-plane's runtime
+-- connection (flexcore_app, FLEXCORE_DATABASE_URL). Migration 0010 granted
+-- telemetry SELECT only to the dedicated flexcore_query role, so the API
+-- path could not read telemetry at all (the recorded P2.06-adjacent gap
+-- made this moot until P2.19 landed the read).
+--
+-- This grant extends the D-P6 role model by exactly one SELECT: the API
+-- runtime role becomes a telemetry READER. The write path is unchanged —
+-- flexcore_ingest remains the only INSERT path, flexcore_query remains the
+-- dedicated direct-query role, and neither runtime role owns any table or
+-- holds DELETE/TRUNCATE/DDL (retention stays on the P2.20
+-- migrator/maintenance path). The tenant_isolation RLS policy with ENABLE +
+-- FORCE scopes every row read through this grant exactly as before — the
+-- grant adds a reader, not a bypass.
+GRANT SELECT ON telemetry TO flexcore_app;

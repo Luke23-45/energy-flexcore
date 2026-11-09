@@ -1,0 +1,43 @@
+# P1.10 — flexcore-audit manifest: the §10.1 AuditRecord type and the
+#         append-only audit write port.
+#
+# Single-home rule (ledger P1.10 step 1): repository-abstraction traits live
+# in flexcore-ports (P1.07), not in this crate and not in flexcore-storage.
+# The ONE trait this crate defines is the append-only `AuditSink` write port,
+# which is a P1.10 deliverable in its own right (P1.10 step 2) and is not a
+# repository trait: it has no read, query, update, or delete surface — append
+# is its only operation.
+#
+# Dependency justification (tools/check_dependency_rule.py; allowed edges for
+# this crate are flexcore-contracts, flexcore-domain, flexcore-events):
+# - flexcore-contracts: `FlexUuid` for record and correlation identifiers,
+#   and the P0.09 time types (`EventTime`, `IngestTime`) for the audit
+#   timestamps — the §10.1 "timestamp" field is the contracts time model, not
+#   a bare string.
+# - flexcore-domain: the typed `TenantId` for the tenant context (P0.16 rule
+#   1; P1.12 §4.7: `tenant_id` NULL marks platform-level actions).
+# - flexcore-events: intentionally NOT depended on — the audit record is not
+#   an event and needs no envelope or outbox type.
+# - serde: the record is serialized by persistence adapters (the
+#   `audit_records` table design, P1.12 §4.7, stores the field set); the
+#   validating `try_from` deserialization re-checks the time-ordering rule
+#   on every parse path. `serde_json` is a dev-dependency only.
+# - time: NOT a dependency (not even for tests) — timestamps come in as the
+#   contracts `EventTime`/`IngestTime` types; this crate names no `time`
+#   type itself.
+# - No sqlx, no tokio: the crate defines types and a port only; the
+#   PostgreSQL adapter (P1.13) implements the port against the
+#   `audit_records` table (P1.12 §4.7).
+[package]
+name = "flexcore-audit"
+description = "Append-oriented audit evidence types and port (P1.10)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

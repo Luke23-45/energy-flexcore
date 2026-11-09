@@ -1,0 +1,21 @@
+# P1.05 — flexcore-contracts manifest: canonical value types and API-facing
+# contracts (implements P0.07-P0.09, plus the P0.15 path constants).
+#
+# Dependency policy (tools/check_dependency_rule.py): this crate may depend on
+# std + serde/serde_json/time only. No infrastructure dependency is allowed —
+# contracts are value types shared by every other crate (report §8.1, §10.2).
+#
+# `time` was chosen over `chrono` for contract timestamps (root Cargo.toml
+# header note; exact version resolved in the first lockfile, RESEARCH.md §8).
+[package]
+name = "flexcore-contracts"
+description = "Canonical value types and API-facing contracts (P1.05; implements P0.07-P0.09)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

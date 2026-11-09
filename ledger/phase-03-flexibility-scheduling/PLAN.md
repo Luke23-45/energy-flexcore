@@ -21,6 +21,7 @@
 - Command lifecycle, human approval, signed commands, dispatch — Phase 4 (§14).
 - Operator console UI — Phase 5 (§20). Phase 3 exposes APIs only.
 - Tier 3 MISOCP/MINLP and Tier 4 nonlinear AC-OPF (§12.3) — see ledger P3.20. Requests return `unsupported`.
+  - P3.20 boundary (recorded; `19_20_determinism_tiers.md`): Tier 3 only when discrete decisions materially require it AND a suitable solver exists; Tier 4 is advanced research/validated use cases only; neither is in v0.2.0. A Tier 3 need → reformulate as Tier 1 MILP or Tier 2 continuous SOCP, or record the gap as a Stage-8 open item. IPOPT: local nonlinear solve only, no global-optimality guarantee; not wired as a Phase 3 scheduler solver (EPL license noted for the D4 audit).
 - GNN, MARL, ADMM/DMPC (§13, Stage 8) — research plugins are proposals only and are not wired into this scheduler.
 - Market integration, real price/commitment data, FERC Order 2222 qualification (§0.3, §12.1–§12.2). All prices and commitments in this phase are synthetic and labelled.
 - Hard real-time, protection-grade, or safety claims (AGENTS.md rules 2–3).

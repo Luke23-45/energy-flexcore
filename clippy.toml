@@ -1,0 +1,10 @@
+# P1.02 — Project lint policy (Phase 1)
+#
+# CI runs `cargo clippy --workspace --all-targets -- -D warnings` (P1.27);
+# allowlists are added only by explicit review. MSRV pinned to the toolchain
+# pin so version-gated lints match the compiler we ship with.
+msrv = "1.99.1"
+
+# Allow more than the default arguments before warn — adapter constructors
+# carrying explicit tenant context plus IDs regularly need 8.
+too-many-arguments-threshold = 8

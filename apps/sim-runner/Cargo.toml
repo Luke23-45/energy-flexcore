@@ -1,0 +1,46 @@
+# P2.24 — flexcore-sim-runner manifest: the minimal deterministic-replay CLI
+# (ledger P2.24 step 2; the recorded P2.24 entrypoint decision — see
+# `ledger/phase-02-asset-telemetry/23_24_fault_replay.md`).
+#
+# Placement decision (recorded once): replay is a DISTINCT entrypoint from
+# background ingestion, so it is a separate composition-root binary, not a
+# worker task and not a control-plane route. The ledger's default is adopted:
+# a minimal `apps/sim-runner` CLI with two subcommands —
+#
+#     flexcore-sim-runner run    --scenario <path> [--seed <n>] [--out <path>]
+#     flexcore-sim-runner replay --scenario <path> --reference <path>
+#                                [--seed <n>] [--code-version <string>]
+#                                [--report <path>]
+#
+# Dependency surface (deliberately minimal): flexcore-simulator (the
+# generation engine behind the `TelemetrySource` port), flexcore-contracts /
+# flexcore-domain / flexcore-ports (canonical types and the port), and
+# serde/serde_json for the records/report files. NO database and NO broker
+# dependency: the replay comparison is against a canonical records file, and
+# the comparison function is record-based so a future stored-telemetry
+# reference (read through the `TelemetryReader` port once the Postgres
+# read adapter lands, P2.19) is a mapping, not a redesign — recorded in
+# `23_24_fault_replay.md`.
+#
+# NOTE FOR THE COORDINATOR (P2.24 handover): the root `Cargo.toml` was not
+# edited by this subtask. Add to `[workspace] members`:
+#
+#     "apps/sim-runner",
+#
+[package]
+name = "flexcore-sim-runner"
+description = "Deterministic replay CLI: run a scenario version + seed, compare against a reference, emit a replay report (P2.24)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-simulator = { path = "../../crates/flexcore-simulator" }
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }
+flexcore-ports = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[[bin]]
+name = "flexcore-sim-runner"
+path = "src/main.rs"

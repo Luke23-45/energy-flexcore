@@ -1,0 +1,64 @@
+# P1.17 — Axum control-plane API (composition root).
+# P1.21 — configuration/secrets handling lives here (config.rs).
+# P1.22 — health/readiness probes and graceful shutdown live here.
+#
+# The `dev-auth` feature is the ONLY authentication integration in Phase 1:
+# a test/dev-profile-gated identity resolver (ledger P1.17 step 3). It is
+# NOT a default feature and must never be enabled in release builds — CI
+# (P1.27) fails if it appears in default features, and the middleware
+# denies every unauthenticated request when the feature is absent.
+[package]
+name = "flexcore-control-plane"
+description = "Axum control-plane API; composition root (P1.17)."
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+# Dev/test-only authentication resolver. NEVER enable in release builds.
+dev-auth = []
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+# `util` is needed for `tower::ServiceExt::oneshot` (integration tests).
+tower = { workspace = true, features = ["util"] }
+tower-http = { workspace = true }
+utoipa = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }
+flexcore-ports = { workspace = true }
+flexcore-application = { workspace = true }
+flexcore-events = { workspace = true }
+flexcore-authz = { workspace = true }
+# P3.28 — the Phase 3 record-store contracts (ScheduleRecordStore,
+# ScheduleRevisionChainStore, EnvelopeRecordStore) surface in the
+# unit-of-work bundle (state.rs); the traits live in flexcore-storage
+# (the recorded D-P3.21-4 home).
+flexcore-storage = { workspace = true }
+flexcore-postgres-adapter = { workspace = true }
+flexcore-nats-adapter = { workspace = true }
+# RFC 3339 rendering of canonical event timestamps in the DTO layer (dto.rs).
+time = { workspace = true }
+# Broker readiness: the composition root opens the core async-nats client
+# directly. The NATS adapter crate hosts the publisher/consumer (P1.15,
+# P1.16), not a client wrapper, so there is no adapter type to reuse.
+async-nats = { workspace = true }
+
+# Integration tests compose the Test-variant backend with the ports fakes
+# (flexcore-ports is already a runtime dependency; no test-only edge).
+
+# P2.19/P2.25 DB-gated integration tests (telemetry_history.rs,
+# exit_portfolio.rs) bootstrap roles/partitions with sqlx directly.
+# Dev-only edge: the composition root itself stays sqlx-free in runtime
+# code (storage goes through flexcore-postgres-adapter).
+[dev-dependencies]
+sqlx = { workspace = true }
+
+[[bin]]
+name = "flexcore-control-plane"
+path = "src/main.rs"

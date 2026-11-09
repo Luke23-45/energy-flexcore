@@ -1,0 +1,41 @@
+# P1.19 — flexcore-worker: background worker binary (composition root).
+#
+# Separate process per report §8.3: the outbox publisher (P1.15) and the
+# idempotent consumers (P1.16) are long-lived background work distinct from
+# request handling, so they get their own process now (justification recorded
+# in README.md). The worker hosts library types from flexcore-nats-adapter
+# and owns the durable PostgreSQL inbox store until it is promoted into
+# flexcore-postgres-adapter (single-home decision recorded in src/inbox.rs).
+[package]
+name = "flexcore-worker"
+description = "Background worker: outbox publisher + event consumers (P1.19)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Composition-root infrastructure (allowed here; core crates may not).
+axum = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+async-nats = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Internal crates.
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }
+flexcore-events = { workspace = true }
+flexcore-application = { workspace = true }
+flexcore-ports = { workspace = true }
+# P2.10 step 5 composition: the simulator source is the first
+# TelemetrySource implementation, wired HERE (composition root) only —
+# the ingestion pipeline itself compiles against the port (port-only
+# rule). See main.rs compose_ingestion.
+flexcore-simulator = { workspace = true }
+flexcore-nats-adapter = { workspace = true }
+flexcore-postgres-adapter = { workspace = true }
+
+[[bin]]
+name = "flexcore-worker"
+path = "src/main.rs"

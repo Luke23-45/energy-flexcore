@@ -1,0 +1,327 @@
+# P1.27 — CI quality gates (report §22.2, Phase 1 slice).
+#
+# DECISION (recorded, ledger P1.27 step 1): the CI system is GitHub Actions
+# (the repository is hosted on GitHub; no other CI platform is in use).
+#
+# Gates that apply in Phase 1 (below). Gates that do NOT apply yet, with
+# owners (P1.27 step 2): Python Ruff/pytest (Phase 7 Python workers);
+# frontend lint/type-check/test/build (Phase 5 console); plugin manifest /
+# WIT validation (Phase 7); scenario regression suite (applies from P2.27 —
+# the `scenario-regression` job below).
+#
+# P2.27 — Phase 2 additions (the three new jobs below; Phase 1 jobs are
+# unchanged):
+#   migration-tests       up/down of ALL migrations (0001–0012+) on a real
+#                         PostgreSQL 18 service container. The migration
+#                         enumeration lives in the TEST file, not here: the
+#                         up path is embedded with sqlx::migrate!("migrations/")
+#                         (a compile-time glob — later migrations need no CI
+#                         edits) and the down path is the recorded down-file
+#                         table in crates/adapters/postgres/tests/integration.rs.
+#   scenario-regression   the exit-gate scenario runs through the sim-runner
+#                         (`run`, then `replay` against the produced
+#                         reference) and the gate asserts the replay REPORT
+#                         verdict ("pass"), not merely the exit code
+#                         (P2.24 exit codes: 0 pass / 1 mismatch / 2 usage).
+#                         A generation change that breaks replay fails with
+#                         the mismatch diff printed — never a silent pass.
+#   telemetry-contract    the reusable TelemetrySource provider contract
+#                         suite (P2.11; §19.2 layer 3). The suite is generic
+#                         over the port and lives in flexcore-ports, which
+#                         CANNOT depend on the simulator (port-only
+#                         dependency rule), so CI runs it against the
+#                         in-memory deterministic stand-in harness in
+#                         crates/flexcore-ports/tests/telemetry_source_contract.rs,
+#                         which mirrors the simulator's declared contract
+#                         (P2.14/P2.15). Future providers plug into the same
+#                         suite; the recorded simulator-side wiring
+#                         follow-up is in
+#                         ledger/phase-02-asset-telemetry/27_ci_gate_inventory.md.
+#
+# P3.27 — Phase 3 addition (the new job below; all existing jobs unchanged):
+#   phase3-scenario-regression
+#                         the P3.26 deterministic scenario suite
+#                         (apps/sim-runner/tests/phase3_scenarios.rs) runs
+#                         as a regression gate, and the P3.27 benchmark
+#                         harness runs over the same three scenarios (with
+#                         the ×2/×4 scaling probe) to produce the
+#                         benchmark-record artifact. A regression is a P3.26
+#                         expectation mismatch or a benchmark-record
+#                         STRUCTURAL failure — NEVER a runtime threshold
+#                         (report §19.4: no arbitrary universal targets).
+#                         CI records come from shared runners: context for
+#                         triage, not baseline figures (the baseline is the
+#                         human's single recorded run,
+#                         ledger/phase-03-flexibility-scheduling/
+#                         27_benchmark_report.md).
+#
+# NOTE for the first human run: several steps fetch crates/images from the
+# network on first execution; the version pins come from
+# ledger/phase-01-rust-foundation/RESEARCH.md and rust-toolchain.toml.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Integration tests skip cleanly when these are unset; the services job
+  # sets them (P1.13/P1.15 recorded decision: CI services, not testcontainers).
+  FLEXCORE_TEST_DATABASE_URL: postgres://flexcore:flexcore@localhost:5432/flexcore_test
+  FLEXCORE_TEST_NATS_URL: nats://localhost:4222
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Dependency-rule check (P1.04)
+        run: python tools/check_dependency_rule.py
+      - name: Buf lint (P1.18; passes on the empty Phase 1 proto set)
+        uses: bufbuild/buf-action@v1
+        with:
+          input: proto
+          setup_only: false
+          lint: true
+          breaking: false
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Workspace tests (unit; integration tests self-skip without services)
+        run: cargo test --workspace
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_USER: flexcore
+          POSTGRES_PASSWORD: flexcore
+          POSTGRES_DB: flexcore_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flexcore"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      nats:
+        image: nats:2.15.2
+        args: ["--jetstream", "-sd", "/data"]
+        ports: ["4222:4222"]
+        options: >-
+          --health-cmd "wget -q -O- http://localhost:8222/healthz || exit 1"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Integration tests (Postgres 18.6 + NATS 2.15.2 services)
+        run: cargo test --workspace
+
+  # P2.27 step 1 — migration tests: up/down of ALL migrations (0001–0012+,
+  # including the P2.06 telemetry partitions and later additions) on a real
+  # PostgreSQL 18 service container, matching the deploy/compose pin. The
+  # migration lists live in the TEST file (up: sqlx::migrate! compile-time
+  # glob over migrations/; down: the recorded down-file table in
+  # crates/adapters/postgres/tests/integration.rs), so a later migration
+  # needs NO CI edit. NATS is not needed for the migration tests; the
+  # workspace-wide integration-tests job above still provides both services.
+  migration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_USER: flexcore
+          POSTGRES_PASSWORD: flexcore
+          POSTGRES_DB: flexcore_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flexcore"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Migration up/down tests (FLEXCORE_TEST_DATABASE_URL from the workflow env)
+        run: cargo test -p flexcore-postgres-adapter
+
+  # P2.27 step 2 — scenario regression: the exit-gate scenario (its own
+  # master seed travels with the versioned artefact; no seed override, so
+  # the gate tracks the scenario) runs through the sim-runner, and the gate
+  # asserts the replay REPORT verdict ("pass"), not just the exit code —
+  # exit 1 already fails the job, and the verdict step re-reads the report
+  # and prints the mismatch list so a generation change fails with the diff
+  # visible. The code version is recorded from the commit SHA (P2.13 §4:
+  # replay names scenario version + seed + code version).
+  scenario-regression:
+    runs-on: ubuntu-latest
+    env:
+      RUN_DIR: ${{ runner.temp }}/scenario-regression
+      FLEXCORE_CODE_VERSION: ci-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Run the exit-gate scenario and emit the reference records
+        run: |
+          cargo run -p flexcore-sim-runner -- run \
+            --scenario scenarios/synthetic-portfolio/scenario-v1.json \
+            --out "$RUN_DIR/reference.json"
+      - name: Replay against the produced reference (exit 0 pass / 1 mismatch / 2 usage)
+        run: |
+          cargo run -p flexcore-sim-runner -- replay \
+            --scenario scenarios/synthetic-portfolio/scenario-v1.json \
+            --reference "$RUN_DIR/reference.json" \
+            --report "$RUN_DIR/report.json"
+      - name: Assert the replay REPORT verdict is "pass" (P2.27: the verdict, not just the exit code)
+        run: |
+          cat "$RUN_DIR/report.json"
+          # VERIFY-CI: jq is preinstalled on GitHub-hosted ubuntu-latest
+          # runners; if a future runner image drops it, replace this step
+          # with a python3 -c json parse of the same field.
+          verdict="$(jq -r '.verdict' "$RUN_DIR/report.json")"
+          if [ "$verdict" != "pass" ]; then
+            echo "::error::replay verdict is '$verdict' (expected 'pass'); mismatches follow"
+            jq '.mismatches' "$RUN_DIR/report.json"
+            exit 1
+          fi
+          jq -c '{scenario_id, scenario_version, seed, code_version, reference_count, match_count, mismatch_count, verdict}' "$RUN_DIR/report.json"
+
+  # P2.27 step 3 — telemetry contract suite: every TelemetrySource provider
+  # passes the same interface suite (P2.11; §19.2 layer 3). The suite is
+  # generic over the port and lives in flexcore-ports, which cannot depend
+  # on the simulator (port-only dependency rule,
+  # tools/check_dependency_rule.py) — so this job runs it against the
+  # in-memory deterministic stand-in harness that mirrors the simulator's
+  # declared provider contract (P2.14/P2.15). Future providers plug into the
+  # same suite by instantiating ContractSpec against their own source; the
+  # recorded simulator-side wiring follow-up lives in
+  # ledger/phase-02-asset-telemetry/27_ci_gate_inventory.md. No services
+  # needed: the suite is pure (no database, no broker).
+  telemetry-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: TelemetrySource contract suite (ports; generic over providers)
+        run: cargo test -p flexcore-ports --test telemetry_source_contract
+
+  # P3.27 — the P3.26 deterministic scenario suite as a regression gate
+  # (§22.2 "scenario regression suite") plus the benchmark-record artifact.
+  # The benchmark step is a RECORD PRODUCER, not a performance gate: no step
+  # below evaluates a runtime value (report §19.4 — no arbitrary universal
+  # targets). A failure here is a P3.26 expectation mismatch (the test
+  # suite's pre-registered assertions) or a benchmark-record structural
+  # failure (missing/unparsable required fields) — never a slow run.
+  phase3-scenario-regression:
+    runs-on: ubuntu-latest
+    env:
+      RUN_DIR: ${{ runner.temp }}/phase3-scenario-regression
+      FLEXCORE_CODE_VERSION: ci-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: P3.26 scenario regression suite (pre-registered expectations; a mismatch is a finding)
+        run: cargo test -p flexcore-sim-runner --test phase3_scenarios
+      - name: Benchmark harness — one record set per scenario, with the ×2/×4 scaling probe
+        run: |
+          mkdir -p "$RUN_DIR"
+          for s in scenario-a-normal-day scenario-b-pv-ramp scenario-c-dropout; do
+            cargo run -p flexcore-sim-runner -- benchmark \
+              --scenario "scenarios/synthetic-portfolio/scenarios-phase3/$s.json" \
+              --scaling 2,4 \
+              --out "$RUN_DIR/benchmark-record-$s.json" || exit 1
+          done
+      - name: Assert benchmark-record STRUCTURE (schema, pin, hardware, measured fields)
+        run: |
+          # Structural assertions only — the empty-cell contract: an
+          # unmeasured field is "not_measured" with a reason, never a zero;
+          # completeness is reported, not enforced (the solver-side fields
+          # are VERIFY-BUILD G5 until the real-solve legs land).
+          for f in "$RUN_DIR"/benchmark-record-*.json; do
+            jq -e 'length == 3' "$f" > /dev/null || { echo "FAIL: $f must hold 3 records (x1, x2, x4)"; exit 1; }
+            jq -e 'all(.[];
+              .record_schema == "flexcore-benchmark-record/v1"
+              and (.subtask == "P3.27")
+              and (.scenario_pin.scenario_id | length > 0)
+              and (.scenario_pin.master_seed == 20260601)
+              and (.scenario_pin.solver_pins.tier1.version == "1.15.1")
+              and (.hardware.os | length > 0)
+              and (.hardware.container_flag | length > 0)
+              and (.measured.replay_runtime.status == "measured")
+              and (.measured.replay_runtime.value >= 0)
+              and (.measured.solver_runtime.status == "not_measured")
+              and (.measured.objective_value.status == "not_measured")
+              and (.measured.feasible_interval_count.status == "not_measured")
+              and (.measured.schedule_deviation.status == "not_measured")
+              and (.completeness.complete == false)
+              and ((.completeness.unmeasured | length) == 4)
+            )' "$f" > /dev/null || { echo "FAIL: structural check failed for $f"; cat "$f"; exit 1; }
+            echo "OK: $f"
+          done
+      - name: Upload the benchmark records (NOT baseline figures — shared-runner context)
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-record
+          path: ${{ runner.temp }}/phase3-scenario-regression/benchmark-record-*.json
+          if-no-files-found: error
+
+  security-and-supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Release-profile auth-stub gate (P1.17)
+        run: |
+          # The dev-auth feature must never be a default feature: a release
+          # build would ship the placeholder identity resolver.
+          if grep -E '^\s*default\s*=\s*\[.*dev-auth' apps/control-plane/Cargo.toml; then
+            echo "FAIL: dev-auth must not be a default feature"; exit 1
+          fi
+          echo "OK: dev-auth is opt-in only"
+      - name: License scan (cargo-deny)
+        uses: taiki-e/install-action@cargo-deny
+      - name: cargo deny check licenses
+        run: cargo deny check licenses
+        # The deny.toml lands with the first Cargo.lock (P1.03): until then
+        # this step is expected to be tightened by the human on first run.
+        continue-on-error: true
+      - name: SBOM (CycloneDX per build)
+        uses: taiki-e/install-action@cargo-cyclonedx
+      - name: Generate SBOM artifact
+        run: cargo cyclonedx --all --format json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: "*.cdx.json"
+
+  # Buf breaking is separate: it needs the base ref for comparison.
+  buf-breaking:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Buf breaking change check (P1.18)
+        uses: bufbuild/buf-action@v1
+        with:
+          input: proto
+          breaking: true
+          breaking_against: "https://github.com/${{ github.repository }}.git#branch=${{ github.base_ref }},subdir=proto"

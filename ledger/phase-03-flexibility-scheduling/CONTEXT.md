@@ -60,6 +60,18 @@ phase consumes it.
 - **SUPERSEDED:** a schedule revision invalidated by a newer approved revision, retained for audit (§14.2). Distinct from CANCELLED.
 - Use "license" (US spelling) and "acknowledgement" (per `.agent/WRITING.md`).
 
+## 5a. Time model (P3.03, recorded)
+
+UTC-only internally (local time at display only). Intervals are
+start-inclusive, end-exclusive; a boundary instant belongs to the LATER
+interval. Horizon and interval length are configuration (proposal: 24 h /
+15 min — ledger open question 1). Sub-interval telemetry aggregates to the
+scheduling grid with the quality precedence MISSING > BAD > STALE > SUSPECT >
+ESTIMATED > GOOD (empty bucket = MISSING; GOOD survives only if all inputs
+are GOOD; ESTIMATED never upgrades). Horizon rollover supersedes the prior
+schedule revision — never a silent overwrite. Implementation:
+`crates/flexcore-domain/src/scheduling_time.rs`.
+
 ## 6. Constraints (simulation-only 0.x)
 
 - The entire 0.x line is simulation-only (AGENTS.md rule 5). No command path, no device writes, no operator-approved control in this phase.

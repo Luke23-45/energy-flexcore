@@ -33,7 +33,7 @@
 
 ### P4.01 — Select the primary grid-model provider (§12.4)
 
-- [ ] **Objective:** Choose one primary deterministic power-flow path and record the choice with its boundary, so later providers are added only when a concrete test case requires them.
+- [x] **Objective:** Choose one primary deterministic power-flow path and record the choice with its boundary, so later providers are added only when a concrete test case requires them.
 - **Report trace:** §12.4, §25.2 (D3), §23 Stage 4.
 - **Inputs/prerequisites:** Phase 3 handover (schedule + envelope contracts, solver versions); D3 status (OPEN — balanced radial default per DECISIONS.md); RESEARCH.md provider versions.
 - **Steps:**
@@ -50,7 +50,7 @@
 
 ### P4.02 — Grid-model provider port and adapter contract (§12.4, §9.1)
 
-- [ ] **Objective:** Build the grid-model provider behind a port so the feasibility gate depends on a contract, not on pandapower directly.
+- [x] **Objective:** Build the grid-model provider behind a port so the feasibility gate depends on a contract, not on pandapower directly.
 - **Report trace:** §12.4, §9.1, §5.2, §8.1 (`flexcore-grid-api`).
 - **Inputs/prerequisites:** P4.01.
 - **Steps:**
@@ -67,7 +67,7 @@
 
 ### P4.03 — Versioned network model and model-health tracking (§12.5, §20.1 item 5)
 
-- [ ] **Objective:** Make the network model a versioned, health-checked input so a feasibility verdict always names the model it was checked against.
+- [x] **Objective:** Make the network model a versioned, health-checked input so a feasibility verdict always names the model it was checked against.
 - **Report trace:** §12.5 steps 3, 6; §12.6 (result contract carries grid-model version); §20.1 item 5 (Grid workspace — display contract only).
 - **Inputs/prerequisites:** P4.02; grid model from Phase 2 (site/feeder definitions).
 - **Steps:**
@@ -84,7 +84,7 @@
 
 ### P4.04 — Feasibility-gate pipeline, steps 1–2: candidate validation (§12.5)
 
-- [ ] **Objective:** Implement the first two steps of the §12.5 validation pipeline: schema/units/timestamp/validity-window validation, then resource capability and ramp checks.
+- [x] **Objective:** Implement the first two steps of the §12.5 validation pipeline: schema/units/timestamp/validity-window validation, then resource capability and ramp checks.
 - **Report trace:** §12.5 steps 1–2, §10.2, §11.
 - **Inputs/prerequisites:** P4.02–P4.03; Phase 3 schedule + capability contracts.
 - **Steps:**
@@ -101,7 +101,7 @@
 
 ### P4.05 — Feasibility-gate pipeline, steps 3–4: apply injections, run AC power flow (§12.5)
 
-- [ ] **Objective:** Apply the candidate to the versioned network model and run the appropriate AC power-flow (or three-phase unbalanced) model — as an evaluation, not an optimization.
+- [x] **Objective:** Apply the candidate to the versioned network model and run the appropriate AC power-flow (or three-phase unbalanced) model — as an evaluation, not an optimization.
 - **Report trace:** §12.5 steps 3–4, §12.4, §7.4.
 - **Inputs/prerequisites:** P4.04; P4.02 adapter.
 - **Steps:**
@@ -118,7 +118,7 @@
 
 ### P4.06 — Feasibility-gate pipeline, step 5: voltage, thermal, transformer, equipment limits (§12.5)
 
-- [ ] **Objective:** Verify the power-flow result against voltage, current/thermal, transformer, generator, and relevant equipment limits, with margins.
+- [x] **Objective:** Verify the power-flow result against voltage, current/thermal, transformer, generator, and relevant equipment limits, with margins.
 - **Report trace:** §12.5 step 5, §12.5 step 7, §19.4 (grid feasibility metrics).
 - **Inputs/prerequisites:** P4.05.
 - **Steps:**
@@ -135,7 +135,7 @@
 
 ### P4.07 — Feasibility-gate pipeline, steps 6–8: non-convergence, margins, reject/constrain/return (§12.5)
 
-- [ ] **Objective:** Complete the pipeline: report non-convergence and coverage limits explicitly, compute diagnostics, and route unacceptable candidates to reject, constrain, or return-for-re-optimization.
+- [x] **Objective:** Complete the pipeline: report non-convergence and coverage limits explicitly, compute diagnostics, and route unacceptable candidates to reject, constrain, or return-for-re-optimization.
 - **Report trace:** §12.5 steps 6–8, §12.6.
 - **Inputs/prerequisites:** P4.04–P4.06.
 - **Steps:**
@@ -152,7 +152,7 @@
 
 ### P4.08 — Fail-closed policy: validator failure, stale model, missing telemetry (§12.5, §17.5 inv. 9)
 
-- [ ] **Objective:** Write and enforce the fail-closed rule: when the validator fails or the model is stale/incomplete, the system must not infer feasibility.
+- [x] **Objective:** Write and enforce the fail-closed rule: when the validator fails or the model is stale/incomplete, the system must not infer feasibility.
 - **Report trace:** §12.5 (final paragraph), §17.5 invariant 9, §10.4.
 - **Inputs/prerequisites:** P4.03–P4.07.
 - **Steps:**
@@ -169,7 +169,7 @@
 
 ### P4.09 — SOCP relaxation boundary (Tier 2 candidates) (§12.5)
 
-- [ ] **Objective:** Handle Tier 2 (SOCP) schedule candidates honestly: a relaxation solution may be inexact and must be verified with the independent AC power-flow engine.
+- [x] **Objective:** Handle Tier 2 (SOCP) schedule candidates honestly: a relaxation solution may be inexact and must be verified with the independent AC power-flow engine.
 - **Report trace:** §12.5 (branch-flow SOCP paragraph), §12.3, §7.4.
 - **Inputs/prerequisites:** P4.05–P4.07; Phase 3 Tier 2 provider (P3.18).
 - **Steps:**
@@ -186,7 +186,7 @@
 
 ### P4.10 — Command state machine implementation (§14.1–§14.2)
 
-- [ ] **Objective:** Implement the protected command state machine exactly as specified in §14.1, with the §14.2 state definitions as the only states.
+- [x] **Objective:** Implement the protected command state machine exactly as specified in §14.1, with the §14.2 state definitions as the only states. — implemented, awaiting human build/test
 - **Report trace:** §14.1, §14.2, §6.1 (DDD), §8.1 (`flexcore-domain`).
 - **Inputs/prerequisites:** Phase 3 schedule identity/revision (P3.22).
 - **Steps:**
@@ -203,7 +203,7 @@
 
 ### P4.11 — Command creation: PROPOSED and the validation gate (§14.1–§14.2)
 
-- [ ] **Objective:** Create PROPOSED commands from approved schedules and move them through the validation gate (schema, freshness, asset checks) to VALIDATED or REJECTED.
+- [x] **Objective:** Create PROPOSED commands from approved schedules and move them through the validation gate (schema, freshness, asset checks) to VALIDATED or REJECTED.
 - **Report trace:** §14.1, §14.2, §12.5 steps 1–2, §15.3.
 - **Inputs/prerequisites:** P4.04, P4.10; Phase 3 schedules.
 - **Steps:**
@@ -220,7 +220,7 @@
 
 ### P4.12 — Feasibility gate for commands: VALIDATED → FEASIBLE or REJECTED (§14.1, §12.5)
 
-- [ ] **Objective:** Move VALIDATED commands through the network feasibility gate to FEASIBLE or REJECTED, keeping feasibility evidence distinct from validation evidence.
+- [x] **Objective:** Move VALIDATED commands through the network feasibility gate to FEASIBLE or REJECTED, keeping feasibility evidence distinct from validation evidence.
 - **Report trace:** §14.1, §14.2, §12.5, §17.5 invariant 3.
 - **Inputs/prerequisites:** P4.07–P4.08, P4.11.
 - **Steps:**
@@ -237,7 +237,7 @@
 
 ### P4.13 — Human approval and the authorization gate (§14.1–§14.2, §17.3)
 
-- [ ] **Objective:** Implement the authorization gate: FEASIBLE → APPROVED only by a required human/policy authorization, with scope, limits, and expiry recorded.
+- [x] **Objective:** Implement the authorization gate: FEASIBLE → APPROVED only by a required human/policy authorization, with scope, limits, and expiry recorded.
 - **Report trace:** §14.1, §14.2, §17.3, §17.5 invariant 4, §21.4 (operator-approved control at v1.0.0; simulation/shadow in 0.x).
 - **Inputs/prerequisites:** P4.12; identity/RBAC from Phase 1 (or the Phase 1 contract if the implementation is staged — record which).
 - **Steps:**
@@ -666,3 +666,4 @@
 - Consumes from Phase 3: schedule ID + revision (P3.22), envelope version (P3.13), §12.6 result records (P3.21). See `ledger_phase_3.md` P3.21–P3.22.
 - Consumed by Phase 5: dispatch lifecycle states and audit trail (P5.06, P5.09, P5.13), feasibility evidence display (P5.04), simulator integration (P5.14–P5.15 adapters; P5.18–P5.20 replay/library). See `ledger_phase_5.md`.
 - NOT built here: operator console UI (Phase 5), edge/protocol adapters (Stage 6), plugin SDK (Stage 7), research modules (Stage 8).
+ — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test
