@@ -1,0 +1,185 @@
+// P7.09 — flexcore:telemetry@1.0.0 — the TelemetrySource world (ledger
+// P7.09 step 1). The telemetry-ingestion seam (report §5.2): telemetry-source
+// plugins are the first Class B/C target (02_scope_freeze.md §3).
+//
+// Mirrors: flexcore-ports/src/telemetry_source.rs::TelemetrySource
+// (provider_declaration, subscribe, decode, source_id, health) — with
+// src/telemetry_source.rs::{TelemetryQuery, NormalizedTelemetry,
+// TelemetryQuantity, QuantityValue, ProviderDeclaration,
+// QualityMappingDeclaration, TelemetrySourceHealth, TelemetrySourceError}
+// and src/backend_error.rs::BackendError — verified 2026-11-13; WIT
+// translation, not redefinition.
+//
+// Tenant scoping (P0.16 rules 1 and 5): in Rust, a TelemetryQuery can only
+// be constructed FROM an authenticated TenantContext — the tenant comes
+// only from the context, never from a parameter. WIT records have no
+// private fields, so `telemetry-query` carries `tenant-id` explicitly with
+// this rule: the HOST sets and validates the tenant from the authenticated
+// session before dispatching to the component (P7.11 broker; data-level
+// tenant filtering is P7.39), and a component-supplied tenant that
+// disagrees with the session is rejected. The plugin never gets to assert
+// tenant scope.
+//
+// Quality (P0.08 non-silencing rule): quality states survive the seam
+// unchanged — exactly the six canonical states of flexcore:core; a plugin
+// never silently upgrades quality (CONTEXT.md §4). Decode failure is an
+// error — never a partial record set, never a silently degraded record
+// (P2.11 step 3).
+//
+// Source-identity namespaces (P2.04 D-T6): a measured provider must never
+// declare or emit a `flexcore:`-namespaced source-id; only platform
+// gap/derivation detectors (P2.08) may.
+//
+// Sync semantics: the Rust port is deliberately synchronous — `subscribe`
+// returns an opaque handle, not a stream; delivery, buffering, and ordering
+// are the adapter's concern. The WIT world mirrors this shape exactly (no
+// `stream<T>`/`future<T>` — those are WASI 0.3 primitives and are out of
+// scope for the WASI 0.2 baseline, RESEARCH.md R7-C1).
+//
+// WASI 0.2 baseline: this world declares NO `wasi:` imports (least
+// privilege, report §5.4). Any future WASI import is pinned at
+// wasi:*@0.2.x (e.g. wasi:cli/imports@0.2.x); no WASI 0.3 syntax anywhere.
+
+package flexcore:telemetry@1.0.0;
+
+/// The provider side of the TelemetrySource port (report §9.1; ledger
+/// P2.11). Exported by telemetry-source plugin components; consumed by the
+/// plugin host (P7.10) on behalf of the ingestion path.
+interface telemetry-source {
+
+    use flexcore:core/types@1.0.0.{
+        flex-uuid,
+        utc-timestamp,
+        telemetry-quality,
+        telemetry-quantity,
+        clock-quality,
+        normalized-telemetry,
+    };
+
+    // --- The query (mirrors telemetry_source.rs::TelemetryQuery) ----------------
+
+    // What a consumer wants: a TENANT-SCOPED asset set (P0.16 rule 7), a
+    // `from <= until` range over event_time (inclusive both ends), and the
+    // named quantities — no implicit "all quantities" wildcard (an empty
+    // quantity set is invalid, as is an empty asset set and an inverted
+    // range; validated in Rust by the only constructor).
+    //
+    // Tenant rule (P0.16 rules 1 and 5): the host sets `tenant-id` from the
+    // authenticated session context (see the package header) — the
+    // component never asserts tenant scope.
+    record telemetry-query {
+        tenant-id: flex-uuid,
+        assets: list<flex-uuid>,
+        from: utc-timestamp,
+        until: utc-timestamp,
+        quantities: list<telemetry-quantity>,
+    }
+
+    // Mirrors telemetry_source.rs::TelemetrySubscription: the opaque handle
+    // a subscription implementation issues for one subscribed query. Rust
+    // wraps a u64 (`from_handle`); the WIT type alias keeps the same
+    // opacity rule — its meaning is entirely the implementation's.
+    type telemetry-subscription = u64;
+
+    // --- The provider declaration (mirrors telemetry_source.rs) -----------------
+
+    // Mirrors telemetry_source.rs::SourceStateMapping (P0.08 §3): one
+    // declared mapping from a verbatim source-side quality code to the ONE
+    // canonical state (of the six) it maps to at the provider boundary.
+    // The original code travels downstream as `source-quality-code` on
+    // every record carrying it; the canonical vocabulary never grows.
+    record source-state-mapping {
+        source-code: string,
+        canonical: telemetry-quality,
+    }
+
+    // Mirrors telemetry_source.rs::ProviderDeclaration (P2.11 step 4 — the
+    // provider rule in structural form): every provider declares, once,
+    // its cadence (expected emission interval between consecutive samples
+    // of one asset), its quality-state mapping onto the six canonical
+    // states (at least one mapping, no empty or duplicated source codes —
+    // validated in Rust), and its clock-quality behaviour (never a silent
+    // assumption of synchronized, P2.04 D-T5). `cadence-nanos` mirrors the
+    // Rust `std::time::Duration` exactly (u64 nanoseconds; recorded
+    // mapping decision). The source-id must be non-empty and must not use
+    // the reserved `flexcore:` namespace (P2.04 D-T6).
+    record provider-declaration {
+        source-id: string,
+        cadence-nanos: u64,
+        quality-mapping: list<source-state-mapping>,
+        clock-quality: clock-quality,
+    }
+
+    // --- Provider health (mirrors telemetry_source.rs::TelemetrySourceHealth) ---
+
+    // The provider's self-reported health — its honest status, not a
+    // platform judgement; consumers apply their own freshness rules
+    // (P2.08). The `degraded`/`unavailable` payloads are the human-safe
+    // reasons (never raw backend text — the P1.08 rule).
+    variant telemetry-source-health {
+        healthy,
+        degraded(string),
+        unavailable(string),
+    }
+
+    // --- Port errors (mirrors telemetry_source.rs + backend_error.rs) ------------
+
+    // Mirrors backend_error.rs::BackendError: an opaque backend failure
+    // with an adapter-defined stable code and a human-safe message.
+    record backend-error {
+        code: string,
+        message: string,
+    }
+
+    // Mirrors telemetry_source.rs::TelemetrySourceError. `decode-failed` is
+    // the decode-failure rule (P2.11 step 3): failure is reported, never
+    // papered over with a partial record. Reasons are human-safe — never
+    // raw wire or backend content (P1.08).
+    variant telemetry-source-error {
+        not-subscribed,
+        invalid-query(string),
+        decode-failed(string),
+        backend(backend-error),
+    }
+
+    // --- The port functions -------------------------------------------------------
+
+    // Mirrors telemetry_source.rs::TelemetrySource::provider_declaration
+    // (P2.11 step 4): cadence, quality mapping, clock-quality behaviour,
+    // and source identity — structural so a provider cannot exist without
+    // declaring them.
+    provider-declaration: func() -> provider-declaration;
+
+    // Mirrors telemetry_source.rs::TelemetrySource::subscribe: registers
+    // interest in the telemetry described by `query` and returns the opaque
+    // subscription handle. Queries the source cannot serve are rejected
+    // with `invalid-query` (human-safe reason).
+    subscribe: func(query: telemetry-query) -> result<telemetry-subscription, telemetry-source-error>;
+
+    // Mirrors telemetry_source.rs::TelemetrySource::decode: decodes one
+    // opaque raw frame from the subscribed stream into the COMPLETE set of
+    // canonical records that frame carries (a multi-quantity sample is a
+    // set of records sharing source-id, source-sequence, and event-time —
+    // P2.04 D-T2). A successful result is non-empty and every record in it
+    // is complete and canonical; anything less is `decode-failed` — never
+    // a partial record, never a silently degraded quality state (P0.08
+    // non-silencing rule).
+    decode: func(subscription: telemetry-subscription, payload: list<u8>) -> result<list<normalized-telemetry>, telemetry-source-error>;
+
+    // Mirrors telemetry_source.rs::TelemetrySource::source_id: the
+    // provider's source identity — matches `source-id` on every record it
+    // emits (derived from the mandatory declaration in Rust).
+    source-id: func() -> string;
+
+    // Mirrors telemetry_source.rs::TelemetrySource::health: the provider's
+    // self-reported health.
+    health: func() -> telemetry-source-health;
+}
+
+// The telemetry-source plugin world: a Class B component targeting this
+// world exports the `telemetry-source` interface and nothing else. No
+// `wasi:` imports — no ambient access (report §5.4 Class B); the host
+// (P7.10) binds only what this world declares.
+world telemetry-source-plugin {
+    export telemetry-source;
+}

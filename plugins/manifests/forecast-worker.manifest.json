@@ -1,0 +1,45 @@
+{
+  "manifest-schema": "flexcore-plugin-manifest-v1",
+  "plugin-id": "acme.forecast-worker",
+  "name": "Acme Day-Ahead Forecast Worker",
+  "version": "0.3.1",
+  "api-version": "^0.5.0",
+  "class": "grpc-worker",
+  "entry-point": {
+    "target": "https://forecast-worker.internal:9443"
+  },
+  "provider-of": ["forecast.day-ahead"],
+  "consumes": ["telemetry.history"],
+  "permissions": ["telemetry.read", "forecast.publish"],
+  "configuration-schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "horizon-hours": {
+        "type": "integer",
+        "description": "Forecast horizon in hours."
+      },
+      "region": {
+        "type": "string",
+        "description": "Market region id the worker forecasts for."
+      }
+    },
+    "required": ["horizon-hours"]
+  },
+  "secrets": [
+    {
+      "name": "worker-credentials",
+      "reference": "secret-store:forecast/worker"
+    }
+  ],
+  "resources": {
+    "max-memory-mb": 512,
+    "timeout-ms": 30000,
+    "max-output-mb": 16,
+    "max-calls-per-minute": 600
+  },
+  "metadata": {
+    "license": "Apache-2.0",
+    "description": "Out-of-process Class C forecast worker (illustrative third-party plugin for the SDK examples)."
+  }
+}

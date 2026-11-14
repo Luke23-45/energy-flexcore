@@ -125,6 +125,25 @@ pub fn phase4_command_policies() -> PolicySet {
         }
     }
 
+    // feasibility.read — Operator, TenantAdmin, Viewer, at every scope
+    // kind (P4.30): the `/api/v1/feasibility-checks` resource is
+    // READ-ONLY evidence (§15.2); no action on this surface runs a check
+    // or executes anything.
+    for role in [Role::Operator, Role::TenantAdmin, Role::Viewer] {
+        for kind in [ScopeKind::Tenant, ScopeKind::Site, ScopeKind::Asset] {
+            set.grant(
+                role,
+                Action::FeasibilityRead,
+                kind,
+                crate::decision::EvidenceRef::new(format!(
+                    "{PHASE4_POLICY_PREFIX}:{}:feasibility.read:{}",
+                    role.id(),
+                    kind.id()
+                )),
+            );
+        }
+    }
+
     set
 }
 

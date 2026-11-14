@@ -1,0 +1,170 @@
+{
+  "scenario-id": "sdk-04-proposal-envelope-replay-refused",
+  "scenario-version": "1.0.0",
+  "suite": "flexcore-plugin-sdk-scenario-regression-v1",
+  "description": "The plugin-path protection scenario (P7.36 discipline, §24 step 10 replay leg): request envelopes build byte-identically (the interpreter asserts the construction digest twice per build), the four path checks land on their distinct named refusals — sequence-0 envelope invalid, inverted validity window, not-yet-valid against the injected clock, expired against the advanced injected clock, duplicate sequence, and a tampered payload under a captured identity — and a verified exchange records as an ADR-010 PROPOSAL envelope (data, never authority), while mismatched response echoes are refused by name.",
+  "pins": {
+    "seeds": "none — envelopes are built from the pinned payloads below; the path digest (FNV-1a 64, the recorded TEST-GRADE binding) is a pure function of the canonical binding, and the interpreter asserts build-twice equality on every envelope",
+    "versions": {
+      "manifest-schema": "flexcore-plugin-manifest-v1",
+      "path-digest-algorithm": "fnv1a-64 (test-grade; a production digest is a DEPLOYMENT REQUIREMENT)",
+      "clock": "injected FixedClock, base reading 1700000000000 ms"
+    },
+    "tolerance": "exact — every expected outcome is a named refusal, an exact digest-string equality, or an exact outcome-variant name; no numeric tolerance exists on this path"
+  },
+  "inputs": {
+    "manifests": [],
+    "profiles": [],
+    "configs": [
+      { "asset": "ess-01", "action": "set-power-mw", "value": 2.5 },
+      { "asset": "ess-01", "action": "set-power-mw", "value": 7.5 }
+    ]
+  },
+  "steps": [
+    {
+      "step": "build-envelope",
+      "correlation-id": "corr-sdk04-001",
+      "plugin-id": "neryva.sdk04-optimizer",
+      "plugin-version": "0.1.0",
+      "sequence": 1,
+      "valid-from": 1700000000000,
+      "valid-until": 1700000060000,
+      "payload": { "config-index": 0 },
+      "as": "e1",
+      "expect": { "outcome": "ok" }
+    },
+    { "step": "verify-envelope", "envelope": "e1", "expect": { "outcome": "ok" } },
+    {
+      "step": "build-envelope",
+      "correlation-id": "corr-sdk04-001",
+      "plugin-id": "neryva.sdk04-optimizer",
+      "plugin-version": "0.1.0",
+      "sequence": 1,
+      "valid-from": 1700000000000,
+      "valid-until": 1700000060000,
+      "payload": { "config-index": 0 },
+      "as": "e1-duplicate",
+      "expect": { "outcome": "ok" }
+    },
+    {
+      "step": "verify-envelope",
+      "envelope": "e1-duplicate",
+      "expect": { "outcome": "refused", "name": "SEQUENCE_REPLAYED" }
+    },
+    {
+      "step": "build-envelope",
+      "correlation-id": "corr-sdk04-001",
+      "plugin-id": "neryva.sdk04-optimizer",
+      "plugin-version": "0.1.0",
+      "sequence": 0,
+      "valid-from": 1700000000000,
+      "valid-until": 1700000060000,
+      "payload": { "config-index": 0 },
+      "expect": { "outcome": "refused", "name": "REQUEST_ENVELOPE_INVALID" }
+    },
+    {
+      "step": "build-envelope",
+      "correlation-id": "corr-sdk04-001",
+      "plugin-id": "neryva.sdk04-optimizer",
+      "plugin-version": "0.1.0",
+      "sequence": 2,
+      "valid-from": 1700000060000,
+      "valid-until": 1700000000000,
+      "payload": { "config-index": 0 },
+      "expect": { "outcome": "refused", "name": "REQUEST_ENVELOPE_INVALID" }
+    },
+    {
+      "step": "build-envelope",
+      "correlation-id": "corr-sdk04-001",
+      "plugin-id": "neryva.sdk04-optimizer",
+      "plugin-version": "0.1.0",
+      "sequence": 2,
+      "valid-from": 1700006000000,
+      "valid-until": 1700006600000,
+      "payload": { "config-index": 0 },
+      "as": "e2-early",
+      "expect": { "outcome": "ok" }
+    },
+    {
+      "step": "verify-envelope",
+      "envelope": "e2-early",
+      "expect": { "outcome": "refused", "name": "REQUEST_NOT_YET_VALID" }
+    },
+    {
+      "step": "build-envelope",
+      "correlation-id": "corr-sdk04-001",
+      "plugin-id": "neryva.sdk04-optimizer",
+      "plugin-version": "0.1.0",
+      "sequence": 2,
+      "valid-from": 1700000000000,
+      "valid-until": 1700000001000,
+      "payload": { "config-index": 0 },
+      "as": "e2-expiring",
+      "expect": { "outcome": "ok" }
+    },
+    { "step": "advance-clock", "by": 2000 },
+    {
+      "step": "verify-envelope",
+      "envelope": "e2-expiring",
+      "expect": { "outcome": "refused", "name": "REQUEST_EXPIRED" }
+    },
+    {
+      "step": "build-envelope",
+      "correlation-id": "corr-sdk04-001",
+      "plugin-id": "neryva.sdk04-optimizer",
+      "plugin-version": "0.1.0",
+      "sequence": 2,
+      "valid-from": 1700000000000,
+      "valid-until": 1700000060000,
+      "payload": { "config-index": 0 },
+      "as": "e2",
+      "expect": { "outcome": "ok" }
+    },
+    { "step": "verify-envelope", "envelope": "e2", "expect": { "outcome": "ok" } },
+    {
+      "step": "tamper-envelope",
+      "envelope": "e2",
+      "payload": { "config-index": 1 },
+      "as": "e2-tampered"
+    },
+    {
+      "step": "verify-envelope",
+      "envelope": "e2-tampered",
+      "expect": { "outcome": "refused", "name": "REQUEST_DIGEST_MISMATCH" }
+    },
+    {
+      "step": "record-outcome",
+      "envelope": "e1",
+      "response": { "correlation-id": "corr-sdk04-001", "sequence": 1 },
+      "proposal": {
+        "proposal-id": "proposal-1",
+        "producer-plugin-id": "neryva.sdk04-optimizer",
+        "producer-plugin-version": "0.1.0",
+        "payload": { "schedule": { "ess-01": 2.5 } },
+        "sequence": 1
+      },
+      "expect": { "outcome": "ok", "variant": "PROPOSAL_RECORDED" }
+    },
+    {
+      "step": "record-outcome",
+      "envelope": "e1",
+      "response": { "correlation-id": "corr-sdk04-001", "sequence": 1 },
+      "proposal": null,
+      "expect": { "outcome": "ok", "variant": "RESULT_OBSERVED" }
+    },
+    {
+      "step": "record-outcome",
+      "envelope": "e1",
+      "response": { "correlation-id": "corr-sdk04-001", "sequence": 99 },
+      "proposal": null,
+      "expect": { "outcome": "refused", "name": "RESPONSE_SEQUENCE_MISMATCH" }
+    },
+    {
+      "step": "record-outcome",
+      "envelope": "e1",
+      "response": { "correlation-id": "corr-sdk04-other", "sequence": 1 },
+      "proposal": null,
+      "expect": { "outcome": "refused", "name": "RESPONSE_CORRELATION_MISMATCH" }
+    }
+  ]
+}

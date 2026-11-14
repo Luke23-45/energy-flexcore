@@ -35,9 +35,42 @@ members = [
     "crates/adapters/postgres",
     "crates/adapters/nats",
     "crates/flexcore-simulator",
+    # P6.05 — the edge agent: a COMPOSITION crate (like apps/worker); see
+    # ledger/phase-06-edge-protocol/05_12_20_edge_foundation.md for the
+    # recorded placement (report §8.1 names `apps/edge-agent`; deviation
+    # recorded there, not silently absorbed).
+    "crates/edge-agent",
+    # P7.05/P7.06 — the plugin kernel: versioned plugin manifest validation
+    # and deterministic dependency resolution (report §8.1/§8.2; see
+    # ledger/phase-07-plugin-sdk/05_06_manifest_resolution.md). Classified a
+    # COMPOSITION crate in tools/check_dependency_rule.py, like apps/worker.
+    # Registry (P7.08), lifecycle (P7.07), and permission enforcement are
+    # later subtasks — only real code is listed (P1.03 rule). This member
+    # supersedes the P1.03 header note above for flexcore-kernel only.
+    "crates/flexcore-kernel",
     "apps/control-plane",
     "apps/sim-runner",
     "apps/worker",
+    # P7.10/P7.11 — the WASM plugin host: the constrained component-model
+    # host prototype as a SEPARATE process (report §8.3: the WASM host is
+    # extracted for security isolation) plus the capability broker. A
+    # COMPOSITION crate in tools/check_dependency_rule.py (like apps/worker);
+    # its wasmtime =50.0.1 pin and the D4/CVE note live in its own
+    # apps/plugin-host/Cargo.toml (this root edit is the additive member
+    # entry only; see ledger/phase-07-plugin-sdk/10_11_plugin_host_broker.md).
+    "apps/plugin-host",
+    # P8.04–P8.06 — flexcore-research: the Phase 8 independent validation
+    # harness (P8.05, the validator that does not trust the researcher) and
+    # the frozen deterministic baseline registry (P8.06). A COMPOSITION
+    # crate in tools/check_dependency_rule.py, like flexcore-kernel and
+    # apps/plugin-host: it composes the platform's EXISTING seams (the
+    # §12.5 feasibility gate as an INJECTED port, the §12.6 result
+    # vocabulary, the §13.4 proposal vocabulary) rather than defining a new
+    # core contract; the core-crate edge policy does not apply to it, and
+    # NO core crate may depend on it. serde/serde_json only — no solver, no
+    # transport, no async runtime (the placement rationale is recorded in
+    # ledger/phase-08-advanced-coordination/05_06_harness_baselines.md).
+    "crates/flexcore-research",
 ]
 
 [workspace.package]
@@ -103,6 +136,9 @@ flexcore-grid-api = { path = "crates/flexcore-grid-api" }
 flexcore-postgres-adapter = { path = "crates/adapters/postgres" }
 flexcore-nats-adapter = { path = "crates/adapters/nats" }
 flexcore-simulator = { path = "crates/flexcore-simulator" }
+# P6.05 — edge agent (composition crate; port holder for the P6.12
+# `EmsAdapter` interface that later `crates/adapters/<protocol>` crates implement).
+flexcore-edge-agent = { path = "crates/edge-agent" }
 
 # Patch policy: no [patch] entries without an ADR and a recorded upstream
 # issue (P1.03 step 5).

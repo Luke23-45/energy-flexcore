@@ -3,7 +3,7 @@
 - **Report:** `docs/plan/Neryva_FlexCore_Product_and_Architecture_Report_v1.1.md`
 - **Stage:** §23 Stage 3 — Flexibility and deterministic schedule
 - **Release target:** v0.2.0 (simulation only; see §2.1, §21.4)
-- **Status:** Not started. No code in this phase until every subtask's acceptance criteria are met and recorded.
+- **Status:** Reconciled 2026-11-14: 31/31 subtasks implemented (code, tests, and decision records on disk); nothing installed, built, tested, or run — the Stage 3 exit gate is NOT held and awaits human build/test/review (see HANDOVER.md and the per-subtask decision records).
 - **Non-negotiables (AGENTS.md):** no hallucinated facts; no safety/certification claims; no protection-grade claims; never conflate solver classes (HiGHS LP/QP/MIP, not SOCP; Clarabel convex conic, not MISOCP; AC power flow is not AC-OPF; IPOPT local, not global); simulation-first 0.x; verify before claiming done.
 - **Spelling:** "license" (US), "acknowledgement" (per `.agent/WRITING.md`).
 - **How to use this ledger:** work subtasks in ID order unless a dependency says otherwise. Check a box only when its acceptance criteria have evidence attached (test output, file path, review note). A checked box without evidence is a defect.
@@ -31,7 +31,7 @@
 
 ### P3.01 — Freeze the capability-model contract (§11.1)
 
-- [ ] **Objective:** Define the single capability-model interface every asset adapter implements, so Phase 3 work cannot drift into per-asset ad-hoc fields.
+- [x] **Objective:** Define the single capability-model interface every asset adapter implements, so Phase 3 work cannot drift into per-asset ad-hoc fields. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/01_04_capability_contract.md`)
 - **Report trace:** §11.1, §9.1, §10.1.
 - **Inputs/prerequisites:** Stage 2 asset registry and telemetry model (Phase 2 outputs); §11.1 constraint list.
 - **Steps:**
@@ -48,7 +48,7 @@
 
 ### P3.02 — Capability provenance and unknown-state handling (§11.1)
 
-- [ ] **Objective:** Make "unknown" a first-class, visible state so an unmeasured constraint is never silently treated as unconstrained.
+- [x] **Objective:** Make "unknown" a first-class, visible state so an unmeasured constraint is never silently treated as unconstrained. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/01_04_capability_contract.md`)
 - **Report trace:** §11.1, §10.4, §17.5 invariant 9.
 - **Inputs/prerequisites:** P3.01.
 - **Steps:**
@@ -65,7 +65,7 @@
 
 ### P3.03 — Time model and horizon definition (§10.3, §11.1)
 
-- [ ] **Objective:** Fix the scheduling time grid so capability, forecast, envelope, and schedule all index the same intervals.
+- [x] **Objective:** Fix the scheduling time grid so capability, forecast, envelope, and schedule all index the same intervals. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/01_04_capability_contract.md`)
 - **Report trace:** §10.3, §11.1, §12.1.
 - **Inputs/prerequisites:** P3.01; Stage 2 telemetry timestamps.
 - **Steps:**
@@ -82,7 +82,7 @@
 
 ### P3.04 — Capability validation rules (schema, units, sign) (§11.1, §10.2)
 
-- [ ] **Objective:** Reject malformed capability data at the boundary before it can enter an envelope or a solve.
+- [x] **Objective:** Reject malformed capability data at the boundary before it can enter an envelope or a solve. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/01_04_capability_contract.md`)
 - **Report trace:** §11.1, §10.2, §12.5 step 1 (by analogy), §19.2 layer 1.
 - **Inputs/prerequisites:** P3.01–P3.03.
 - **Steps:**
@@ -99,7 +99,7 @@
 
 ### P3.05 — BESS capability model (§11.2)
 
-- [ ] **Objective:** Implement the §11.2 BESS model exactly as specified, including the discrete energy balance and the simultaneous charge/discharge rule.
+- [x] **Objective:** Implement the §11.2 BESS model exactly as specified, including the discrete energy balance and the simultaneous charge/discharge rule. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/05_08_bess_pq_models.md`)
 - **Report trace:** §11.2, §11.1.
 - **Inputs/prerequisites:** P3.01–P3.04.
 - **Steps:**
@@ -116,7 +116,7 @@
 
 ### P3.06 — BESS degradation and reserve treatment (§11.2, §12.1)
 
-- [ ] **Objective:** Define how degradation cost and reserve margins enter the model without inventing a degradation law.
+- [x] **Objective:** Define how degradation cost and reserve margins enter the model without inventing a degradation law. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/05_08_bess_pq_models.md`)
 - **Report trace:** §11.2, §12.1.
 - **Inputs/prerequisites:** P3.05.
 - **Steps:**
@@ -133,7 +133,7 @@
 
 ### P3.07 — BESS edge cases: zero/near-zero SOC, full SOC, mode transitions (§11.2)
 
-- [ ] **Objective:** Prove the BESS model behaves at its boundaries instead of only in the comfortable middle.
+- [x] **Objective:** Prove the BESS model behaves at its boundaries instead of only in the comfortable middle. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/05_08_bess_pq_models.md`)
 - **Report trace:** §11.2, §19.2 layers 1–2, §19.3 stressed scenarios.
 - **Inputs/prerequisites:** P3.05.
 - **Steps:**
@@ -149,7 +149,7 @@
 
 ### P3.08 — Inverter P-Q envelope (§11.3)
 
-- [ ] **Objective:** Implement the configurable P-Q envelope, including the apparent-power limit and mode/voltage-dependent bounds.
+- [x] **Objective:** Implement the configurable P-Q envelope, including the apparent-power limit and mode/voltage-dependent bounds. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/05_08_bess_pq_models.md`)
 - **Report trace:** §11.3, §11.1.
 - **Inputs/prerequisites:** P3.01–P3.04.
 - **Steps:**
@@ -166,7 +166,7 @@
 
 ### P3.09 — Volt-var / volt-watt capability scoping (§11.3)
 
-- [ ] **Objective:** Decide explicitly, per device profile, which volt-var/volt-watt behaviours are modelled and which are out of scope for v0.2.0.
+- [x] **Objective:** Decide explicitly, per device profile, which volt-var/volt-watt behaviours are modelled and which are out of scope for v0.2.0. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/09_11_load_ev_models.md`)
 - **Report trace:** §11.3, §25.2 (D3 network class).
 - **Inputs/prerequisites:** P3.08; D3 status (OPEN — balanced radial default per DECISIONS.md).
 - **Steps:**
@@ -182,7 +182,7 @@
 
 ### P3.10 — Flexible load model (§11.4)
 
-- [ ] **Objective:** Implement the flexible-load model beyond a negative injection, with baseline, duration, recovery, and rebound.
+- [x] **Objective:** Implement the flexible-load model beyond a negative injection, with baseline, duration, recovery, and rebound. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/09_11_load_ev_models.md`)
 - **Report trace:** §11.4, §11.1.
 - **Inputs/prerequisites:** P3.01–P3.04.
 - **Steps:**
@@ -199,7 +199,7 @@
 
 ### P3.11 — EV fleet model (§11.5)
 
-- [ ] **Objective:** Implement the EV fleet model with connection windows, departure energy, priority, and opt-out.
+- [x] **Objective:** Implement the EV fleet model with connection windows, departure energy, priority, and opt-out. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/09_11_load_ev_models.md`)
 - **Report trace:** §11.5, §11.1.
 - **Inputs/prerequisites:** P3.01–P3.04.
 - **Steps:**
@@ -216,7 +216,7 @@
 
 ### P3.12 — Portfolio flexibility envelope (§11.6)
 
-- [ ] **Objective:** Compute the portfolio flexibility envelope as a constrained aggregation, not a sum of nameplates.
+- [x] **Objective:** Compute the portfolio flexibility envelope as a constrained aggregation, not a sum of nameplates. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/12_13_envelope.md`)
 - **Report trace:** §11.6, §24 step 3.
 - **Inputs/prerequisites:** P3.05–P3.11; synthetic forecasts from the Phase 3 fixture (P3.31) with labelled provenance. Phase 2 produces no forecasts — the earlier wording ("forecasts from Phase 2") was wrong; no Phase 2 subtask owns a ForecastBundle or forecast provider, and §23 Stage 2 deliverables do not include forecasts.
 - **Steps:**
@@ -233,7 +233,7 @@
 
 ### P3.13 — Envelope staleness and recomputation triggers (§11.6, §10.4)
 
-- [ ] **Objective:** Define when an envelope is stale and must be recomputed, so a schedule never silently uses an outdated envelope.
+- [x] **Objective:** Define when an envelope is stale and must be recomputed, so a schedule never silently uses an outdated envelope. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/12_13_envelope.md`)
 - **Report trace:** §11.6, §10.4, §15.3.
 - **Inputs/prerequisites:** P3.12.
 - **Steps:**
@@ -250,7 +250,7 @@
 
 ### P3.14 — Scheduling objective definition (§12.1)
 
-- [ ] **Objective:** Make the scheduling objective explicit, configurable, and region/product-specific — never a hard-coded universal objective.
+- [x] **Objective:** Make the scheduling objective explicit, configurable, and region/product-specific — never a hard-coded universal objective. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/14_16_objective_pcc.md`)
 - **Report trace:** §12.1, §12.2.
 - **Inputs/prerequisites:** P3.12; D1/D2 status (both OPEN — no jurisdiction/market is decided).
 - **Steps:**
@@ -268,7 +268,7 @@
 
 ### P3.15 — Objective-term validation and cost-curve provenance (§12.1)
 
-- [ ] **Objective:** Prove each objective term is computed from traceable inputs, not from an untracked constant.
+- [x] **Objective:** Prove each objective term is computed from traceable inputs, not from an untracked constant. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/14_16_objective_pcc.md`)
 - **Report trace:** §12.1, §21.3 (correlation of records).
 - **Inputs/prerequisites:** P3.14.
 - **Steps:**
@@ -284,7 +284,7 @@
 
 ### P3.16 — Market/PCC tracking (§12.2)
 
-- [ ] **Objective:** Track net power at the declared PCC/delivery point, with losses and sign conventions handled consistently.
+- [x] **Objective:** Track net power at the declared PCC/delivery point, with losses and sign conventions handled consistently. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/14_16_objective_pcc.md`)
 - **Report trace:** §12.2, §10.2.
 - **Inputs/prerequisites:** P3.14; site/PCC definitions from Phase 2.
 - **Steps:**
@@ -301,7 +301,7 @@
 
 ### P3.17 — Optimizer port and Tier 1 (LP/QP/MILP) provider (§12.3, §9.1)
 
-- [ ] **Objective:** Build the `Optimizer` port (§9.1) and a Tier 1 provider behind it, so scheduling depends on a contract, not on HiGHS directly.
+- [x] **Objective:** Build the `Optimizer` port (§9.1) and a Tier 1 provider behind it, so scheduling depends on a contract, not on HiGHS directly. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/17_optimizer_port.md`)
 - **Report trace:** §12.3, §9.1, §5.2, §7.4 solver selection rule.
 - **Inputs/prerequisites:** P3.14–P3.16; RESEARCH.md solver findings (HiGHS 1.15.1: LP/QP/MIP only).
 - **Steps:**
@@ -318,7 +318,7 @@
 
 ### P3.18 — Tier 2 (continuous SOCP) provider via Clarabel (§12.3)
 
-- [ ] **Objective:** Provide the Tier 2 continuous-SOCP path for convex network approximations and inverter capability constraints, using Clarabel correctly.
+- [x] **Objective:** Provide the Tier 2 continuous-SOCP path for convex network approximations and inverter capability constraints, using Clarabel correctly. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/18_clarabel_tier2.md`)
 - **Report trace:** §12.3, §7.4, §11.3.
 - **Inputs/prerequisites:** P3.17; RESEARCH.md (Clarabel.rs 0.11.1: LP/QP/SOCP/SDP, exponential/power cones; no integer variables).
 - **Steps:**
@@ -336,7 +336,7 @@
 
 ### P3.19 — Solver configuration, tolerances, determinism, and failure handling (§12.3, §12.6, §7.4)
 
-- [ ] **Objective:** Make solver behaviour reproducible and its failures diagnosable instead of silent.
+- [x] **Objective:** Make solver behaviour reproducible and its failures diagnosable instead of silent. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/19_20_determinism_tiers.md`)
 - **Report trace:** §12.6, §7.4, §19.2 layer 5.
 - **Inputs/prerequisites:** P3.17–P3.18.
 - **Steps:**
@@ -353,7 +353,7 @@
 
 ### P3.20 — Tier 3/4 boundary: what is NOT built in this phase (§12.3)
 
-- [ ] **Objective:** Draw a hard, documented line so MISOCP/MINLP and nonlinear AC-OPF are not attempted (or claimed) in Phase 3.
+- [x] **Objective:** Draw a hard, documented line so MISOCP/MINLP and nonlinear AC-OPF are not attempted (or claimed) in Phase 3. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/19_20_determinism_tiers.md`)
 - **Report trace:** §12.3, §13 (research boundary), §24 (build-first: no speculative AI).
 - **Inputs/prerequisites:** P3.17–P3.19.
 - **Steps:**
@@ -370,7 +370,7 @@
 
 ### P3.21 — Optimization result contract (§12.6)
 
-- [ ] **Objective:** Implement the §12.6 result contract in full so every schedule is auditable from its result record alone.
+- [x] **Objective:** Implement the §12.6 result contract in full so every schedule is auditable from its result record alone. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/21_result_contract.md`)
 - **Report trace:** §12.6, §21.3, §15.3.
 - **Inputs/prerequisites:** P3.17–P3.19.
 - **Steps:**
@@ -387,7 +387,7 @@
 
 ### P3.22 — Schedule revision, supersede, and candidate identity (§12.6, §14.2)
 
-- [ ] **Objective:** Give every schedule a stable identity and revision history so a newer schedule supersedes rather than erases its predecessor.
+- [x] **Objective:** Give every schedule a stable identity and revision history so a newer schedule supersedes rather than erases its predecessor. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/22_24_revisions_comparison_rolling.md`)
 - **Report trace:** §12.6 (candidate ID), §14.2 (SUPERSEDED), §15.3.
 - **Inputs/prerequisites:** P3.21.
 - **Steps:**
@@ -404,7 +404,7 @@
 
 ### P3.23 — Schedule comparison workflow (§23 Stage 3)
 
-- [ ] **Objective:** Build the schedule-comparison workflow so alternatives (LP vs MILP, Tier 1 vs Tier 2, different objectives) can be compared on the same inputs.
+- [x] **Objective:** Build the schedule-comparison workflow so alternatives (LP vs MILP, Tier 1 vs Tier 2, different objectives) can be compared on the same inputs. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/22_24_revisions_comparison_rolling.md`)
 - **Report trace:** §23 Stage 3, §20.1 item 6 (Schedules workspace — display contract only; UI itself is Phase 5), §19.4.
 - **Inputs/prerequisites:** P3.17–P3.22.
 - **Steps:**
@@ -421,7 +421,7 @@
 
 ### P3.24 — Rolling-horizon re-scheduling (§12.1, §24 steps 3–4)
 
-- [ ] **Objective:** Implement rolling-horizon scheduling: re-solve on new information, carrying forward the realised state, without rewriting history.
+- [x] **Objective:** Implement rolling-horizon scheduling: re-solve on new information, carrying forward the realised state, without rewriting history. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/22_24_revisions_comparison_rolling.md`)
 - **Report trace:** §12.1, §23 Stage 3, §24 steps 3–4, §10.3.
 - **Inputs/prerequisites:** P3.13, P3.21–P3.23.
 - **Steps:**
@@ -438,7 +438,7 @@
 
 ### P3.25 — Unit and property tests for models and solver I/O (§19.2 layers 1–2)
 
-- [ ] **Objective:** Cover the Phase 3 domain with unit and property tests that would catch sign, unit, and invariant errors.
+- [x] **Objective:** Cover the Phase 3 domain with unit and property tests that would catch sign, unit, and invariant errors. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/25_26_tests_scenarios.md`)
 - **Report trace:** §19.2 layers 1–2, §10.2, §11.
 - **Inputs/prerequisites:** P3.01–P3.24 (tests are written alongside each subtask; this subtask closes coverage gaps).
 - **Steps:**
@@ -455,7 +455,7 @@
 
 ### P3.26 — Deterministic scenario tests and synthetic portfolio (§19.2 layer 5, §19.3)
 
-- [ ] **Objective:** Prove the §23 Stage 3 exit gate on defined synthetic cases with pinned inputs, versions, and seeds.
+- [x] **Objective:** Prove the §23 Stage 3 exit gate on defined synthetic cases with pinned inputs, versions, and seeds. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/25_26_tests_scenarios.md`)
 - **Report trace:** §19.2 layer 5, §19.3, §23 Stage 3 exit gate, §24 steps 3–4.
 - **Inputs/prerequisites:** P3.17–P3.24.
 - **Steps:**
@@ -472,7 +472,7 @@
 
 ### P3.27 — Benchmark and performance measurement (§19.3, §19.4)
 
-- [ ] **Objective:** Measure scheduling runtime and scaling honestly, without setting arbitrary universal targets.
+- [x] **Objective:** Measure scheduling runtime and scaling honestly, without setting arbitrary universal targets. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/27_benchmark_report.md`)
 - **Report trace:** §19.3, §19.4, §22.2 (scenario regression suite).
 - **Inputs/prerequisites:** P3.26.
 - **Steps:**
@@ -489,7 +489,7 @@
 
 ### P3.28 — API, events, and persistence wiring (§15, §16)
 
-- [ ] **Objective:** Wire Phase 3 outputs into the platform contracts (REST, events, PostgreSQL) so Phase 4 and Phase 5 consume them through interfaces, not internals.
+- [x] **Objective:** Wire Phase 3 outputs into the platform contracts (REST, events, PostgreSQL) so Phase 4 and Phase 5 consume them through interfaces, not internals. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/28_api_wiring.md`)
 - **Report trace:** §15.1–§15.3, §15.5, §16.1–§16.2, §10.5.
 - **Inputs/prerequisites:** P3.12, P3.21–P3.23.
 - **Steps:**
@@ -506,7 +506,7 @@
 
 ### P3.29 — Security review for Phase 3 (§17)
 
-- [ ] **Objective:** Close the Phase 3 security surface: tenant isolation, authorization on schedule actions, and no secrets in solver/config paths.
+- [x] **Objective:** Close the Phase 3 security surface: tenant isolation, authorization on schedule actions, and no secrets in solver/config paths. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/29_security_review.md`)
 - **Report trace:** §17.2–§17.4, §16.2, §21.3.
 - **Inputs/prerequisites:** P3.28.
 - **Steps:**
@@ -523,7 +523,7 @@
 
 ### P3.30 — Documentation and handover to Phase 4 (§23 Stage 3 exit gate)
 
-- [ ] **Objective:** Hand Phase 4 a complete, honest package: what was built, what the exit gate evidence is, and what is still open.
+- [x] **Objective:** Hand Phase 4 a complete, honest package: what was built, what the exit gate evidence is, and what is still open. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/30_handover_phase4.md`)
 - **Report trace:** §23 Stage 3 exit gate, §24 steps 3–4, §22.2.
 - **Inputs/prerequisites:** P3.01–P3.29, P3.31.
 - **Steps:**
@@ -540,7 +540,7 @@
 
 ### P3.31 — Synthetic forecast fixture (owned by Phase 3; no Phase 2 forecast exists)
 
-- [ ] **Objective:** Build the synthetic forecast fixture that Phase 3's envelope and scheduling subtasks consume, with labelled provenance — because no Phase 2 subtask produces forecasts and §23 Stage 2 deliverables do not include them. The fixture is the single forecast source for v0.2.0; nothing in Phase 3 may invent a second, untracked forecast.
+- [x] **Objective:** Build the synthetic forecast fixture that Phase 3's envelope and scheduling subtasks consume, with labelled provenance — because no Phase 2 subtask produces forecasts and §23 Stage 2 deliverables do not include them. The fixture is the single forecast source for v0.2.0; nothing in Phase 3 may invent a second, untracked forecast. — implemented, awaiting human build/test (decision record: `ledger/phase-03-flexibility-scheduling/31_forecast_fixture.md`)
 - **Report trace:** §11.6, §12.1, §15.3 (`ForecastPublished`); §23 Stage 2 (forecasts not a Stage 2 deliverable); P2.28 (forecast non-delivery).
 - **Inputs/prerequisites:** P3.01–P3.03 (capability contract, time model); P2.13 (scenario model — the fixture reuses the exit-gate scenario's horizon, cadence, and seeds where applicable).
 - **Steps:**

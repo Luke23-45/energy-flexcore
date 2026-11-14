@@ -1,0 +1,106 @@
+{
+  "schema_note": "Field order in this artifact is NORMATIVE (deterministic field order; reviewers diff artifacts textually). A change to ANY entry — an added, removed, or re-mapped case, a changed disturbance profile or seed, a changed version pin — is a NEW version id (flexcore-pilot-hil-field-traceability-map-v2, ...), frozen as a NEW file. This file is never edited in place after freeze. Rows are ordered by fat_case_id ascending (lexicographic); within a row, upstream lists are ordered lexicographically by case id.",
+  "map_id": "flexcore-pilot/hil-field-traceability-map",
+  "version_id": "flexcore-pilot-hil-field-traceability-map-v1",
+  "frozen_date": "2026-11-14",
+  "status": "WRITTEN-UNRUN",
+  "ledger_subtask": "P9.40",
+  "ledger": "ledger/phase-09-pilot-qualification/ledger_phase_9.md §P9.40",
+  "decision_record": "ledger/phase-09-pilot-qualification/40_hil_field_traceability.md",
+  "report_trace": {
+    "section_23_stage_9": "docs/plan/Neryva_FlexCore_Product_and_Architecture_Report_v1.1.md §23 Stage 9",
+    "section_19_1": "docs/plan/Neryva_FlexCore_Product_and_Architecture_Report_v1.1.md §19.1 (the HIL track; CHIL vs PHIL are distinct evidence classes)",
+    "section_19_2_item_10": "docs/plan/Neryva_FlexCore_Product_and_Architecture_Report_v1.1.md §19.2 item 10 (HIL/commissioning tests run ONLY after simulation, integration, and cyber reviews pass)",
+    "research_section_4": "ledger/phase-09-pilot-qualification/RESEARCH.md §4 (the validation pathway simulation → HIL/PHIL → field, with the same disturbance profiles and seeds at each stage so evidence is comparable)"
+  },
+  "units": "MW, MVAr, MVA, MWh (report §10.2 canonical). P > 0 means export at the point of connection. Reactive-power sign is declared per grid model and device profile. SOC is a fraction in [0,1] at the API boundary.",
+  "inputs_by_path": {
+    "note": "Paths referenced, never edited, by this subtask. The P9.13–P9.15 records are the concurrent wave-5 deliverables (exact file names are their owner's, following the NN_<slug>.md convention); the P9.16 record is the wave-6 deliverable. At freeze none of them carries executed cases: the HIL plan (P9.15) and the FAT plan (P9.16) are TEMPLATES, so every matrix row and coverage cell below is EMPTY.",
+    "hil_report_record": "ledger/phase-09-pilot-qualification/15_*.md (P9.15 HIL test plan and execution record)",
+    "lab_report_record": "ledger/phase-09-pilot-qualification/14_*.md (P9.14 lab integration test record)",
+    "fat_plan_record": "ledger/phase-09-pilot-qualification/16_*.md (P9.16 field acceptance test plan)",
+    "fat_execution_record": "ledger/phase-09-pilot-qualification/17_*.md (P9.17 field acceptance execution — the consumer of the filed map; the map is filed BEFORE P9.17 executes, R-6)",
+    "residual_risk_register": "ledger/phase-09-pilot-qualification/27_*.md (P9.27 known-limitations and residual-risk register — where a signed accepted gap is carried, R-1)"
+  },
+  "map_rules": [
+    {
+      "rule_id": "R-1",
+      "rule": "A FAT case with no upstream row is recorded as UNMAPPED (a gap), never as covered. Its disposition per the ledger step 3 is exactly one of: (a) the upstream evidence is added (the HIL/lab case is defined and run) and a new map version is frozen, or (b) a signed CUSTOMER acceptance of the gap is filed in P9.27. A gap is never left blank and never waved through."
+    },
+    {
+      "rule_id": "R-2",
+      "rule": "A HIL (or lab, or simulation) pass justifies the corresponding field acceptance test's EXECUTION — never the field RESULT. The field result comes only from the field run itself (P9.17, at the site, in the recorded control-authority mode). HIL evidence de-risks a FAT case; it can never substitute for it, short-circuit it, or be quoted as a field outcome."
+    },
+    {
+      "rule_id": "R-3",
+      "rule": "The same disturbance profiles and seeds are reused across stages (simulation → lab → HIL → field) WHERE THE STAGE SUPPORTS THEM (RESEARCH.md §4), so evidence is comparable. Each row records the ACTUAL parameters in force at each stage (profile id, amplitude/duration/cadence as applicable, seed and its derivation string as applicable) — not just the profile name. A profile reused by name while its parameters differ between stages is the ledger's named failure mode; where a stage could NOT reuse a profile or seed, the row records the stage, the reason, and what was used instead."
+    },
+    {
+      "rule_id": "R-4",
+      "rule": "Equipment/firmware/software version consistency: HIL evidence produced on equipment or firmware versions that differ from the pilot's cannot justify the corresponding FAT case (the P9.15 acceptance rule). Each row carries the versions in force at each stage; a version mismatch is recorded as a GAP (R-1 disposition), never absorbed."
+    },
+    {
+      "rule_id": "R-5",
+      "rule": "HIL class honesty: coverage records the HIL class actually run — CHIL (controller HIL) or PHIL (power HIL) — per the P9.15 scope record. A CHIL pass is never recorded as PHIL coverage (P9.15 step 1; RESEARCH.md §4: PHIL additionally requires a power amplifier and an interface algorithm with its stability condition)."
+    },
+    {
+      "rule_id": "R-6",
+      "rule": "Ordering: the map is filed with the FAT plan (P9.16) BEFORE P9.17 executes (ledger step 3). The version_id and frozen_date are the ordering evidence. A map built after FAT execution and back-fitted to the results is the ledger's named failure mode; if execution ever precedes a map version, that fact is a recorded finding against the deployment, never repaired by re-dating."
+    },
+    {
+      "rule_id": "R-7",
+      "rule": "Chain completeness and gate order (§19.2 item 10): a HIL row is enterable as coverage only where the P9.15 record files the pre-gate evidence (simulation, integration, and cyber reviews passed). A HIL case without its pre-gate evidence is not coverage and is recorded as a gap."
+    },
+    {
+      "rule_id": "R-8",
+      "rule": "No safety or certification claim (AGENTS.md §3; ENTRY_NOTE boundary 4): the map is an integration-de-risking record. HIL coverage of a FAT case never implies equipment conformance or certification (IEEE 1547.1-2020 conformance testing remains a separate responsibility, §11.3; RESEARCH.md §4 implication), never a safety case, and never field write authority (the pilot is operator-approved control AT MOST, §21.4)."
+    },
+    {
+      "rule_id": "R-9",
+      "rule": "Row sourcing discipline: every non-EMPTY cell is filled FROM the named upstream records (P9.14/P9.15/P9.16/17 files) by case id — never from memory, never by inventing a case id. Case ids that do not exist in the cited record are a named finding against the map, and the map is re-frozen only after the source record is corrected by its owner."
+    }
+  ],
+  "forward_matrix_columns": [
+    "fat_case_id",
+    "fat_case_source_record",
+    "justified_by_hil_case_ids",
+    "hil_class (CHIL/PHIL per case; R-5)",
+    "hil_evidence_required (the per-case evidence the HIL record must contain: observed-vs-expected behaviour, equipment/firmware versions, raw capture reference)",
+    "justified_by_lab_case_ids",
+    "justified_by_simulation_case_ids",
+    "disturbance_profile_per_stage (profile id + ACTUAL parameters per stage; reuse exceptions with reason, R-3)",
+    "seed_per_stage (seed + derivation string per stage where supported, R-3)",
+    "versions_per_stage (R-4)",
+    "pre_gate_evidence_ref (R-7)",
+    "coverage_status (MAPPED / UNMAPPED-GAP-OPEN / UNMAPPED-GAP-ACCEPTED-in-P9.27 / BLOCKED-version-mismatch)",
+    "gap_disposition_ref (R-1: the P9.27 entry or the re-run record; EMPTY when MAPPED)"
+  ],
+  "forward_matrix_rows": [],
+  "reverse_matrix_columns": [
+    "hil_case_id",
+    "hil_class (CHIL/PHIL, R-5)",
+    "hil_source_record",
+    "de_risks_fat_case_ids",
+    "downstream_lab_case_ids",
+    "downstream_simulation_case_ids",
+    "disturbance_profile_and_seed_shared_with_fat_stage (yes/no + reference, R-3)",
+    "coverage_status"
+  ],
+  "reverse_matrix_rows": [],
+  "coverage_summary": {
+    "note": "Every cell EMPTY — both the HIL plan (P9.15) and the FAT plan (P9.16) are templates; no case exists to count. Filled only from the matrices above, by the human gate, when the source records carry real case ids. Counts are never estimated.",
+    "fat_cases_total": "EMPTY",
+    "mapped_count": "EMPTY",
+    "unmapped_gap_open_count": "EMPTY",
+    "unmapped_gap_accepted_in_p9_27_count": "EMPTY",
+    "blocked_version_mismatch_count": "EMPTY",
+    "profiles_reused_across_all_stages_count": "EMPTY",
+    "profile_reuse_exceptions_count": "EMPTY",
+    "seed_reuse_exceptions_count": "EMPTY",
+    "hil_cases_without_pre_gate_evidence_count": "EMPTY",
+    "summary_valid_as_of": "EMPTY",
+    "summary_author": "EMPTY"
+  },
+  "anti_silent_growth_rule": "A map change is a NEW version. This mirrors the benchmarks/research-set-v1.json frozen-artifact discipline (a change is a new version id frozen as a new file, never a silent edit) and the P8.06 frozen-baseline rule. A map version whose cited source records do not contain the case ids it lists is a named finding, never absorbed (R-9).",
+  "non_claims": "Nothing here has been run: no HIL case exists, no FAT case exists, no coverage exists, and no gap acceptance exists. The matrices and summary are EMPTY by design. This artifact records no field capacity, no equipment certification, no safety case, and no control-authority grant (R-8)."
+}

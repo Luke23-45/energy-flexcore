@@ -1,0 +1,36 @@
+{
+  "profile-schema": "flexcore-profile-v1",
+  "profile-id": "site-edge",
+  "name": "Site Edge Composition",
+  "version": "0.5.0",
+  "description": "Edge agent, selected protocol adapters, local buffering, outbound identity, and the limited command receiver (report section 5.8; P6.29). A DEFERRED SHELL in v0.5.0: it loads and is reviewable, but composes nothing — every entry is commented out because none of these roles has a plugin manifest yet, and the command receiver is protected kernel that can never be a plugin.",
+  "control-authority": "simulation-shadow",
+  "permission-ceiling": [
+    "telemetry.read",
+    "asset.read"
+  ],
+  "selections": [
+    // Deferred selections (documented commented-out pattern — README.md).
+    // The profile composes NOTHING in v0.5.0 (PROFILE_EMPTY_SELECTIONS at
+    // plan validation); it ships as a reviewed shell per the ledger's
+    // "record which profiles are deferred and why".
+    //
+    // { "manifest-id": "builtin.edge-agent", "version-constraint": ">=0.5.0" }
+    //   ^ the edge agent is the Phase 6 built-in host process, not a
+    //   plugin; when its composition role is formalised it arrives here.
+    // { "manifest-id": "acme.sunspec-modbus-adapter", "version-constraint": ">=0.5.0" },
+    // { "manifest-id": "acme.ieee-2030.5-adapter", "version-constraint": ">=0.5.0" }
+    //   ^ protocol adapters are DEFERRED (02_scope_freeze section 3; a
+    //   plugin touching a site adapter inherits the full P6.29
+    //   command-path boundary).
+    // { "manifest-id": "builtin.local-buffer", "version-constraint": ">=0.5.0" },
+    // { "manifest-id": "builtin.outbound-identity", "version-constraint": ">=0.5.0" }
+    //   ^ local buffering and outbound identity are the edge's security
+    //   boundary (seam inventory section 3.10: K/N seams) — never plugins.
+    //
+    // NOTE — the ledger's "limited command receiver": the edge command
+    // path is PROTECTED KERNEL (P6.29 section 3; seam inventory section
+    // 3.10). No plugin manifest can ever express it, so it has no entry
+    // here — not even a commented-out one. A profile cannot smuggle it in.
+  ]
+}

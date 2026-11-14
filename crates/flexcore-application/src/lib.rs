@@ -143,6 +143,68 @@ pub mod command_expiry;
 // Appended additively per the same agreement.
 pub mod dispatch_simulator;
 
+// P4.17/P4.18 — asset-specific fallback policies (§14.4) with the bounded
+// hold, escalation, and recovery rule: the §14.4 variant set with NO
+// universal "set power to zero" fallback, the per-asset/site registry with
+// the explicit require-operator-intervention default entry, FALLBACK entry
+// from FAILED/EXPIRED only where the policy requires it (through the frozen
+// §14.1 edges, never bypassing the P4.10 domain engine), the bounded hold
+// that expires and escalates per policy (an audit record, NOT a command
+// transition — FALLBACK is terminal in the frozen table), and the recovery
+// rule: a fresh command through the FULL gate chain, no FALLBACK → ISSUED
+// shortcut. Appended additively per the phase subtask file-ownership
+// agreement.
+pub mod fallback_policy;
+
+// P4.19 — dispatch timing honesty (§14.5): the supervisory-setpoint-delivery
+// boundary constants (no hard-real-time, frequency, inertia, relay, inner-
+// loop, or sub-cycle claims anywhere), the measured acknowledgement-latency /
+// tracking-deviation sample taken from the P4.10 transition journal on the
+// §24 step 8 simulation path, and the measured-distribution report that
+// always carries its conditions and embeds no guarantee and no target.
+// Appended additively per the same agreement.
+pub mod timing_honesty;
+
+// P4.37 — the constrain/return consumption contract (§12.5 step 8): the
+// scheduling-side mapping of the feasibility gate's frozen outcomes (the
+// D-P4.07-1 routing rule consumed) — CONSTRAIN attaches the violated
+// constraint + the constraining proposal as problem inputs of the
+// constrained candidate re-entering the gate; RETURN re-enqueues the
+// candidate into rolling-horizon re-optimization with EVERY violated
+// constraint as a named input; REJECTED/HELD/INCONCLUSIVE/WITHIN-LIMITS
+// route per the frozen rule with no scheduling action; an unconsumable
+// constraint REJECTS with the recorded reason (D-P4.37-2). The outcome
+// codes and the constraint-name grammar are MIRRORED from
+// flexcore-grid-api (not an allowed dependency edge; the composition root
+// converts), pinned by tests. Appended additively per the phase subtask
+// file-ownership agreement.
+pub mod feasibility_return;
+
+// P4.31 — shadow evaluation (§21.4): the comparison method for dispatch
+// proposals against the simulator's BASELINE (no-command) behaviour
+// WITHOUT issuing anything — the read-only `ShadowBaselineSource` port
+// declared here (the composition root implements it over the Phase 2
+// simulator crate; the crate cannot name flexcore-simulator), the
+// fail-closed per-instant classification (missing/stale/future-stamped/
+// quantity-mismatched baselines are never read as agreement), the
+// conservative overall verdict, and the report type that CARRIES its
+// limits statement: shadow agreement is not a safety claim and shadow
+// results are never evidence for field dispatch. Appended additively per
+// the phase subtask file-ownership agreement.
+pub mod shadow_evaluation;
+
+// P4.28 — dispatch security controls (§17.3–§17.4): the payload-bound
+// simulation signing/verification layer over the P4.16 keyring pattern
+// (fnv1a64 integrity references, non-cryptographic, dev-labelled), the
+// per-asset/channel sequence guard (replayed vs out-of-order refusals),
+// the verifying-transport decorator (verify + sequence-admit before the
+// inner transport; refusals are application-layer NACKs), and the
+// cross-tenant denial audit record + SecurityAuditSink seam (the P4.23
+// recorded open item; the port is declared here — the crate cannot depend
+// on flexcore-audit). Appended additively per the phase subtask
+// file-ownership agreement.
+pub mod dispatch_security;
+
 mod event_assembly;
 
 pub use availability::{
@@ -265,4 +327,52 @@ pub use dispatch_simulator::{
     TrackingAcceptanceCriterion, TrackingOutcome, TrackingTerminal, TrackingVerdict,
     TrackedQuantity, MAX_OBSERVATIONS_PER_POLL, SIMULATION_ONLY_STATEMENT,
     SIMULATOR_TRANSPORT_IDENTITY_PREFIX,
+};
+
+// P4.17/P4.18 — appended additively per the same agreement.
+pub use fallback_policy::{
+    BoundedHoldInterval, EscalationTarget, FallbackAction, FallbackActivationInput,
+    FallbackActivationRecord, FallbackAuditError, FallbackAuditSink, FallbackDecision,
+    FallbackEngine, FallbackEscalationRecord, FallbackPolicy, FallbackPolicyEntry,
+    FallbackPolicyError, FallbackPolicyRegistry, FallbackScope, FallbackTrigger,
+    HoldExpiryEvaluation, HoldValidityConditions, SimulatedOperatorReview,
+    BOUNDED_HOLD_STATEMENT, DEFAULT_ENTRY_STATEMENT, DISPATCH_FALLBACK_PAYLOAD_GAP_NOTE,
+    ESCALATION_IS_NOT_A_TRANSITION_NOTE, FALLBACK_ACTOR_IDENTITY, FALLBACK_AUDIT_ENTITY,
+    FALLBACK_ESCALATION_ENTITY, FALLBACK_POLICY_REF_PREFIX, NO_UNIVERSAL_FALLBACK_STATEMENT,
+    RECOVERY_RULE_STATEMENT, SIMULATED_OPERATOR_REVIEW_LABEL, VALIDITY_CONDITIONS_RULE_STATEMENT,
+};
+
+// P4.19 — appended additively per the same agreement.
+pub use timing_honesty::{
+    measure_from_journal, DispatchTimingSample, HistogramBin, TimingConditions,
+    TimingDistribution, TimingHonestyError, TimingQuantiles, TimingRecorder,
+    MEASUREMENT_CONDITIONS_RULE, NO_LATENCY_GUARANTEE_STATEMENT, NOT_PROMISED_FUNCTIONS,
+    SUPERVISORY_ONLY_STATEMENT, TIMING_BOUNDARY_STATEMENT,
+};
+
+// P4.37 — appended additively per the same agreement.
+pub use feasibility_return::{
+    parse_constraint_name, plan_consumption, validate_returned, ConstrainEvidence,
+    ConstraintAnnotation, ConstraintCategory, ConsumptionAction, FeasibilityOutcome,
+    FeasibilityReturnError, NoConsumptionRoute, ReOptimizationInput, ReturnedCandidate,
+    CONSUMPTION_CONTRACT_STATEMENT, CONSTRAINT_CATEGORY_CODES, FAILURE_MODE_STATEMENT,
+    GATE_OUTCOME_CODES, MIRROR_STATEMENT, OPEN_ITEM_STATEMENT,
+};
+
+// P4.28 — appended additively per the same agreement.
+pub use dispatch_security::{
+    channel_key, record_tenant_denial, sign_dispatch_payload, verify_dispatch_payload,
+    DispatchEnvelopeVerifier, DispatchPayloadBinding, DispatchSecurityError,
+    PayloadBoundVerifier, SecurityAuditError, SecurityAuditSink, SequenceGuard, SequenceRefusal,
+    TenantDenialAuditRecord, TenantDenialKind, VerifyingDispatchTransport,
+    DEFAULT_DISPATCH_CHANNEL, DISPATCH_SECURITY_STATEMENT, PAYLOAD_SIGNATURE_PREFIX,
+    SECRETS_DEPLOYMENT_REQUIREMENT_STATEMENT, SIMULATION_DIGEST_ALG,
+};
+
+// P4.31 — appended additively per the same agreement.
+pub use shadow_evaluation::{
+    evaluate_shadow_comparison, NotComparableReason, ShadowBaselineSample, ShadowBaselineSource,
+    ShadowComparisonConfig, ShadowComparisonEntry, ShadowComparisonInput, ShadowComparisonOutcome,
+    ShadowEvaluationError, ShadowOverallVerdict, ShadowReport, NOTHING_ISSUED_STATEMENT,
+    SHADOW_EVIDENCE_STATUS, SHADOW_LIMITS_STATEMENT, SHADOW_METHOD_STATEMENT,
 };

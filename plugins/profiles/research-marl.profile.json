@@ -1,0 +1,28 @@
+{
+  "profile-schema": "flexcore-profile-v1",
+  "profile-id": "research-marl",
+  "name": "MARL Research Composition",
+  "version": "0.5.0",
+  "description": "Grid model provider, research worker, benchmark suite, and shadow logger for the MARL research line (report section 5.8; PLAN.md section 1). NO DISPATCH AUTHORITY: identical posture and ceiling to research-gnn — ML/RL outputs are proposals only and cannot dispatch (ADR-010), and this profile withholds even the proposal permissions (DEFAULT decision; see research-gnn).",
+  "control-authority": "simulation-shadow",
+  "permission-ceiling": [
+    "telemetry.read",
+    "asset.read"
+  ],
+  "selections": [
+    {
+      "manifest-id": "builtin.pandapower-grid",
+      "version-constraint": ">=0.5.0"
+    },
+    {
+      "manifest-id": "builtin.simulator-telemetry",
+      "version-constraint": ">=0.5.0"
+    }
+    // Deferred selections (documented commented-out pattern — README.md):
+    // { "manifest-id": "research.marl-worker", "version-constraint": ">=0.5.0" },
+    // { "manifest-id": "research.benchmark-suite", "version-constraint": ">=0.5.0" },
+    // { "manifest-id": "research.shadow-logger", "version-constraint": ">=0.5.0" }
+    //   ^ Phase 8 builds the research providers (P5 in 02_scope_freeze);
+    //   none exists in v0.5.0.
+  ]
+}

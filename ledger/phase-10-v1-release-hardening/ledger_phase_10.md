@@ -2,8 +2,11 @@
 
 **Phase:** 10 (release gate — not a report stage)
 **Release target:** v1.0.0 pilot-ready (operator-approved control by default; §2.1, §21.4)
-**Status:** Not started. No subtask is complete until its acceptance criteria are met and the
-evidence named in the subtask exists and has been checked.
+**Status:** Reconciled at close 2026-11-14 — all 30 subtasks (P10.01–P10.30) implemented
+(code, records, and templates on disk); nothing installed, built, run, scanned, signed, tagged,
+or published. No subtask is complete until its acceptance criteria are met and the evidence
+named in the subtask exists and has been checked — every execution cell is EMPTY by design
+(see `30_phase_exit_gate_record.md`).
 **Research cut-off:** 7 November 2026 (report §27). Nothing in this ledger invents a version,
 date, or certification status after that cut-off.
 
@@ -97,7 +100,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.01 — Release scope freeze and supported-adapter matrix
 
-- [ ] **P10.01 Release scope freeze and supported-adapter matrix**
+- [x] **P10.01 Release scope freeze and supported-adapter matrix** — implemented, awaiting human build/test (decision record: `ledger/phase-10-v1-release-hardening/01_release_scope_freeze.md`)
 
 - **Objective:** Freeze, in writing, exactly what v1.0.0 contains and which adapters it
   supports — §22.3 gate item 1 ("documented scope and supported adapters are complete").
@@ -130,7 +133,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.02 — Public API and plugin-contract freeze
 
-- [ ] **P10.02 Public API and plugin-contract freeze**
+- [x] **P10.02 Public API and plugin-contract freeze** — implemented, awaiting human build/test (decision record: `ledger/phase-10-v1-release-hardening/02_api_contract_freeze.md`)
 
 - **Objective:** Freeze the public contracts for the 1.x line, as §21.4 requires at v1.0.0,
   and prove the freeze with breaking-change detection.
@@ -196,7 +199,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.03 — Command-state transition test suite — full matrix
 
-- [ ] **P10.03 Command-state transition test suite — full matrix**
+- [x] **P10.03 Command-state transition test suite — full matrix** — implemented, awaiting human build/test (decision record: `ledger/phase-10-v1-release-hardening/03_command_transition_tests.md`)
 
 - **Objective:** Prove every command-state transition is tested against the release
   candidate — §22.3 gate item 2 ("all command-state transitions are tested").
@@ -232,7 +235,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.04 — Authorization and tenant-isolation test suite
 
-- [ ] **P10.04 Authorization and tenant-isolation test suite**
+- [x] **P10.04 Authorization and tenant-isolation test suite** — implemented, awaiting human build/test (decision record: `ledger/phase-10-v1-release-hardening/04_authz_tenant_tests.md`)
 
 - **Objective:** Prove authorization and tenant isolation hold on the release candidate —
   §22.3 gate item 3.
@@ -276,7 +279,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.05 — Optimizer independent validation
 
-- [ ] **P10.05 Optimizer independent validation**
+- [x] **P10.05 Optimizer independent validation** — implemented, awaiting human build/test (decision record: `ledger/phase-10-v1-release-hardening/05_optimizer_validation.md`)
 
 - **Objective:** Prove optimizer outputs are independently validated on the release
   candidate — §22.3 gate item 4. The optimizer never validates itself.
@@ -315,7 +318,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.06 — Stale/missing telemetry handling verification
 
-- [ ] **P10.06 Stale/missing telemetry handling verification**
+- [x] **P10.06 Stale/missing telemetry handling verification** — implemented, awaiting human build/test (decision record: `ledger/phase-10-v1-release-hardening/06_telemetry_handling_tests.md`)
 
 - **Objective:** Prove stale and missing telemetry cases are handled on the release
   candidate — §22.3 gate item 5.
@@ -355,7 +358,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.07 — Edge offline/degraded-mode tests
 
-- [ ] **P10.07 Edge offline/degraded-mode tests**
+- [x] **P10.07 Edge offline/degraded-mode tests** — implemented, awaiting human build/test (decision record: `ledger/phase-10-v1-release-hardening/07_edge_offline_tests.md`)
 
 - **Objective:** Prove edge offline and degraded modes are tested on the release candidate —
   §22.3 gate item 6.
@@ -389,7 +392,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.08 — Plugin permission-boundary tests
 
-- [ ] **P10.08 Plugin permission-boundary tests**
+- [x] **P10.08 Plugin permission-boundary tests** — implemented, awaiting human build/test (decision record: `ledger/phase-10-v1-release-hardening/08_plugin_boundary_tests.md`)
 
 - **Objective:** Prove plugin permission boundaries hold on the release candidate — §22.3
   gate item 7.
@@ -427,7 +430,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.09 — Reproducible benchmark — full rerun
 
-- [ ] **P10.09 Reproducible benchmark — full rerun**
+- [x] **P10.09 Reproducible benchmark — full rerun** — implemented, awaiting human build/test (decision record: `ledger/phase-10-v1-release-hardening/09_benchmark_rerun.md`)
 
 - **Objective:** Re-run the full simulator benchmark against the release candidate and prove
   the results are reproducible — §22.3 gate item 8 ("simulator benchmark results are
@@ -474,7 +477,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.10 — Benchmark results pack and thresholds record
 
-- [ ] **P10.10 Benchmark results pack and thresholds record**
+- [x] **P10.10 Benchmark results pack and thresholds record** — implemented, awaiting human build/test (record: `ledger/phase-10-v1-release-hardening/10_benchmark_results_pack.md`; pack STRUCTURE + EMPTY thresholds record — X-8 registered-then-run ordering BINDING; every threshold and every measured cell EMPTY until the human pre-registers and runs)
 
 - **Objective:** Publish the benchmark results with the §19.4 metrics and the acceptance
   thresholds they were judged against — thresholds defined before the runs, not fitted after.
@@ -513,7 +516,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.11 — Backup/restore test on the release candidate
 
-- [ ] **P10.11 Backup/restore test on the release candidate**
+- [x] **P10.11 Backup/restore test on the release candidate** — implemented, awaiting human build/test (RC re-run plan: `ledger/phase-10-v1-release-hardening/11_backup_restore_rc.md`; RE-RUN NOT INHERIT per the P9.24 record's own rule; procedure CITED not rewritten; run record EMPTY, RPO/RTO PLACEHOLDER; edge-outage E-1..E-6 carried UNRUN)
 
 - **Objective:** Prove backup and restore work on the release candidate — §22.3 gate item 9
   (first half). This re-runs the Phase 9 rehearsal against the candidate; it does not
@@ -555,7 +558,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.12 — Upgrade/rollback test on the release candidate
 
-- [ ] **P10.12 Upgrade/rollback test on the release candidate**
+- [x] **P10.12 Upgrade/rollback test on the release candidate** — implemented, awaiting human build/test (RC test plan + matrix: `ledger/phase-10-v1-release-hardening/12_upgrade_rollback_rc.md`; verify-before-stage BY CITATION of update_verification.rs, NoUpdateVerifier gap carried; run record EMPTY; no update ever built or applied, no production-grade signature scheme)
 
 - **Objective:** Prove the release can be upgraded to and rolled back from, on the
   candidate — §22.3 gate item 9 (second half).
@@ -596,7 +599,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.13 — Schema migration compatibility test
 
-- [ ] **P10.13 Schema migration compatibility test**
+- [x] **P10.13 Schema migration compatibility test** — implemented, awaiting human build/test (compatibility record + WRITTEN-UNRUN suite: `ledger/phase-10-v1-release-hardening/13_schema_migration_compat.md` + `crates/adapters/postgres/tests/migration_compat_p10_13.rs`; compatibility windows RECORDED POSITIONS, every run cell EMPTY; Postgres 18 target UNVERIFIED pin; downgrade NOT supported by the runtime path, irreversibility register recorded (0001 roles, 0012 correction rows))
 
 - **Objective:** Prove schema migrations are safe across the upgrade/rollback window —
   a §22.2 CI gate item ("migration tests and schema compatibility").
@@ -633,7 +636,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.14 — Browser/OS support-matrix test
 
-- [ ] **P10.14 Browser/OS support-matrix test**
+- [x] **P10.14 Browser/OS support-matrix test** — implemented, awaiting human build/test (matrix + procedure record: `ledger/phase-10-v1-release-hardening/14_browser_os_matrix.md` + additive `console/SUPPORT_MATRIX.md`; the §21.4 matrix recorded as TARGETS with EVERY result cell EMPTY — no browser/OS run has ever happened; console toolchain facts from package.json, no lockfile; no support claim)
 
 - **Objective:** Prove the supported browser/OS matrix is tested on the release candidate —
   §22.3 gate item 10.
@@ -671,7 +674,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.15 — Control-authority qualification — operator-approved mode
 
-- [ ] **P10.15 Control-authority qualification — operator-approved mode**
+- [x] **P10.15 Control-authority qualification — operator-approved mode** — implemented, awaiting human build/test (qualification record: `ledger/phase-10-v1-release-hardening/15_operator_mode_qualification.md`; Stage 9 chain assembled by citation, every requirement EMPTY/UNSIGNED/NOT-MET; §21.4 promotion rule, never-granted list, bounded-automation exclusion verbatim; VERDICT: NOT QUALIFIED, recorded; no command ever approved/issued, no site promoted)
 
 - **Objective:** Qualify the target control-authority mode — operator-approved control — for
   v1.0.0, on the release candidate — §22.3 gate item 11.
@@ -712,7 +715,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.16 — Deployment-specific cyber risk review (consolidation)
 
-- [ ] **P10.16 Deployment-specific cyber risk review (consolidation)**
+- [x] **P10.16 Deployment-specific cyber risk review (consolidation)** — implemented, awaiting human build/test (consolidation record: `ledger/phase-10-v1-release-hardening/16_cyber_risk_consolidation.md`; TRACE-ONLY per ENTRY_NOTE boundary 5 — cites the Phase 6/7/8 registers + the Phase 9 security design set by path, CLOSES NOTHING; deployment-specific cells and the candidate drift re-check EMPTY (no candidate exists); Rev. 3 remains the baseline, the Rev. 4 final re-check carried as a P10.27 condition; D6 OPEN/UNSIGNED — every scope addition a go blocker; LR count discrepancy (211 on disk vs 225 cited) recorded, not reconciled)
 
 - **Objective:** Consolidate the deployment-specific cyber risk review for the release —
   §22.3 gate item 12 (cyber half). This consolidates Phase 9 evidence (P9.06, P9.07) against
@@ -756,7 +759,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.17 — Deployment-specific operational risk review
 
-- [ ] **P10.17 Deployment-specific operational risk review**
+- [x] **P10.17 Deployment-specific operational risk review** — implemented, awaiting human build/test (consolidation record: `ledger/phase-10-v1-release-hardening/17_operational_risk_review.md`; Phase 9 operational areas + release-specific risks traced BY PATH; every impact/likelihood/owner/mitigation/review-date cell EMPTY/UNSIGNED — no likelihood without a basis; F-P10.07-5 clock-median defect cited, not fixed; P9.27 → P10.26 item-for-item reconciliation recorded as procedure, UNRUN)
 
 - **Objective:** Complete the deployment-specific operational risk review for the release —
   §22.3 gate item 12 (operational half).
@@ -794,7 +797,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.18 — Full CI gate run and release-candidate build
 
-- [ ] **P10.18 Full CI gate run and release-candidate build**
+- [x] **P10.18 Full CI gate run and release-candidate build** — implemented, awaiting human build/test/execution (run record + procedure: `ledger/phase-10-v1-release-hardening/18_ci_gate_run_record.md`; the CI gate run is a HUMAN GATE recorded UNRUN; the release-candidate artifact DOES NOT EXIST; all 23 ci.yml jobs enumerated with EMPTY result cells + the additive workflow_dispatch-only `release-candidate-build` job (no existing job modified); candidate-identity procedure fills the P10.01 §6.1 `<PENDING P10.18>` cells; the license/security review CI gate is the automated scan only — D4 stays P10.19's)
 
 - **Objective:** Run every §22.2 CI quality gate against the frozen candidate and produce
   the release-candidate build the other subtasks verify.
@@ -834,7 +837,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.19 — SBOM and license audit closure — D4
 
-- [ ] **P10.19 SBOM and license audit closure — D4**
+- [x] **P10.19 SBOM and license audit closure — D4** — implemented, awaiting human scan/SBOM generation/legal review (closure record: `ledger/phase-10-v1-release-hardening/19_sbom_license_closure.md`; D4 NOT CLOSED — the v1.0.0 artifact-set re-closure assembled by citation; deny.toml EXISTS (P6.27), cited not recreated, WRITTEN-NEVER-RUN; SBOM procedure recorded, every SBOM/result cell EMPTY — no Cargo.lock, no console lockfile, no SBOM exists; LLVM-exception allowlist question carried as a RECORDED DECISION with DEFAULT/RECOMMENDATION, never closed by an agent)
 
 - **Objective:** Close decision D4 for the v1.0.0 release: audit the license compatibility of
   the release's protocol stacks, solvers, models, and datasets, and generate the release SBOM.
@@ -877,7 +880,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.20 — Vulnerability and dependency scan closure
 
-- [ ] **P10.20 Vulnerability and dependency scan closure**
+- [x] **P10.20 Vulnerability and dependency scan closure** — implemented, awaiting human scan/triage (closure record: `ledger/phase-10-v1-release-hardening/20_vuln_scan_closure.md`; scan PROCEDURE per stack recorded (cargo deny/audit, pip-audit/OSV, npm audit, SBOM/container scanners); result table EMPTY — zero versions cleared, no scanner has ever run; P8.36 NOT-EXECUTED table + the Phase 7 wasmtime floor + the Phase 1 JetStream CVE-2026-33222/33223 surface CITED not re-researched; any-version-move re-scan rule carried; verdict NOT CLOSED)
 
 - **Objective:** Close vulnerability and dependency scanning for the release candidate: every
   finding triaged, every critical/high finding fixed or formally accepted.
@@ -912,7 +915,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.21 — Signed artifacts, checksums, and support matrix
 
-- [ ] **P10.21 Signed artifacts, checksums, and support matrix**
+- [x] **P10.21 Signed artifacts, checksums, and support matrix** — implemented, awaiting human build/checksum/sign/publish (record: `ledger/phase-10-v1-release-hardening/21_signed_artifacts.md`; the §21.4 artifact set DESCRIBED, nothing built; checksum procedure = sha256sum over P10.18 candidate artifacts, EMPTY; production signing carried honestly as a DEPLOYMENT REQUIREMENT — NO production key material exists, NoUpdateVerifier refuses everything, the test-grade FNV-1a-64 digests are NOT release signatures; support matrix LINKED to P10.14 with every VERIFIED cell EMPTY; publication precondition chain recorded, P10.28 stays prepared-NOT-EXECUTED)
 
 - **Objective:** Publish the release artifacts signed, checksummed, and with their support
   matrix — so a pilot site can verify what it installs.
@@ -951,7 +954,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.22 — Site integration test harness — packaged and runnable
 
-- [ ] **P10.22 Site integration test harness — packaged and runnable**
+- [x] **P10.22 Site integration test harness — packaged and runnable** — implemented, awaiting human build/test (packaging record: `ledger/phase-10-v1-release-hardening/22_site_harness.md`; package: `harness/site-integration/` — manifest + entry procedure + EMPTY run-record template; never packaged-built, never run, runnable verified by construction only)
 
 - **Objective:** Package the site integration test harness as a shippable part of v1.0.0
   (§25 pilot release), runnable by a site integrator — not just by its authors.
@@ -987,7 +990,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.23 — Operator-workflow stability check
 
-- [ ] **P10.23 Operator-workflow stability check**
+- [x] **P10.23 Operator-workflow stability check** — implemented, awaiting human build/test (check-design record: `ledger/phase-10-v1-release-hardening/23_operator_workflow_stability.md`; workflow inventory + pre-registered N=5 check procedure + EMPTY check record — no walkthrough, no anomaly, no candidate console; UI stability ≠ correctness ≠ field readiness)
 
 - **Objective:** Prove the operator workflow is stable for the pilot release (§25: "stable
   operator workflow") on the candidate console.
@@ -1024,7 +1027,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.24 — Deployment and upgrade model documentation
 
-- [ ] **P10.24 Deployment and upgrade model documentation**
+- [x] **P10.24 Deployment and upgrade model documentation** — implemented, awaiting human build/test (decision record: `ledger/phase-10-v1-release-hardening/24_deployment_upgrade_model.md`; additive doc: `docs/operations/deployment-upgrade-model.md` — DESIGN-not-deployed, every site value PLACEHOLDER, Helm chart P10.21-pending, review-deploy NOT DONE)
 
 - **Objective:** Document the deployment and upgrade model for v1.0.0 (§25 pilot release)
   so a customer can deploy, operate, and upgrade it without Neryva in the room.
@@ -1062,7 +1065,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.25 — Security review consolidation report
 
-- [ ] **P10.25 Security review consolidation report**
+- [x] **P10.25 Security review consolidation report** — implemented, awaiting human review/signature (consolidation report: `ledger/phase-10-v1-release-hardening/25_security_consolidation.md`; VERDICT NOT APPROVED — no review has been convened, the report is prepared FOR the reviewers; sign-off UNSIGNED; every consolidated item traced by path from 16_cyber_risk_consolidation.md + 17_operational_risk_review.md + the P10.19/20/21 supply-chain closures (D4 NOT CLOSED, scan NOT CLOSED, signing NOT CLOSED); residual-risk posture: none claimable (no assessment verdict, LR-039); what an approved review would establish = E-1..E-10 evidence conditions; WRITTEN-UNRUN
 
 - **Objective:** Produce the single security review for v1.0.0 (§25 pilot release:
   "security review") from the consolidated cyber and operational reviews.
@@ -1095,7 +1098,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.26 — Release notes and known limitations
 
-- [ ] **P10.26 Release notes and known limitations**
+- [x] **P10.26 Release notes and known limitations** — implemented, awaiting human review/sign-off (record: `ledger/phase-10-v1-release-hardening/26_release_notes.md` + ADDITIVE draft artifact `docs/releases/v1.0.0-release-notes-draft.md`, version v1.0.0-draft, NOT published; simulation/shadow-only honesty + operator-approved NOT QUALIFIED cited from 15_operator_mode_qualification.md; known limitations carried item-for-item from the P9.27 register (LR-001..LR-211 on disk; the LR-225 count discrepancy recorded as KN-0) + every Phase 10 limitation; known issues = the recorded findings F-P10.07-5 clock-median defect, F-P10.04-1..3, F-P10.05-1..3, F-P10.06-1..3, F-P10.07-1..4, F-P10.08-1..4, P8 F-1 HIGH, and the P10.19/20/21 closure findings, all cited; AGENTS.md §3 no-safety/no-certification/no-protection-grade discipline + report §0.3 non-promises VERBATIM; §19.3 NOT-TESTED scale/capability statements carried; product/security review UNSIGNED
 
 - **Objective:** Write the v1.0.0 release notes with the known limitations stated plainly —
   including every limitation from the Phase 9 register.
@@ -1135,7 +1138,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.27 — Go/no-go decision record
 
-- [ ] **P10.27 Go/no-go decision record**
+- [x] **P10.27 Go/no-go decision record** — implemented, awaiting human decision meeting (decision record: `ledger/phase-10-v1-release-hardening/27_go_no_go.md`; DECISION NOT MADE — a human product decision; the record is the INPUT PACK; criteria assembled from the ledger Phase exit gate + the twelve §22.3 release gates + §22.2 CI gates + the P10 records' gates + D1–D6 (all OPEN) + Stage 9 re-entry conditions, with finding G-0 recording that report §23 defines Stages 0–9 only (no Stage 10 section exists); every §22.3 gate EMPTY/NOT MET; conditional-goes recorded as STRUCTURES with EMPTY owner/date cells, never promises; the no-go conditions (any Stage 1–9 gate not held, any D-decision open, any scan unclosed, no candidate, zero satisfied publication links) ALL PRESENT on today's record; decision-maker sign-off UNSIGNED
 
 - **Objective:** Record the formal go/no-go decision for the v1.0.0 release, on the evidence —
   not on schedule pressure.
@@ -1174,7 +1177,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.28 — v1.0.0 tagging and release publication
 
-- [ ] **P10.28 v1.0.0 tagging and release publication**
+- [x] **P10.28 v1.0.0 tagging and release publication** — recorded, awaiting the human tag/publish/verify (record: `ledger/phase-10-v1-release-hardening/28_release_publication.md`; PREPARED-NOT-EXECUTED — v1.0.0 IS NOT RELEASED: no tag exists (`git tag -l v1.0.0` EMPTY), no release, no artifact, and the loop bans forbid creating any; publication procedure + precondition chain (ZERO links satisfied, quoted verbatim from `21_signed_artifacts.md` §9) recorded; authorization = human gate (UNSIGNED))
 
 - **Objective:** Tag and publish v1.0.0 — only on a go decision (P10.27).
 - **Report trace:** §21.4; §22.3.
@@ -1206,7 +1209,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.29 — Pilot handover pack (operations runbook)
 
-- [ ] **P10.29 Pilot handover pack (operations runbook)**
+- [x] **P10.29 Pilot handover pack (operations runbook)** — implemented, awaiting human handover (decision record: `ledger/phase-10-v1-release-hardening/29_pilot_handover_pack.md`; additive runbook: `docs/operations/pilot-handover-runbook.md` — DESIGN-not-deployed, every operational value PLACEHOLDER/UNSIGNED, pack assembled by citation from the P9/P10 owning records, walkthrough UNHELD, receipt UNSIGNED, handover acceptance checklist EMPTY)
 
 - **Objective:** Hand the pilot operators a complete operations pack for the released version,
   so the pilot can run without the release team in the room.
@@ -1244,7 +1247,7 @@ is checked and the `CHECKLIST.md` in this directory is complete with the evidenc
 
 ### P10.30 — Post-release monitoring and bounded-automation deferral record
 
-- [ ] **P10.30 Post-release monitoring and bounded-automation deferral record**
+- [x] **P10.30 Post-release monitoring and bounded-automation deferral record** — implemented, awaiting human build/test (record: `ledger/phase-10-v1-release-hardening/30_post_release_deferral.md`; monitoring PLAN cites the P9.25/P10.18 inventories with every threshold/recipient cell EMPTY per X-8 and the run record EMPTY; bounded-automation deferral carried VERBATIM — post-1.0, per deployment/site/asset-class, never-granted list quoted byte-identical from the kernel, full requirement list UNGRANTED; deferral decision RECORDED; first review date EMPTY)
 
 - **Objective:** Set up post-release monitoring for the pilot, and record — in writing —
   that bounded automation is deferred, so no one enables it by drift.

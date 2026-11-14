@@ -15,6 +15,8 @@
 // | Telemetry repository (P2.06; no port trait — the P2.11 contract is being implemented concurrently) | [`telemetry`] on [`unit_of_work::PgUnitOfWork`]: insert (single + batch), time-range query, latest-per-asset, quarantine write/list, all tenant-scoped through the same unit-of-work transaction |
 // | Versioned corrections + as-of reads (P2.31, foundations §6.4; no port trait — same recorded status) | [`corrections`] on [`unit_of_work::PgUnitOfWork`]: correction insert (new versioned row, original intact), per-identity version listing, as-of range/history reads |
 // | `flexcore_storage::schedule_store::ScheduleRecordStore` (P3.21; storage-side contract, recorded home deviation) | [`schedule_store`] on [`unit_of_work::PgUnitOfWork`]: §12.6 schedule-result record insert + tenant-scoped find (migration 0013), inside the caller's transaction so the record and the `ScheduleProposed` outbox row are atomic (§15.5) |
+// | `flexcore_storage::command_store::CommandRecordStore` + `flexcore_storage::feasibility_check::FeasibilityCheckStore` (P4.10/P4.30; storage-side contracts, same recorded home deviation) | [`command_store`] / [`feasibility_check`] on [`unit_of_work::PgUnitOfWork`]: command records + the compare-and-swap state transition + immutable journal rows (migration 0016) and the append-only feasibility-check evidence records (migration 0017), all inside the caller's transaction so each state change and its paired outbox rows are atomic (§15.5) |
+// | `flexcore_storage::audit_read::AuditEventReader` (P4.36; storage-side contract, same recorded home deviation) | [`audit_read`] on [`unit_of_work::PgUnitOfWork`]: the SELECT-only, tenant-scoped read half of the append-only `audit_records` table (migration 0008) — the §15.2 `/api/v1/audit-events` read resource; NO write statement exists in that module (writes stay on the P1.10 `AuditSink`) |
 //
 // ## Recorded decisions (full rationale in the crate README)
 //
@@ -53,17 +55,33 @@ mod outbox;
 mod uuid_map;
 
 pub mod clock;
+// P4.36 — the audit-events reader (migration 0008 read half): the
+// PostgreSQL implementation of flexcore-storage's AuditEventReader, on the
+// PgUnitOfWork transaction pattern (SELECT-only, explicit tenant filter on
+// top of RLS, bound parameters, always-bounded listing).
+pub mod audit_read;
 // P4.10 — the dispatch command-record store (migration 0016): the
 // PostgreSQL implementation of flexcore-storage's CommandRecordStore, on
 // the PgUnitOfWork transaction pattern (compare-and-swap state transition +
 // immutable journal row in ONE transaction; append-only command records).
 pub mod command_store;
 pub mod corrections;
+// P6.06 — the edge-enrollment store (migration 0018): the PostgreSQL
+// implementation of flexcore-storage's EdgeEnrollmentStore on the
+// FlexCoreStore pattern (its OWN unit of work per call with the caller's
+// tenant context; append-only device-identity registry + enrollment
+// journal; no key/certificate material is ever stored — §17.3).
+pub mod edge_enrollment;
 // P3.28 — the flexibility-envelope record store (migration 0015): the
 // PostgreSQL implementation of flexcore-storage's EnvelopeRecordStore, on
 // the PgUnitOfWork transaction pattern (record + the per-site
 // FlexibilityEnvelopeUpdated outbox rows in ONE transaction, §15.5).
 pub mod envelope_store;
+// P4.30 — the feasibility-check evidence record store (migration 0017):
+// the PostgreSQL implementation of flexcore-storage's FeasibilityCheckStore,
+// on the PgUnitOfWork transaction pattern (append-only check record +
+// the paired FeasibilityCheckCompleted outbox row in ONE transaction, §15.5).
+pub mod feasibility_check;
 pub mod id_generator;
 pub mod partition_maintenance;
 // P3.21 — the §12.6 schedule-result record store (migration 0013): the
@@ -106,6 +124,7 @@ mod tests {
         use flexcore_ports::repository::{
             AssetRepository, PortfolioRepository, SiteRepository, TenantRepository,
         };
+        use flexcore_storage::audit_read::AuditEventReader;
 
         fn takes_dyn_clock(_: &dyn flexcore_ports::clock::Clock) {}
         fn takes_dyn_ids(_: &dyn flexcore_ports::id_generator::IdGenerator) {}
@@ -115,6 +134,9 @@ mod tests {
         fn takes_dyn_sites(_: &dyn SiteRepository) {}
         fn takes_dyn_assets(_: &dyn AssetRepository) {}
         fn takes_dyn_audit(_: &dyn AuditSink) {}
+        // P4.36 — the audit-events reader joins the implemented-port
+        // evidence (SELECT-only; see audit_read.rs).
+        fn takes_dyn_audit_read(_: &dyn AuditEventReader) {}
 
         fn assert_full_port_bundle<T>()
         where
@@ -123,7 +145,8 @@ mod tests {
                 + SiteRepository
                 + AssetRepository
                 + EventOutbox
-                + AuditSink,
+                + AuditSink
+                + AuditEventReader,
         {
         }
         assert_full_port_bundle::<PgUnitOfWork>;

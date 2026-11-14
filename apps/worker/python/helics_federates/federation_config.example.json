@@ -1,0 +1,75 @@
+{
+  "protocol": "flexcore-helics-federation/1",
+  "federation_name": "flexcore-phase5-cosim",
+  "broker": {
+    "address": "tcp://127.0.0.1:23404",
+    "expected_federates": 3,
+    "startup_timeout_seconds": 60.0,
+    "script_path": "apps/worker/python/helics_federates/broker.py",
+    "program": "python"
+  },
+  "time_step_seconds": 15.0,
+  "stop_time_seconds": 3600.0,
+  "federates": [
+    {
+      "name": "flexcore_asset",
+      "role": "asset",
+      "script_path": "apps/worker/python/helics_federates/asset_federate.py",
+      "interpreter": "python",
+      "options": {
+        "input_records_path": "scenarios/synthetic-portfolio/replay-records.json",
+        "asset_key_map": {
+          "site-north-bess-1": "PASTE-THE-RECORDS-UUID-FOR-site-north-bess-1",
+          "site-north-pv-1": "PASTE-THE-RECORDS-UUID-FOR-site-north-pv-1"
+        }
+      },
+      "publications": [
+        { "topic": "flexcore/asset/site-north-bess-1/p_mw", "unit": "MW", "kind": "double" },
+        { "topic": "flexcore/asset/site-north-bess-1/q_mvar", "unit": "MVAr", "kind": "double" },
+        { "topic": "flexcore/asset/site-north-pv-1/p_mw", "unit": "MW", "kind": "double" }
+      ],
+      "subscriptions": [
+        { "topic": "flexcore/control/site-north-bess-1/setpoint_p_mw", "unit": "MW", "kind": "double" }
+      ]
+    },
+    {
+      "name": "flexcore_grid",
+      "role": "grid",
+      "script_path": "apps/worker/python/helics_federates/grid_federate.py",
+      "interpreter": "python",
+      "options": {
+        "grid_worker_script": "apps/worker/python/grid_worker.py",
+        "model_ir_path": "scenarios/synthetic-portfolio/grid-model.json",
+        "bus_map": {
+          "site-north-bess-1": "bus_2",
+          "site-north-pv-1": "bus_3"
+        }
+      },
+      "publications": [
+        { "topic": "flexcore/grid/bus/bus_2/vm_pu", "unit": "pu", "kind": "double" },
+        { "topic": "flexcore/grid/bus/bus_3/vm_pu", "unit": "pu", "kind": "double" }
+      ],
+      "subscriptions": [
+        { "topic": "flexcore/asset/site-north-bess-1/p_mw", "unit": "MW", "kind": "double" },
+        { "topic": "flexcore/asset/site-north-bess-1/q_mvar", "unit": "MVAr", "kind": "double" },
+        { "topic": "flexcore/asset/site-north-pv-1/p_mw", "unit": "MW", "kind": "double" }
+      ]
+    },
+    {
+      "name": "flexcore_control",
+      "role": "control",
+      "script_path": "apps/worker/python/helics_federates/control_federate.py",
+      "interpreter": "python",
+      "options": {
+        "setpoints_path": "scenarios/synthetic-portfolio/setpoints-fixture.json"
+      },
+      "publications": [
+        { "topic": "flexcore/control/site-north-bess-1/setpoint_p_mw", "unit": "MW", "kind": "double" }
+      ],
+      "subscriptions": [
+        { "topic": "flexcore/asset/site-north-bess-1/p_mw", "unit": "MW", "kind": "double" },
+        { "topic": "flexcore/grid/bus/bus_2/vm_pu", "unit": "pu", "kind": "double" }
+      ]
+    }
+  ]
+}

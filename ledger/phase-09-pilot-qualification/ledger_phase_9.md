@@ -91,17 +91,6 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 | P9.39 | Pilot performance and load test | §19.2, §19.4 |
 | P9.40 | HIL-to-field traceability map | §19.1, §19.2 |
 | P9.41 | Scenario-regression suite re-run (pilot config) | §22.2, §19.2 |
-| P9.31 | Forged/replayed/expired/out-of-sequence rejection at the edge | §17.4, §18.2 |
-| P9.32 | Audit integrity and edge audit-buffer proof | §17.3, §18.1 |
-| P9.33 | Edge enrollment ceremony and identity lifecycle | §18.1, §17.3 |
-| P9.34 | Signed edge-update verification and rollback | §18.3, §17.3 |
-| P9.35 | §17.5 safety-invariant map (pilot) | §17.5 |
-| P9.36 | Live incident drill: forged-command containment | §17.3, §17.4 |
-| P9.37 | Adapter conformance suites executed (pilot config) | §2.3, §19.2 |
-| P9.38 | Pilot shadow replay (§24 step 10 at the pilot) | §24, §19.2 |
-| P9.39 | Pilot performance and load test | §19.2, §19.4 |
-| P9.40 | HIL-to-field traceability map | §19.1, §19.2 |
-| P9.41 | Scenario-regression suite re-run (pilot config) | §22.2, §19.2 |
 
 ---
 
@@ -109,7 +98,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.01 — Pilot scope, customer, and site freeze
 
-- [ ] **P9.01 Pilot scope, customer, and site freeze**
+- [x] **P9.01 Pilot scope, customer, and site freeze** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/01_pilot_scope_freeze.md`)
 
 - **Objective:** Freeze, in writing, exactly which customer, which sites, which assets, which
   service, and which control scope this pilot qualifies — so no later subtask can silently
@@ -145,7 +134,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.02 — Site and asset register reconciliation
 
-- [ ] **P9.02 Site and asset register reconciliation**
+- [x] **P9.02 Site and asset register reconciliation** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/02_site_asset_reconciliation.md`)
 
 - **Objective:** Prove the FlexCore registry matches physical reality at each pilot site
   before any schedule or command is built from it.
@@ -180,7 +169,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.03 — Pilot network model build and validation
 
-- [ ] **P9.03 Pilot network model build and validation**
+- [x] **P9.03 Pilot network model build and validation** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/03_network_model_build.md`)
 
 - **Objective:** Build a versioned grid model of each pilot feeder/site network that the
   feasibility gate (§12.5) can actually use, and validate it against known measurements.
@@ -222,7 +211,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.04 — Customer-specific integration design
 
-- [ ] **P9.04 Customer-specific integration design**
+- [x] **P9.04 Customer-specific integration design** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/04_customer_integration_design.md`)
 
 - **Objective:** Design, for this customer, exactly how FlexCore connects to each site EMS,
   device, and protocol — adapter by adapter, with no adapter claimed conformant merely
@@ -261,7 +250,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.05 — Site network and connectivity design
 
-- [ ] **P9.05 Site network and connectivity design**
+- [x] **P9.05 Site network and connectivity design** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/05_site_network_design.md`)
 
 - **Objective:** Design the network path between each site and the central platform so that
   only documented flows cross each zone boundary, with no inbound internet access into OT
@@ -300,7 +289,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.06 — OT/IT boundary review — D6 closure
 
-- [ ] **P9.06 OT/IT boundary review — D6 closure**
+- [x] **P9.06 OT/IT boundary review — D6 closure** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/06_ot_it_boundary_d6.md`)
 
 - **Objective:** Close decision D6 for this deployment with a site-specific cyber and OT
   boundary review, before any read-only pilot begins.
@@ -336,7 +325,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.07 — Deployment security assessment
 
-- [ ] **P9.07 Deployment security assessment**
+- [x] **P9.07 Deployment security assessment** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/07_deployment_security_assessment.md`)
 
 - **Objective:** Assess the pilot deployment against the §17 threat model and required
   controls, using NIST SP 800-82 Rev. 3 as the final baseline and Rev. 4 only as a draft.
@@ -391,7 +380,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.08 — Identity, access, and approval design
 
-- [ ] **P9.08 Identity, access, and approval design**
+- [x] **P9.08 Identity, access, and approval design** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/08_identity_access_approval.md`)
 
 - **Objective:** Define who can do what at the pilot, under which identity, with which
   approval — so that operator-approved control (§21.4) is enforceable, not customary.
@@ -431,7 +420,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.09 — Secrets, certificates, and key management
 
-- [ ] **P9.09 Secrets, certificates, and key management**
+- [x] **P9.09 Secrets, certificates, and key management** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/09_secrets_certs_keys.md`)
 
 - **Objective:** Ensure no secret, certificate, or key for the pilot lives in source control,
   a plugin config file, or an unencrypted store — and that rotation and expiry are handled
@@ -470,7 +459,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.10 — Data residency, retention, and privacy design
 
-- [ ] **P9.10 Data residency, retention, and privacy design**
+- [x] **P9.10 Data residency, retention, and privacy design** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/10_data_residency_retention.md`)
 
 - **Objective:** Fix, for this deployment, where data lives, how long each class is kept,
   and who may see it — driven by the jurisdiction (D1) and the customer contract, not by a
@@ -510,7 +499,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.11 — Market / program requirements capture
 
-- [ ] **P9.11 Market / program requirements capture**
+- [x] **P9.11 Market / program requirements capture** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/11_market_program_requirements.md`)
 
 - **Objective:** Capture the exact market or demand-response program rules the pilot must
   satisfy, as a region-specific adapter problem — not as a generic OpenADR mapping.
@@ -553,7 +542,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.12 — Interconnection and authority engagement
 
-- [ ] **P9.12 Interconnection and authority engagement**
+- [x] **P9.12 Interconnection and authority engagement** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/12_authority_engagement.md`)
 
 - **Objective:** Identify every external approval the pilot needs (utility/DSO, market
   operator, interconnection authority), engage them, and track each approval to a decision.
@@ -590,7 +579,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.13 — Site commissioning plan
 
-- [ ] **P9.13 Site commissioning plan**
+- [x] **P9.13 Site commissioning plan** — implemented, awaiting human build/test (commissioning plan TEMPLATE: `ledger/phase-09-pilot-qualification/13_commissioning_plan.md`; every execution cell EMPTY/UNSCHEDULED — commissioning itself is the human gate)
 
 - **Objective:** Write the step-by-step plan that takes each site from "installed" to
   "accepted for shadow operation", with a named owner and pass/fail per step.
@@ -625,7 +614,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.14 — Lab integration test — read-only end-to-end
 
-- [ ] **P9.14 Lab integration test — read-only end-to-end**
+- [x] **P9.14 Lab integration test — read-only end-to-end** — implemented, awaiting human build/test (execution TEMPLATE: `ledger/phase-09-pilot-qualification/14_lab_integration_test.md`; run record EMPTY, UNRUN — no lab environment exists, the lab run is the human gate)
 
 - **Objective:** Re-verify the Stage 6 exit gate for the pilot configuration in the lab:
   read-only end-to-end site integration works, and the command path stays disabled unless
@@ -659,7 +648,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.15 — Hardware-in-the-loop test plan and execution
 
-- [ ] **P9.15 Hardware-in-the-loop test plan and execution**
+- [x] **P9.15 Hardware-in-the-loop test plan and execution** — implemented, awaiting human build/test (plan + execution TEMPLATE: `ledger/phase-09-pilot-qualification/15_hil_test_plan.md`; rig NOT PROCURED, execution record EMPTY, UNRUN — the HIL run is the human gate)
 
 - **Objective:** Prove, with real controller/equipment hardware in the loop, that the
   command/control integration behaves correctly — before any field command is issued.
@@ -708,7 +697,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.16 — Field acceptance test plan
 
-- [ ] **P9.16 Field acceptance test plan**
+- [x] **P9.16 Field acceptance test plan** — implemented, awaiting human build/test (FAT PLAN pre-registered BEFORE any run: `ledger/phase-09-pilot-qualification/16_field_acceptance_plan.md`; per-site values and numeric thresholds EMPTY, customer review UNSIGNED, HIL-coverage cells EMPTY per the P9.40 map rules — FAT execution is the human gate)
 
 - **Objective:** Write the field acceptance tests (FAT/SAT) that the customer and the
   applicable authorities will use to judge the pilot — before the tests are run.
@@ -746,7 +735,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.17 — Field acceptance test execution — shadow first
 
-- [ ] **P9.17 Field acceptance test execution — shadow first**
+- [x] **P9.17 Field acceptance test execution — shadow first** — implemented, awaiting human build/test (EXECUTION TEMPLATE: `ledger/phase-09-pilot-qualification/17_field_acceptance_execution.md`; run record EMPTY — no site, dates, personnel, or results; shadow-first ordering gate and v1.0.0 ladder verbatim; shadow review UNSIGNED; promotion NEVER REQUESTED — execution is the human gate)
 
 - **Objective:** Execute the field acceptance tests at the real sites, in read-only/shadow
   mode first, and only then — with approval — in operator-approved mode.
@@ -784,7 +773,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.18 — Site telemetry quality and clock-sync verification
 
-- [ ] **P9.18 Site telemetry quality and clock-sync verification**
+- [x] **P9.18 Site telemetry quality and clock-sync verification** — implemented, awaiting human build/test (VERIFICATION TEMPLATE: `ledger/phase-09-pilot-qualification/18_telemetry_clock_verification.md`; §10.3 time model + §10.4 six-state quality procedures with EMPTY result cells; clock-sync per `crates/edge-agent/src/clock_quality.rs` — hold-on-drift discipline, pilot-profile 100 ms/30 000 ms DEFAULTS NOT measurements; sync-source procurement UNSIGNED; P9.39 M-5 interaction owned here per the 39_ record — verification is the human gate)
 
 - **Objective:** Prove the telemetry the pilot will decide on is trustworthy at each site:
   correctly timestamped, correctly quality-flagged, and fresh enough for its use case.
@@ -824,7 +813,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.19 — Command-lifecycle dry run in shadow mode
 
-- [ ] **P9.19 Command-lifecycle dry run in shadow mode**
+- [x] **P9.19 Command-lifecycle dry run in shadow mode** — implemented, awaiting human build/test (dry-run TEMPLATE: `ledger/phase-09-pilot-qualification/19_command_dry_run.md`; every result cell EMPTY/UNRUN — the shadow dry run is the human gate)
 
 - **Objective:** Exercise the full command state machine (§14.1) against real site
   conditions without issuing a physical command, and prove each gate is distinct.
@@ -864,7 +853,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.20 — Fallback and degraded-mode drills
 
-- [ ] **P9.20 Fallback and degraded-mode drills**
+- [x] **P9.20 Fallback and degraded-mode drills** — implemented, awaiting human build/test (drill PLAN + TEMPLATE: `ledger/phase-09-pilot-qualification/20_fallback_drills.md`; fallback register EMPTY, drills UNRUN/UNWITNESSED — the drills and witness are the human gate)
 
 - **Objective:** Prove each site falls back safely when FlexCore, the network, or an asset
   fails — with the fallback defined per asset/site, not as a universal "set power to zero".
@@ -903,7 +892,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.21 — Operator training and role qualification
 
-- [ ] **P9.21 Operator training and role qualification**
+- [x] **P9.21 Operator training and role qualification** — implemented, awaiting human build/test (DESIGN record: `ledger/phase-09-pilot-qualification/21_operator_training.md`; no trainee exists, register EMPTY — training/assessment is the human gate)
 
 - **Objective:** Qualify the named people who will operate and approve at the pilot, on the
   actual pilot system — not on a generic demo.
@@ -940,7 +929,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.22 — Market / product-specific operational procedures
 
-- [ ] **P9.22 Market / product-specific operational procedures**
+- [x] **P9.22 Market / product-specific operational procedures** — implemented, awaiting human build/test (CONDITIONAL procedure drafts: `ledger/phase-09-pilot-qualification/22_market_operational_procedures.md`; D1 OPEN — every procedure carries its "when a market/program exists per P9.11" activation condition, every operational value EMPTY, register DRAFT-INACTIVE — the P9.11 capture, the operator walkthrough, and activation are the human gates)
 
 - **Objective:** Write the day-to-day operating procedures for the pilot's specific service
   and market/program — the procedures the operator follows when an event arrives.
@@ -976,7 +965,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.23 — Incident response and customer notification procedure
 
-- [ ] **P9.23 Incident response and customer notification procedure**
+- [x] **P9.23 Incident response and customer notification procedure** — implemented, awaiting human build/test (procedure + EMPTY records: `ledger/phase-09-pilot-qualification/23_incident_response.md`; contacts/deadlines PLACEHOLDER, rota UNSIGNED, tabletop UNHELD; the P9.36-recorded "P9.23 not written" prerequisite is closed by this record — the tabletop-signed half stays OPEN and P9.36 remains UNSCHEDULABLE)
 
 - **Objective:** Define, for this pilot, what counts as an incident, who is called, in what
   order, and how the customer is notified — before an incident happens.
@@ -1015,7 +1004,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.24 — Backup, restore, and disaster-recovery rehearsal
 
-- [ ] **P9.24 Backup, restore, and disaster-recovery rehearsal**
+- [x] **P9.24 Backup, restore, and disaster-recovery rehearsal** — implemented, awaiting human build/test (rehearsal PLAN + EMPTY record: `ledger/phase-09-pilot-qualification/24_backup_dr_rehearsal.md`; backup configuration does not exist, RPO/RTO PLACEHOLDER, restore UNPERFORMED, edge-outage test UNRUN — the rehearsal is the human gate; P10.11 re-runs, does not inherit)
 
 - **Objective:** Prove the pilot can be restored from backup — by actually restoring it —
   and that the edge survives a central outage within its bounded buffer.
@@ -1056,7 +1045,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.25 — Observability and alerting verification at the pilot
 
-- [ ] **P9.25 Observability and alerting verification at the pilot**
+- [x] **P9.25 Observability and alerting verification at the pilot** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/25_observability_alerting.md`)
 
 - **Objective:** Prove the pilot's monitoring actually detects the failures that matter, with
   alerts that reach a named person — not just dashboards that exist.
@@ -1093,7 +1082,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.26 — Control-scope document and operator-approved configuration
 
-- [ ] **P9.26 Control-scope document and operator-approved configuration**
+- [x] **P9.26 Control-scope document and operator-approved configuration** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/26_control_scope_document.md`)
 
 - **Objective:** Write down the exact control scope the pilot is approved for, and configure
   the deployed system so it cannot exceed that scope.
@@ -1129,7 +1118,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.27 — Known-limitations and residual-risk register
 
-- [ ] **P9.27 Known-limitations and residual-risk register**
+- [x] **P9.27 Known-limitations and residual-risk register** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/27_limitations_residual_risk.md`)
 
 - **Objective:** Write down, honestly, what the pilot does not do, does not cover, and still
   risks — so the acceptance decision in P9.28 is informed, not surprised.
@@ -1165,7 +1154,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.28 — Customer and site acceptance review
 
-- [ ] **P9.28 Customer and site acceptance review**
+- [x] **P9.28 Customer and site acceptance review** — implemented, awaiting human build/test (acceptance REVIEW TEMPLATE: `ledger/phase-09-pilot-qualification/28_acceptance_review.md`; every attendee cell EMPTY/UNSIGNED, evidence checklist assembled by record path with each item honestly WRITTEN-UNRUN/TEMPLATE (P9.41 record MISSING), acceptance criteria PRE-REGISTERED against FAT results that are EMPTY, review OUTCOME = EMPTY — no review has been convened, nothing is accepted — the review is the human gate)
 
 - **Objective:** Hold the formal acceptance review at which the customer and the site
   owners decide whether the deployment and its control scope are approved.
@@ -1200,7 +1189,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.29 — Applicable-authority approval pack
 
-- [ ] **P9.29 Applicable-authority approval pack**
+- [x] **P9.29 Applicable-authority approval pack** — implemented, awaiting human build/test (approval PACK TEMPLATE: `ledger/phase-09-pilot-qualification/29_authority_approval_pack.md`; pack assembly (scope freeze, network model, security assessment, OT/IT D6 record, FAT evidence, control-scope document, limitations register, P9.12 engagement evidence, P9.32 audit-export capability BY CITATION) all TEMPLATE/EMPTY, submission/approval workflow UNSIGNED, NO AUTHORITY NAMED, no approval exists; what an approval would permit (operator-approved entry, v1.0.0 ladder verbatim) and never permit (bounded automation post-1.0; plugin dispatch authority — never-granted list verbatim) — submission and approval are the human gates)
 
 - **Objective:** Submit to each applicable authority the pack it needs to approve the
   deployment and its control scope, and track each submission to a decision.
@@ -1236,7 +1225,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.30 — Phase 9 exit-gate record and handover to Phase 10
 
-- [ ] **P9.30 Phase 9 exit-gate record and handover to Phase 10**
+- [x] **P9.30 Phase 9 exit-gate record and handover to Phase 10** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/30_phase_exit_gate_record.md`)
 
 - **Objective:** Record the Phase 9 exit-gate decision formally and hand Phase 10 a clean,
   evidenced package — including everything still open.
@@ -1273,7 +1262,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.31 — Forged/replayed/expired/out-of-sequence command rejection at the edge
 
-- [ ] **P9.31 Forged/replayed/expired/out-of-sequence command rejection at the edge**
+- [x] **P9.31 Forged/replayed/expired/out-of-sequence command rejection at the edge** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/31_edge_rejection_proof.md`)
 
 - **Objective:** Prove, by attack at the real edge, that a forged, replayed,
   expired, or out-of-sequence command is rejected before it reaches any
@@ -1311,7 +1300,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.32 — Audit integrity and edge audit-buffer proof
 
-- [ ] **P9.32 Audit integrity and edge audit-buffer proof**
+- [x] **P9.32 Audit integrity and edge audit-buffer proof** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/32_audit_integrity_proof.md`)
 
 - **Objective:** Prove pilot audit records are tamper-evident and complete,
   including the §18.1 local audit buffer's upload after a central outage —
@@ -1349,7 +1338,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.33 — Edge enrollment ceremony and identity lifecycle
 
-- [ ] **P9.33 Edge enrollment ceremony and identity lifecycle**
+- [x] **P9.33 Edge enrollment ceremony and identity lifecycle** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/33_edge_enrollment.md`)
 
 - **Objective:** Define and test how a pilot edge identity is born: the
   enrollment ceremony, first-boot trust, re-enrollment after compromise,
@@ -1388,7 +1377,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.34 — Signed edge-update verification and rollback
 
-- [ ] **P9.34 Signed edge-update verification and rollback**
+- [x] **P9.34 Signed edge-update verification and rollback** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/34_signed_update_verification.md`)
 
 - **Objective:** Prove pilot edge updates are verified before they are
   applied and rolled back when they fail — §18.3 requires signed and
@@ -1425,7 +1414,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.35 — §17.5 safety-invariant map for the pilot
 
-- [ ] **P9.35 §17.5 safety-invariant map for the pilot**
+- [x] **P9.35 §17.5 safety-invariant map for the pilot** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/35_safety_invariant_map.md`)
 
 - **Objective:** Map each of the ten §17.5 safety invariants to the named
   pilot subtask(s) and test(s) that prove it at the deployment, and close
@@ -1461,7 +1450,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.36 — Live incident drill: forged-command containment
 
-- [ ] **P9.36 Live incident drill: forged-command containment**
+- [x] **P9.36 Live incident drill: forged-command containment** — implemented, awaiting human build/test (drill plan + EMPTY run record: `ledger/phase-09-pilot-qualification/36_forged_command_drill.md`; the live run itself is the human gate, UNRUN)
 
 - **Objective:** Execute, live (not as a tabletop), the containment of a
   forged/replayed command attempt at the pilot — proving the P9.23
@@ -1497,7 +1486,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.37 — Adapter conformance suites executed in the pilot configuration
 
-- [ ] **P9.37 Adapter conformance suites executed in the pilot configuration**
+- [x] **P9.37 Adapter conformance suites executed in the pilot configuration** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/37_adapter_conformance_pilot.md`)
 
 - **Objective:** Run, in the pilot configuration, the conformance/
   interoperability suite P9.04 names for each adapter — so no adapter
@@ -1534,7 +1523,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.38 — Pilot shadow replay: §24 step 10 at the pilot
 
-- [ ] **P9.38 Pilot shadow replay: §24 step 10 at the pilot**
+- [x] **P9.38 Pilot shadow replay: §24 step 10 at the pilot** — implemented, awaiting human build/test (decision record: `ledger/phase-09-pilot-qualification/38_pilot_shadow_replay.md`)
 
 - **Objective:** Replay a recorded shadow period from stored inputs and
   prove the pilot reproduces the same proposed actions within tolerance —
@@ -1571,7 +1560,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.39 — Pilot performance and load test
 
-- [ ] **P9.39 Pilot performance and load test**
+- [x] **P9.39 Pilot performance and load test** — implemented, awaiting human build/test (test template + EMPTY run record: `ledger/phase-09-pilot-qualification/39_performance_load_test.md`)
 
 - **Objective:** Prove the pilot deployment handles its real load: telemetry
   ingest rate, scheduling runtime, query latency, command fan-out, and
@@ -1608,7 +1597,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.40 — HIL-to-field traceability map
 
-- [ ] **P9.40 HIL-to-field traceability map**
+- [x] **P9.40 HIL-to-field traceability map** — implemented, awaiting human build/test (traceability record + versioned map artifact: `ledger/phase-09-pilot-qualification/40_hil_field_traceability.md` + `ledger/phase-09-pilot-qualification/hil-field-traceability-map-v1.json`)
 
 - **Objective:** Map every field-acceptance case to the HIL/lab evidence
   that de-risks it, reusing the same disturbance profiles and seeds across
@@ -1644,7 +1633,7 @@ Phase 9; it is recorded as a reduced control scope and the remaining subtasks st
 
 ### P9.41 — Scenario-regression suite re-run on the pilot configuration
 
-- [ ] **P9.41 Scenario-regression suite re-run on the pilot configuration**
+- [x] **P9.41 Scenario-regression suite re-run on the pilot configuration** — implemented, awaiting human build/test (execution TEMPLATE: `ledger/phase-09-pilot-qualification/41_scenario_regression_pilot.md`; suite inventory BY CITATION (the §22.2 machinery — Phase 2 exit-gate + P4.31 fault/shadow suites, Phase 3 deterministic suite, Phase 5 replay library, Phase 6 edge register, P7.43 SDK suite 69 steps — ALL WRITTEN-UNRUN, NO BASELINE RUN EXISTS), pilot-config deltas ALL EMPTY (P9.01/P9.03/P9.04/P9.16 inputs), per-scenario run record EMPTY, UNRUN, X-8 tolerance rule recorded, proposed LR-212–LR-219 amendment — the re-run is the human gate)
 
 - **Objective:** Run the §22.2 scenario-regression suite against the pilot
   configuration (pilot adapters, grid model, versions) and record the

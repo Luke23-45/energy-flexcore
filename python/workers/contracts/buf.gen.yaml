@@ -1,0 +1,22 @@
+# P7.27 — Code generation plan for the Class C worker contract
+# (`worker_api.proto`; report §10.5). Mirrors the P1.18 proto/buf.gen.yaml
+# shape: plugin versions are pinned AT ACTIVATION TIME and recorded in the
+# Phase 7 decision record — never floated (P1.18: "versions recorded then,
+# never floated"). NO pin is written below: none was verified in
+# RESEARCH.md (which covered the Wasmtime/WIT/Rust toolchain), and the
+# no-hallucinated-facts rule (AGENTS.md §3.1) forbids inventing one.
+#
+# RUN-STATUS HONESTY: config only. Nothing was generated; no buf plugin
+# execution happened in the writing loop. The generated-stub outputs below
+# are the recorded ACTIVATION plan — they exist after the human pins the
+# plugin versions and runs `buf generate` (its output directories are then
+# created by the tool, never committed from this loop).
+version: v2
+managed:
+  enabled: true
+plugins:
+  # Python (worker side) — the stubs the worker template imports at
+  # activation. Plugin version UNPINNED-REVERIFY: pin at activation per
+  # python/workers/requirements.txt's re-verify procedure.
+  - remote: buf.build/protocolbuffers/python
+    out: ../proto-gen

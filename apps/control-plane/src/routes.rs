@@ -44,10 +44,11 @@ use crate::state::AppState;
 /// Builds the Stage 1 router (subset of `/api/v1` per P0.15) plus the
 /// probe/metrics/OpenAPI endpoints, merged with the Phase 2 routes
 /// (P2.12/P2.17: registry DELETE/update/deactivate, telemetry query,
-/// current state, quarantine, registry views) and the Phase 3 routes
+/// current state, quarantine, registry views), the Phase 3 routes
 /// (P3.28: flexibility envelopes, schedules, optimization runs — the
-/// §15.2 resources of the Phase 3 line; still NO execute-command
-/// endpoint).
+/// §15.2 resources of the Phase 3 line), and the Phase 4 routes (P4.30:
+/// dispatch commands, feasibility checks — the §15.2 resources of the
+/// Phase 4 line, READ-ONLY; still NO execute-command endpoint).
 pub fn stage1_router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/tenants", post(create_tenant).get(list_tenants))
@@ -67,6 +68,30 @@ pub fn stage1_router(state: AppState) -> Router {
         .route("/metrics", get(crate::metrics_route::metrics))
         .merge(crate::routes_phase2::phase2_router())
         .merge(crate::routes_phase3::phase3_router())
+        .merge(crate::routes_phase4::phase4_router())
+        // P5.25 — live updates: the tenant-scoped SSE stream at
+        // /api/v1/live (§15.1, §21.3). READ-only — the stream has no
+        // write or execute path anywhere on it.
+        .merge(crate::routes_live::live_router())
+        // P5.31 — the derived alarm read resource at /api/v1/alarms
+        // (§20.1 item 1; READ-only, derived on read from existing platform
+        // facts — no acknowledge endpoint, no new §15.3 event).
+        .merge(crate::routes_alarms::alarms_router())
+        // P6.06 — the edge enrollment seam at /api/v1/edge/enroll
+        // (additive path per the recorded P4.36/P5.31 rule; provisioning-
+        // token auth; the fail-closed enrollment matrix — no dispatch-state
+        // mutation anywhere).
+        .merge(crate::routes_edge::edge_router())
+        // P7.25 — the plugin-inventory read at /api/v1/plugins (additive
+        // path per the recorded P4.36/P5.31/P6.06 rule; READ-only — no
+        // activate/deactivate/upgrade/profile-switch endpoint exists, and
+        // no dispatch-state mutation anywhere).
+        .merge(crate::routes_plugins::plugins_router())
+        // P8.27 — the research-status read at /api/v1/research/status
+        // (additive path per the recorded P4.36/P5.31/P6.06/P7.25 rule;
+        // READ-only — no promote/issue/authorize/fast-track/approve
+        // endpoint exists, and no dispatch-state mutation anywhere).
+        .merge(crate::routes_research::research_router())
         .with_state(state)
 }
 

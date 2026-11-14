@@ -1,0 +1,89 @@
+# P6.27 — dependency license + advisory gate configuration (report §22.2
+# "container/dependency scanning", "license/security review"; §9.3 supply
+# chain). Backing config for the `edge-license-gate` CI job.
+#
+# RUN-STATUS HONESTY: this file is WRITTEN, NEVER RUN. No cargo-deny
+# execution happened in the writing loop (loop bans,
+# ledger/phase-06-edge-protocol/ENTRY_NOTE.md), and the workspace has no
+# committed Cargo.lock yet — until the first lockfile lands, no license or
+# advisory verdict can exist. The first human `cargo deny check` run is the
+# verification point and must, per the P6.02 verification method
+# (ledger/phase-06-edge-protocol/02_license_audit.md §8), diff the
+# lockfile-derived dependency set against that record's tables; any
+# unlisted dependency fails the check.
+
+[licenses]
+version = 2
+# Fail closed on a dependency with NO license entry (P6.27 step 3: the gate
+# "fails if a new dependency lacks a license entry").
+unlicensed = "deny"
+allow = [
+  # Permissive families recorded for the direct workspace set
+  # (02_license_audit.md §2): MIT; MIT/Apache-2.0; Apache-2.0 (clarabel);
+  # the ISC family (rustls / rustls-pemfile per crates.io metadata — see the
+  # RE-VERIFY note below); plus the common permissive transitive set. This
+  # list is the config form of the recorded audit, not a scan result — the
+  # transitive set is UNVERIFIED until the first lockfile-backed run.
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "ISC",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Zlib",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "MPL-2.0",
+  # ring (pulled via rustls) carries an ISC/MIT/OpenSSL-style composite
+  # license; recorded so the first scan does not false-fail on it.
+  "OpenSSL",
+]
+# Copyleft (GPL/AGPL/EPL and friends) is intentionally NOT allowed.
+# Ipopt (EPL) is not a workspace dependency; it is recorded in the P6.02
+# audit only so D4 expects EPL if Stage 8 ever introduces it.
+
+# D4 open items carried verbatim from the records (02_license_audit.md §8;
+# 06_07_identity_channel.md §5):
+#
+# 1. RE-VERIFY — rustls and rustls-pemfile: licenses are UNVERIFIED in this
+#    repo (crates.io metadata only, MIT/Apache-2.0/ISC family) and the
+#    versions are UNPINNED-REVERIFY (caret pins only). The first human
+#    `cargo deny check licenses` must (a) verify both licenses against the
+#    primary sources, (b) resolve the exact versions, and (c) diff the
+#    transitive set. Owner: legal + engineering (D4).
+# 2. OpenEMS is NOT a crates.io dependency and is NOT covered by this file:
+#    integration uses the documented REST API over the network, an
+#    external-system boundary. No in-repo source records OpenEMS's license
+#    (02_license_audit.md §4 records it as UNVERIFIED/FLAG). The Apache-2.0
+#    licensing sometimes attributed to OpenEMS in the ecosystem must NOT be
+#    assumed here; verify from the project's primary source before any
+#    client library is vendored or linked (none is planned without the D4
+#    audit note). Owner: legal + engineering (D4).
+# 3. Transitive-set verification happens only at the first scan (no lockfile
+#    existed when this file was written) — zero-unknown claims are never
+#    made from this config.
+
+[advisories]
+version = 2
+# Fail on known unfixed advisories and on yanked crates pulled into the tree.
+# Tokio is pinned at 1.54.1 (never 1.54.0 — the Phase 1 CVE note); keep that
+# pin when triaging.
+yanked = "deny"
+ignore = []
+# Advisory triage notes are recorded here as they are handled — never by
+# silencing an advisory without a dated, owned record.
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+
+[sources]
+# Template-default posture; tightening to "deny" is a reviewed change once
+# the source set is confirmed at the first run.
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-git = []

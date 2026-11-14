@@ -16,13 +16,16 @@ use std::sync::Arc;
 use flexcore_application::payload_encoding::EventPayloadEncoder;
 use flexcore_authz::policy::PolicySet;
 use flexcore_domain::tenant_context::TenantContext;
+use flexcore_storage::audit_read::AuditEventReader;
 use flexcore_ports::clock::Clock;
 use flexcore_ports::event_outbox::EventOutbox;
 use flexcore_ports::id_generator::IdGenerator;
 use flexcore_ports::repository::{
     AssetRepository, PortfolioRepository, SiteRepository, TenantRepository,
 };
+use flexcore_storage::command_store::CommandRecordStore;
 use flexcore_storage::envelope_store::EnvelopeRecordStore;
+use flexcore_storage::feasibility_check::FeasibilityCheckStore;
 use flexcore_storage::schedule_revision::ScheduleRevisionChainStore;
 use flexcore_storage::schedule_store::ScheduleRecordStore;
 
@@ -52,7 +55,10 @@ pub enum Backend {
     /// directly, no transaction (the fakes journal the intended ordering).
     /// P3.28: the Phase 3 record stores (envelopes, §12.6 optimization
     /// runs, schedule revisions) join the bundle as the in-crate fakes
-    /// ([`crate::phase3_fakes`]).
+    /// ([`crate::phase3_fakes`]). P4.30: the Phase 4 record stores (the
+    /// command records and the feasibility-check evidence) join the bundle
+    /// as the in-crate fakes ([`crate::phase4_fakes`]). P4.36: the
+    /// audit-events reader joins the bundle as the in-crate fake as well.
     Test {
         tenants: Arc<dyn TenantRepository>,
         portfolios: Arc<dyn PortfolioRepository>,
@@ -64,6 +70,9 @@ pub enum Backend {
         schedule_records: Arc<dyn ScheduleRecordStore>,
         schedule_revisions: Arc<dyn ScheduleRevisionChainStore>,
         envelope_records: Arc<dyn EnvelopeRecordStore>,
+        command_records: Arc<dyn CommandRecordStore>,
+        feasibility_checks: Arc<dyn FeasibilityCheckStore>,
+        audit_events: Arc<dyn AuditEventReader>,
     },
 }
 
@@ -97,6 +106,18 @@ pub struct UnitOfWork {
     pub schedule_revisions: Arc<dyn ScheduleRevisionChainStore>,
     /// The flexibility-envelope record store (P3.28, migration 0015).
     pub envelope_records: Arc<dyn EnvelopeRecordStore>,
+    /// The dispatch-command record store (P4.10, migration 0016; the
+    /// §15.2 dispatch-commands read resource). In the Postgres backend it
+    /// coerces from the SAME `PgUnitOfWork` allocation (one transaction).
+    pub command_records: Arc<dyn CommandRecordStore>,
+    /// The feasibility-check evidence record store (P4.30, migration
+    /// 0017; the §15.2 feasibility-checks read resource). Same
+    /// one-transaction discipline.
+    pub feasibility_checks: Arc<dyn FeasibilityCheckStore>,
+    /// The audit-events reader (P4.36, migration 0008 read half; the
+    /// §15.2 audit-events read resource). SELECT-only; same
+    /// one-transaction discipline.
+    pub audit_events: Arc<dyn AuditEventReader>,
 }
 
 impl UnitOfWork {
@@ -131,6 +152,45 @@ pub struct AppState {
     /// STALE flag, never as GOOD (P2.18: the last known value is shown
     /// WITH the STALE flag).
     pub current_state_freshness_millis: i64,
+    /// The in-process live-update bus (P5.25, `routes_live.rs`): the
+    /// composition root's NATS forwarder publishes `flexcore.v1.>` messages
+    /// into it; the `GET /api/v1/live` SSE handlers subscribe and filter
+    /// per caller tenant. Deliberately NOT transaction-bound — it carries
+    /// forwarded broker messages, not unit-of-work state.
+    pub live: Arc<crate::routes_live::LiveEventBus>,
+    // P6.06 — the enrollment surface (ADDITIVE; both fail-closed by
+    // default). Deliberately NOT in the [`UnitOfWork`] bundle: the
+    // enrollment route is a provisioning surface whose store opens its own
+    // tenant-scoped unit of work per call (the Postgres implementation on
+    // `FlexCoreStore`), not a per-request registry read inside the
+    // command/telemetry transaction.
+    /// The edge device-identity registry + enrollment journal store
+    /// (migration 0018). `None` = not composed → the enrollment route
+    /// fails closed (infrastructure error, never a fake success).
+    pub edge_enrollment: Option<Arc<dyn flexcore_storage::edge_enrollment::EdgeEnrollmentStore>>,
+    /// The provisioning-token validator seam (the enrollment credential;
+    /// the shipped default denies everything — no token validation service
+    /// exists in 0.x; a real validator is composed per deployment).
+    pub enrollment_tokens: Arc<dyn crate::routes_edge::ProvisioningTokenValidator>,
+    // P6.25 (ADDITIVE) — the edge-status source seam behind
+    // `GET /api/v1/edge/status`: the deployment composes its edge-status
+    // forwarder here. The shipped default reports NOTHING — every
+    // operational field renders as an explicit gap, never a plausible
+    // healthy value (the P6.25 risk row).
+    pub edge_status: Arc<dyn crate::routes_edge::EdgeStatusSource>,
+    // P7.25 (ADDITIVE) — the plugin-inventory source seam behind
+    // `GET /api/v1/plugins`: the deployment composes its host/health
+    // forwarder here. The shipped default serves the RECORDED inventory of
+    // the shipped manifest/profile files with every RUNTIME fact (lifecycle
+    // state, health) an explicit gap — never a plausible "ready"/"healthy".
+    pub plugins_inventory: Arc<dyn crate::routes_plugins::PluginInventorySource>,
+    // P8.27 (ADDITIVE) — the research-status source seam behind
+    // `GET /api/v1/research/status`: the deployment composes its
+    // evaluation/shadow forwarder here. The shipped default serves the
+    // RECORDED Phase 8 research status (module registry, recorded OPEN
+    // blockers, mode lock) with every RUN fact (proposals, shadow
+    // comparisons, statistics) an explicit gap — never a plausible result.
+    pub research_status: Arc<dyn crate::routes_research::ResearchStatusSource>,
 }
 
 impl AppState {
@@ -161,7 +221,75 @@ impl AppState {
             readiness: Arc::new(readiness),
             telemetry,
             current_state_freshness_millis,
+            // P5.25: one bus per state; the SSE route and the composition
+            // root's forwarder share it through this Arc.
+            live: Arc::new(crate::routes_live::LiveEventBus::new()),
+            // P6.06: both enrollment seams default to FAIL CLOSED (no
+            // store → infrastructure error; the deny-all token validator
+            // → 401). Composition opts in via the builders below.
+            edge_enrollment: None,
+            enrollment_tokens: Arc::new(crate::routes_edge::DenyAllEnrollmentTokens),
+            // P6.25: the status source defaults to the honest "nothing
+            // reported" seam (explicit gaps in the status read).
+            edge_status: Arc::new(crate::routes_edge::NoEdgeStatusReported),
+            // P7.25: the inventory source defaults to the RECORDED shipped
+            // inventory (runtime facts are explicit gaps — no host reporter
+            // is composed in 0.x).
+            plugins_inventory: Arc::new(crate::routes_plugins::RecordedShippedInventory),
+            // P8.27: the research-status source defaults to the RECORDED
+            // Phase 8 status (run facts are explicit gaps — no research
+            // run exists; proposals are EMPTY, comparisons NO_RUN).
+            research_status: Arc::new(crate::routes_research::RecordedResearchStatus),
         }
+    }
+
+    /// P8.27 composition: wires the research-status source (the
+    /// deployment's evaluation/shadow forwarder).
+    pub fn with_research_status(
+        mut self,
+        source: Arc<dyn crate::routes_research::ResearchStatusSource>,
+    ) -> Self {
+        self.research_status = source;
+        self
+    }
+
+    /// P7.25 composition: wires the plugin-inventory source (the
+    /// deployment's host/health forwarder).
+    pub fn with_plugins_inventory(
+        mut self,
+        source: Arc<dyn crate::routes_plugins::PluginInventorySource>,
+    ) -> Self {
+        self.plugins_inventory = source;
+        self
+    }
+
+    /// P6.25 composition: wires the edge-status source (the deployment's
+    /// edge-status forwarder).
+    pub fn with_edge_status(
+        mut self,
+        source: Arc<dyn crate::routes_edge::EdgeStatusSource>,
+    ) -> Self {
+        self.edge_status = source;
+        self
+    }
+
+    /// P6.06 composition: wires the edge-enrollment store (the Postgres
+    /// `EdgeEnrollmentStore` on `FlexCoreStore`, or the Test fake).
+    pub fn with_edge_enrollment(
+        mut self,
+        store: Arc<dyn flexcore_storage::edge_enrollment::EdgeEnrollmentStore>,
+    ) -> Self {
+        self.edge_enrollment = Some(store);
+        self
+    }
+
+    /// P6.06 composition: wires the provisioning-token validator.
+    pub fn with_enrollment_tokens(
+        mut self,
+        validator: Arc<dyn crate::routes_edge::ProvisioningTokenValidator>,
+    ) -> Self {
+        self.enrollment_tokens = validator;
+        self
     }
 
     /// Test composition: the ports fakes variant plus explicit policies,
@@ -184,7 +312,7 @@ impl AppState {
         telemetry: Option<Arc<dyn flexcore_ports::telemetry_read::TelemetryReader>>,
         current_state_freshness_millis: i64,
     ) -> Self {
-        Self::for_tests_with_phase3(
+        Self::for_tests_with_phase4(
             tenants,
             portfolios,
             sites,
@@ -200,6 +328,58 @@ impl AppState {
             Arc::new(crate::phase3_fakes::FakeScheduleRecordStore::new()),
             Arc::new(crate::phase3_fakes::FakeScheduleRevisionStore::new()),
             Arc::new(crate::phase3_fakes::FakeEnvelopeRecordStore::new()),
+            Arc::new(crate::phase4_fakes::FakeCommandRecordStore::new()),
+            Arc::new(crate::phase4_fakes::FakeFeasibilityCheckStore::new()),
+        )
+    }
+
+    /// Test composition with explicit Phase 4 record stores AND the
+    /// audit-events reader (P4.36): the same bundle as
+    /// [`Self::for_tests_with_phase4`] with the audit-events fake (or a
+    /// failing injection) supplied by the test, so audit-read tests can
+    /// seed and inspect it. Used by `tests/api_phase4.rs`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn for_tests_with_phase4_audit(
+        tenants: Arc<dyn TenantRepository>,
+        portfolios: Arc<dyn PortfolioRepository>,
+        sites: Arc<dyn SiteRepository>,
+        assets: Arc<dyn AssetRepository>,
+        outbox: Arc<dyn EventOutbox>,
+        ids: Arc<dyn IdGenerator>,
+        clock: Arc<dyn Clock>,
+        policies: PolicySet,
+        identity: Arc<dyn IdentityResolver>,
+        readiness: Readiness,
+        telemetry: Option<Arc<dyn flexcore_ports::telemetry_read::TelemetryReader>>,
+        current_state_freshness_millis: i64,
+        schedule_records: Arc<dyn ScheduleRecordStore>,
+        schedule_revisions: Arc<dyn ScheduleRevisionChainStore>,
+        envelope_records: Arc<dyn EnvelopeRecordStore>,
+        command_records: Arc<dyn CommandRecordStore>,
+        feasibility_checks: Arc<dyn FeasibilityCheckStore>,
+        audit_events: Arc<dyn AuditEventReader>,
+    ) -> Self {
+        Self::new(
+            Backend::Test {
+                tenants,
+                portfolios,
+                sites,
+                assets,
+                outbox,
+                ids,
+                clock,
+                schedule_records,
+                schedule_revisions,
+                envelope_records,
+                command_records,
+                feasibility_checks,
+                audit_events,
+            },
+            policies,
+            identity,
+            readiness,
+            telemetry,
+            current_state_freshness_millis,
         )
     }
 
@@ -225,6 +405,58 @@ impl AppState {
         schedule_revisions: Arc<dyn ScheduleRevisionChainStore>,
         envelope_records: Arc<dyn EnvelopeRecordStore>,
     ) -> Self {
+        // P4.30: the Phase 4 record stores default to fresh in-crate
+        // fakes ([`crate::phase4_fakes`]) — use
+        // [`Self::for_tests_with_phase4`] when a test needs to inspect or
+        // inject them.
+        Self::for_tests_with_phase4(
+            tenants,
+            portfolios,
+            sites,
+            assets,
+            outbox,
+            ids,
+            clock,
+            policies,
+            identity,
+            readiness,
+            telemetry,
+            current_state_freshness_millis,
+            schedule_records,
+            schedule_revisions,
+            envelope_records,
+            Arc::new(crate::phase4_fakes::FakeCommandRecordStore::new()),
+            Arc::new(crate::phase4_fakes::FakeFeasibilityCheckStore::new()),
+        )
+    }
+
+    /// Test composition with explicit Phase 4 record stores (P4.30): the
+    /// same bundle as [`Self::for_tests_with_phase3`] with the
+    /// command-record and feasibility-check fakes supplied by the test.
+    /// P4.36: the audit-events reader defaults to a fresh in-crate fake
+    /// ([`crate::phase4_fakes`]) — use [`Self::for_tests_with_phase4_audit`]
+    /// when a test needs to seed or inspect it.
+    /// Used by `tests/api_phase4.rs`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn for_tests_with_phase4(
+        tenants: Arc<dyn TenantRepository>,
+        portfolios: Arc<dyn PortfolioRepository>,
+        sites: Arc<dyn SiteRepository>,
+        assets: Arc<dyn AssetRepository>,
+        outbox: Arc<dyn EventOutbox>,
+        ids: Arc<dyn IdGenerator>,
+        clock: Arc<dyn Clock>,
+        policies: PolicySet,
+        identity: Arc<dyn IdentityResolver>,
+        readiness: Readiness,
+        telemetry: Option<Arc<dyn flexcore_ports::telemetry_read::TelemetryReader>>,
+        current_state_freshness_millis: i64,
+        schedule_records: Arc<dyn ScheduleRecordStore>,
+        schedule_revisions: Arc<dyn ScheduleRevisionChainStore>,
+        envelope_records: Arc<dyn EnvelopeRecordStore>,
+        command_records: Arc<dyn CommandRecordStore>,
+        feasibility_checks: Arc<dyn FeasibilityCheckStore>,
+    ) -> Self {
         Self::new(
             Backend::Test {
                 tenants,
@@ -237,6 +469,9 @@ impl AppState {
                 schedule_records,
                 schedule_revisions,
                 envelope_records,
+                command_records,
+                feasibility_checks,
+                audit_events: Arc::new(crate::phase4_fakes::FakeAuditEventReader::new()),
             },
             policies,
             identity,
@@ -287,10 +522,17 @@ impl AppState {
                         // P3.28: the Phase 3 record stores coerce from the
                         // SAME PgUnitOfWork allocation — their inserts and
                         // the paired outbox rows are one native
-                        // transaction (§15.5).
+                        // transaction (§15.5). P4.30: the Phase 4 record
+                        // stores (command records, feasibility-check
+                        // evidence) join the same one-transaction
+                        // discipline. P4.36: the audit-events reader
+                        // (SELECT-only) joins it as well.
                         schedule_records: shared.clone(),
                         schedule_revisions: shared.clone(),
                         envelope_records: shared.clone(),
+                        command_records: shared.clone(),
+                        feasibility_checks: shared.clone(),
+                        audit_events: shared.clone(),
                     };
                     let outcome = op(&bundle);
                     // Drop the port objects BEFORE finalizing: the commit
@@ -329,6 +571,9 @@ impl AppState {
                 schedule_records,
                 schedule_revisions,
                 envelope_records,
+                command_records,
+                feasibility_checks,
+                audit_events,
             } => {
                 let bundle = UnitOfWork {
                     tenants: tenants.clone(),
@@ -341,6 +586,9 @@ impl AppState {
                     schedule_records: schedule_records.clone(),
                     schedule_revisions: schedule_revisions.clone(),
                     envelope_records: envelope_records.clone(),
+                    command_records: command_records.clone(),
+                    feasibility_checks: feasibility_checks.clone(),
+                    audit_events: audit_events.clone(),
                 };
                 op(&bundle)
             }

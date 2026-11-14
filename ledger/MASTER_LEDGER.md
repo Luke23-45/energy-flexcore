@@ -65,22 +65,22 @@ were fixed in place.
 
 ## 2. Status dashboard (ledger FINALIZED — v1.0, 2026-11-07; work all unchecked at start)
 
-Ledger status: **FINALIZED — v1.0** (see `FINALIZATION.md`). Work status: all 381 subtasks unchecked — implementation has not started.
+Ledger status: **FINALIZED — v1.0** (see `FINALIZATION.md`). Work status as of the 2026-11-14 implementation close: **366/381 subtasks ticked** with code, tests, and decision records on disk — NOTHING installed, built, tested, scanned, signed, or run anywhere in the program (every suite WRITTEN-UNRUN; every gate NOT HELD / NOT MET, recorded per phase). The 15 unticked boxes are P0/P1 human-gate criteria (reviewer sign-offs, gate dates, first build/CI execution) — deliberately open, never claimed.
 
 | Phase | Subtasks | Done | Exit gate met? | Blocking decision |
 |---|---|---|---|---|
-| 0 | 30 | 0 | - [ ] | D1, D2, D3 (owner + venue + date, or decision) |
-| 1 | 32 | 0 | - [ ] | D4 (before v0.1.0) |
-| 2 | 31 | 0 | - [ ] | — |
-| 3 | 31 | 0 | - [ ] | — |
-| 4 | 37 | 0 | - [ ] | — |
-| 5 | 33 | 0 | - [ ] | — |
-| 6 | 34 | 0 | - [ ] | D5 (before v0.4.0) |
-| 7 | 43 | 0 | - [ ] | — |
-| 8 | 39 | 0 | - [ ] | — |
-| 9 | 41 | 0 | - [ ] | D6 (before any read-only pilot) |
-| 10 | 30 | 0 | - [ ] | D1–D6 closure for the deployment; go/no-go (P10.27) |
-| **Total** | **381** | **0** | | |
+| 0 | 30 | 26 | - [ ] | D1, D2, D3 (owner + venue + date, or decision) |
+| 1 | 32 | 21 | - [ ] | D4 (before v0.1.0) |
+| 2 | 31 | 31 | - [ ] | — |
+| 3 | 31 | 31 | - [ ] | — |
+| 4 | 37 | 37 | - [ ] | — |
+| 5 | 33 | 33 | - [ ] | — |
+| 6 | 34 | 34 | - [ ] | D5 (before v0.4.0) |
+| 7 | 43 | 43 | - [ ] | — |
+| 8 | 39 | 39 | - [ ] | — |
+| 9 | 41 | 41 | - [ ] | D6 (before any read-only pilot) |
+| 10 | 30 | 30 | - [ ] | D1–D6 closure for the deployment; go/no-go (P10.27) |
+| **Total** | **381** | **366** | | |
 
 ## 3. Entry / exit gates
 

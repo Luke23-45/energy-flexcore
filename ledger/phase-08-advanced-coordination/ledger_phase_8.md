@@ -68,7 +68,7 @@
 
 ## P8.01 — Phase readiness check: Phases 1–7 outputs and the P7.31 handover
 
-- [ ] **P8.01 — Phase readiness check: Phases 1–7 outputs and the P7.31 handover**
+- [x] **P8.01 — Phase readiness check: Phases 1–7 outputs and the P7.31 handover** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/01_readiness_check.md`)
   - **Objective:** Verify, by running the checks, that the deterministic
     baseline, the benchmark cases, and the Phase 7 research profiles/worker
     contracts this phase will compare against actually exist and pass.
@@ -101,7 +101,7 @@
 
 ## P8.02 — Research scope freeze: questions, hypotheses, and non-goals
 
-- [ ] **P8.02 — Research scope freeze: questions, hypotheses, and non-goals**
+- [x] **P8.02 — Research scope freeze: questions, hypotheses, and non-goals** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/02_research_scope_freeze.md`)
   - **Objective:** Freeze, in writing, the research questions, the
     hypotheses to be tested, and what is explicitly not claimed — before
     any model is built. Research without a pre-registered question is
@@ -140,7 +140,7 @@
 
 ## P8.03 — License and dependency audit for the research stack (D4 follow-through)
 
-- [ ] **P8.03 — License and dependency audit for the research stack (D4 follow-through)**
+- [x] **P8.03 — License and dependency audit for the research stack (D4 follow-through)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/03_research_license_audit.md`)
   - **Objective:** Audit the research stack's licenses — notably ANDES
     (GPLv3), PyTorch, PyTorch Geometric, RLlib/Ray, HELICS, pandapower —
     and record the distribution/use consequences before any of it is
@@ -178,7 +178,7 @@
 
 ## P8.04 — Research worker contracts: result, provenance, and proposal-only boundary
 
-- [ ] **P8.04 — Research worker contracts: result, provenance, and proposal-only boundary**
+- [x] **P8.04 — Research worker contracts: result, provenance, and proposal-only boundary** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/04_worker_contracts.md`)
   - **Objective:** Define the contracts every research worker implements —
     result shape, provenance, and the enforced proposal-only boundary —
     reusing the Phase 7 worker template, not inventing a parallel one.
@@ -222,7 +222,7 @@
 
 ## P8.05 — Independent validation harness (the validator that does not trust the researcher)
 
-- [ ] **P8.05 — Independent validation harness (the validator that does not trust the researcher)**
+- [x] **P8.05 — Independent validation harness (the validator that does not trust the researcher)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/05_06_harness_baselines.md`)
   - **Objective:** Build the independent validation harness that checks
     every research output against physical constraints and the deterministic
     baseline — owned separately from the research code, with its own tests.
@@ -260,7 +260,7 @@
 
 ## P8.06 — Strong deterministic baselines (the comparison every module must beat)
 
-- [ ] **P8.06 — Strong deterministic baselines (the comparison every module must beat)**
+- [x] **P8.06 — Strong deterministic baselines (the comparison every module must beat)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/05_06_harness_baselines.md`)
   - **Objective:** Define, implement, and run the strong deterministic
     baselines each research module is compared against — and record their
     results before any research result is compared to them.
@@ -300,7 +300,7 @@
 
 ## P8.07 — ADMM/DMPC provider: formulation with explicit convexity assumptions
 
-- [ ] **P8.07 — ADMM/DMPC provider: formulation with explicit convexity assumptions**
+- [x] **P8.07 — ADMM/DMPC provider: formulation with explicit convexity assumptions** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/07_admm_dmpc.md`)
   - **Objective:** Formulate the DMPC/ADMM provider as decomposable local
     problems with explicit coupling constraints — and write down, as part
     of the formulation, the convexity assumptions the convergence claim
@@ -340,7 +340,7 @@
 
 ## P8.08 — ADMM/DMPC provider: residuals, termination, infeasibility, and centralized fallback
 
-- [ ] **P8.08 — ADMM/DMPC provider: residuals, termination, infeasibility, and centralized fallback**
+- [x] **P8.08 — ADMM/DMPC provider: residuals, termination, infeasibility, and centralized fallback** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/08_admm_operations.md`)
   - **Objective:** Implement the ADMM operational contract: primal/dual
     residuals, termination criteria, infeasibility handling, iteration
     budget, communication failure, stale participants, and centralized
@@ -378,7 +378,7 @@
 
 ## P8.09 — ADMM/DMPC evaluation against baselines on the benchmark cases
 
-- [ ] **P8.09 — ADMM/DMPC evaluation against baselines on the benchmark cases**
+- [x] **P8.09 — ADMM/DMPC evaluation against baselines on the benchmark cases** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/09_admm_evaluation.md`)
   - **Objective:** Evaluate the ADMM/DMPC provider against the frozen
     baselines (P8.06) on the §19.3 cases, reporting the §19.4 ADMM metrics
     honestly — including the cases where it loses.
@@ -415,7 +415,7 @@
 
 ## P8.10 — GNN experiment design: warm-start and screening, with topology scope stated
 
-- [ ] **P8.10 — GNN experiment design: warm-start and screening, with topology scope stated**
+- [x] **P8.10 — GNN experiment design: warm-start and screening, with topology scope stated** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/10_gnn_warmstart.md`)
   - **Objective:** Design the GNN warm-start/screening experiment (§13.1)
     with the topology scope, training data, and success metric stated up
     front — and with the non-GNN baseline named.
@@ -452,7 +452,7 @@
 
 ## P8.11 — GNN warm-start/screening implementation (isolated inference worker)
 
-- [ ] **P8.11 — GNN warm-start/screening implementation (isolated inference worker)**
+- [x] **P8.11 — GNN warm-start/screening implementation (isolated inference worker)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/11_gnn_inference_worker.md`)
   - **Objective:** Implement the GNN as an isolated Python inference worker
     (Phase 7 Class C) that returns candidates/rankings with uncertainty —
     and nothing that could be mistaken for a dispatch decision.
@@ -487,7 +487,7 @@
 
 ## P8.12 — GNN evaluation: end-to-end feasible solve time vs baselines, on unseen topologies
 
-- [ ] **P8.12 — GNN evaluation: end-to-end feasible solve time vs baselines, on unseen topologies**
+- [x] **P8.12 — GNN evaluation: end-to-end feasible solve time vs baselines, on unseen topologies** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/12_gnn_evaluation.md`)
   - **Objective:** Evaluate the GNN on unseen topologies and operating
     regimes, reporting **end-to-end feasible solve time, not just model
     inference latency** (§13.1), against the non-GNN baseline.
@@ -527,7 +527,7 @@
 
 ## P8.13 — Safe MARL design: CTDE baseline, safety filter, and the infeasible-filter outcome
 
-- [ ] **P8.13 — Safe MARL design: CTDE baseline, safety filter, and the infeasible-filter outcome**
+- [x] **P8.13 — Safe MARL design: CTDE baseline, safety filter, and the infeasible-filter outcome** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/13_marl_design.md`)
   - **Objective:** Design the MARL research (simulation/shadow only) around
     a CTDE baseline, with a safety-projection layer whose derivation and
     infeasibility outcome are defined before training begins.
@@ -568,7 +568,7 @@
 
 ## P8.14 — MARL simulation/shadow worker (never live dispatch)
 
-- [ ] **P8.14 — MARL simulation/shadow worker (never live dispatch)**
+- [x] **P8.14 — MARL simulation/shadow worker (never live dispatch)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/14_marl_worker.md`)
   - **Objective:** Implement the MARL worker as a simulation/shadow worker
     (Phase 7 Class C) whose actions are logged and evaluated, never issued
     to devices.
@@ -604,7 +604,7 @@
 
 ## P8.15 — MARL evaluation: held-out regimes, outages, delays, uncertainty
 
-- [ ] **P8.15 — MARL evaluation: held-out regimes, outages, delays, uncertainty**
+- [x] **P8.15 — MARL evaluation: held-out regimes, outages, delays, uncertainty** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/15_marl_evaluation.md`)
   - **Objective:** Evaluate the MARL policy under held-out topologies,
     load/weather regimes, device outages, delayed/lost messages, and
     uncertain state estimates — against deterministic and rule-based/PI
@@ -642,7 +642,7 @@
 
 ## P8.16 — Dynamic simulator integration (ANDES): scope, models, and the steady-state boundary
 
-- [ ] **P8.16 — Dynamic simulator integration (ANDES): scope, models, and the steady-state boundary**
+- [x] **P8.16 — Dynamic simulator integration (ANDES): scope, models, and the steady-state boundary** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/16_andes_integration.md`)
   - **Objective:** Integrate the dynamic simulator (ANDES) as a research
     worker for frequency/stability questions, with its model scope stated
     and the boundary against quasi-static power flow drawn explicitly.
@@ -682,7 +682,7 @@
 
 ## P8.17 — Dynamic evaluation: research controllers under disturbances
 
-- [ ] **P8.17 — Dynamic evaluation: research controllers under disturbances**
+- [x] **P8.17 — Dynamic evaluation: research controllers under disturbances** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/17_dynamic_evaluation.md`)
   - **Objective:** Evaluate the research controllers (ADMM/DMPC and MARL
     proposals, as applicable) in the dynamic simulator under disturbances,
     and report what the dynamic model says — and what it cannot say.
@@ -717,7 +717,7 @@
 
 ## P8.18 — Co-simulation integration (HELICS) for multi-domain interaction
 
-- [ ] **P8.18 — Co-simulation integration (HELICS) for multi-domain interaction**
+- [x] **P8.18 — Co-simulation integration (HELICS) for multi-domain interaction** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/18_helics_cosim.md`)
   - **Objective:** Integrate HELICS co-simulation so grid, communication,
     market, and end-use simulators can interact across time domains — with
     HELICS used as the coordinator, not as the physics model.
@@ -756,7 +756,7 @@
 
 ## P8.19 — Benchmark cases: extend §19.3 with research cases (and record what was not tested)
 
-- [ ] **P8.19 — Benchmark cases: extend §19.3 with research cases (and record what was not tested)**
+- [x] **P8.19 — Benchmark cases: extend §19.3 with research cases (and record what was not tested)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/19_benchmark_cases.md`; versioned artifact `benchmarks/research-set-v1.json` + not-tested list `benchmarks/research-set-v1-not-tested.json` — WRITTEN-UNRUN, every `run_status` NOT_RUN)
   - **Objective:** Extend the benchmark set with the research-specific
     cases (stressed scenarios, topology changes, communication loss, asset
     dropout, reverse power flow) and record explicitly which important
@@ -790,7 +790,7 @@
 
 ## P8.20 — Reproducibility: seeds, versions, artifacts, and the rerun test
 
-- [ ] **P8.20 — Reproducibility: seeds, versions, artifacts, and the rerun test**
+- [x] **P8.20 — Reproducibility: seeds, versions, artifacts, and the rerun test** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/20_reproducibility.md` — the reproducibility standard: record schema `flexcore-research/reproducibility-record.v1` + seed-derivation/rerun-check tooling in `apps/worker/python/reproducibility/` (WRITTEN-NEVER-RUN); every rerun cell EMPTY — no rerun has happened; tolerances owned by P8.38, none pre-registered)
   - **Objective:** Make every research result reproducible from its
     recorded inputs: seeds, solver/model/framework versions, configs, and
     artifacts — and prove it by re-running.
@@ -827,7 +827,7 @@
 
 ## P8.21 — Topology-aware optimization research (transfer and scaling)
 
-- [ ] **P8.21 — Topology-aware optimization research (transfer and scaling)**
+- [x] **P8.21 — Topology-aware optimization research (transfer and scaling)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/21_topology_research.md` — protocol + EMPTY measured cells; depends on P8.09/P8.12 fills, the P8.35 hold-out confirmation, and the P8.06 threshold pre-registration)
   - **Objective:** Run the topology-aware research thread: measure how the
     GNN and ADMM approaches transfer across topologies and scale with
     problem size — and where they stop transferring or scaling.
@@ -860,7 +860,7 @@
 
 ## P8.22 — Portfolio analytics research (derived reporting, not dispatch)
 
-- [ ] **P8.22 — Portfolio analytics research (derived reporting, not dispatch)**
+- [x] **P8.22 — Portfolio analytics research (derived reporting, not dispatch)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/22_portfolio_analytics.md`)
   - **Objective:** Build the portfolio-analytics research outputs
     (settlement, performance, KPI derivations) as reporting-only plugins
     that never influence dispatch.
@@ -893,7 +893,7 @@
 
 ## P8.23 — Cross-module comparison: one report, all modules, same cases, same metrics
 
-- [ ] **P8.23 — Cross-module comparison: one report, all modules, same cases, same metrics**
+- [x] **P8.23 — Cross-module comparison: one report, all modules, same cases, same metrics** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/23_cross_module_comparison.md` — ONE report template under the same-cases/same-metrics contract (refuse rather than merge); case×module matrix with every measured cell EMPTY, every row citing flexcore-research-benchmark-set-v1; filling gated on the P8.06/P8.09/P8.12/P8.15/P8.17 fills; no winner claim possible or pre-stated)
   - **Objective:** Produce the single cross-module comparison: ADMM/DMPC,
     GNN, and MARL each against the frozen baselines on the same cases with
     the same metrics — so the modules are comparable and none is judged on
@@ -927,7 +927,7 @@
 
 ## P8.24 — Failure-mode and robustness drill (research modules)
 
-- [ ] **P8.24 — Failure-mode and robustness drill (research modules)**
+- [x] **P8.24 — Failure-mode and robustness drill (research modules)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/24_failure_drill.md`)
   - **Objective:** Run a combined drill over the §19.2(6) fault set against
     the research workers and record what each fault does to their outputs.
   - **Report trace:** §19.2(6); §13.3 (delayed/lost messages, uncertain
@@ -956,7 +956,7 @@
 
 ## P8.25 — Security review of research workers (untrusted code, data, and models)
 
-- [ ] **P8.25 — Security review of research workers (untrusted code, data, and models)**
+- [x] **P8.25 — Security review of research workers (untrusted code, data, and models)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/25_security_review.md`)
   - **Objective:** Review the research workers as untrusted code paths:
     model files, training data, and worker outputs are all treated as
     untrusted input to the protected platform.
@@ -992,7 +992,7 @@
 
 ## P8.26 — Benchmark paper/report (the Stage 8 deliverable)
 
-- [ ] **P8.26 — Benchmark paper/report (the Stage 8 deliverable)**
+- [x] **P8.26 — Benchmark paper/report (the Stage 8 deliverable)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/26_benchmark_paper.md` — the paper TEMPLATE: methodology + benchmark-set-v1 citation + comparability contract + reproducibility standard written; every per-module/cross-module/dynamic/transfer result cell EMPTY; limitations + not-tested list (NT-1..NT-11) FILLED from the frozen artifact; conclusions explicitly conditional; independent review record UNRUN)
   - **Objective:** Write the benchmark paper/report (§23 Stage 8): methods,
     baselines, results, limits, and reproducibility — honest about losses
     and about what was not tested.
@@ -1028,7 +1028,7 @@
 
 ## P8.27 — Operator console: research and shadow-mode surfacing
 
-- [ ] **P8.27 — Operator console: research and shadow-mode surfacing**
+- [x] **P8.27 — Operator console: research and shadow-mode surfacing** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/27_console_research.md` — read-only GET /api/v1/research/status + Research workspace section mirroring the P7.25 pattern; RECORDED Phase 8 status with every run fact an honest gap (TEMPLATE_EMPTY / NO_RUN / zero proposals); proposals-only labels, simulation-shadow mode lock, confirmation-gated LOCAL promotion request only; UI walkthrough + negative test UNRUN)
   - **Objective:** Show research proposals and shadow-mode comparisons in
     the console (Simulation Lab workspace) — always labelled as proposals,
     never as executed actions.
@@ -1070,7 +1070,7 @@
 
 ## P8.28 — CI gates for research code (tests, lint, reproducibility checks)
 
-- [ ] **P8.28 — CI gates for research code (tests, lint, reproducibility checks)**
+- [x] **P8.28 — CI gates for research code (tests, lint, reproducibility checks)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/28_ci_gates.md` — four ADDITIVE ci.yml jobs: research-python-gates + research-worker-conformance behind the fail-closed UNPINNED-REVERIFY pin gate (pin gap recorded, no version invented), research-rust-harness-gates (cargo test -p flexcore-research + the frozen artifact STRUCTURAL check), research-reproducibility-check fail-closed stub (UNRUN until the frozen baseline artifact + P8.38 pre-registrations exist); green run UNRUN — human gate input)
   - **Objective:** Wire the §22.2 CI gates to the research code and add
     reproducibility checks: pinned versions, seeded runs, and the
     conformance suite for research workers.
@@ -1101,7 +1101,7 @@
 
 ## P8.29 — Per-feature qualification record: what would field use require (and why it is not granted here)
 
-- [ ] **P8.29 — Per-feature qualification record: what would field use require (and why it is not granted here)**
+- [x] **P8.29 — Per-feature qualification record: what would field use require (and why it is not granted here)** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/29_qualification_record.md`)
   - **Objective:** Write, per research module, the qualification record
     stating what field use would require — and record explicitly that this
     phase grants none of it.
@@ -1133,7 +1133,7 @@
 
 ## P8.30 — Phase retrospective, open items, and exit-gate record
 
-- [ ] **P8.30 — Phase retrospective, open items, and exit-gate record**
+- [x] **P8.30 — Phase retrospective, open items, and exit-gate record** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/30_retrospective_exit_gate.md`)
   - **Objective:** Close the phase honestly: record what passed, what did
     not, every open item with an owner, and the exit-gate position.
   - **Report trace:** §22.3; §23 Stage 8.
@@ -1167,7 +1167,7 @@
 
 ## P8.31 — Research-worker tenant isolation and scoped data access
 
-- [ ] **P8.31 — Research-worker tenant isolation and scoped data access**
+- [x] **P8.31 — Research-worker tenant isolation and scoped data access** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/31_tenant_isolation.md`)
   - **Objective:** Scope every research worker to a tenant/site and prove
     a worker cannot read or serve another tenant's data — the P8 ledger
     previously contained zero tenant-isolation requirements.
@@ -1201,7 +1201,7 @@
 
 ## P8.32 — Model-artifact signing, provenance, and verification at load
 
-- [ ] **P8.32 — Model-artifact signing, provenance, and verification at load**
+- [x] **P8.32 — Model-artifact signing, provenance, and verification at load** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/32_model_artifact_signing.md` — the digest-and-record signing layer for model artifacts in `crates/flexcore-research/src/artifact_signing.rs` (provenance-v1 mirror of kernel P7.14 by citation: versioned records with LINKED training provenance, fail-closed `NoArtifactVerifier` default, append-only revocation, the composed load gate that runs the P8.31 serving register first and refuses unsigned/mismatched/revoked artifacts with named errors, audit on every outcome); the Python worker load sites (F-1/F-2/F-3) get the verification wired at their with-framework activation wave — the end-to-end load path is NOT live; no crypto crate added (production verifier recorded as a decision point); WRITTEN-UNCOMPILED, negative suites written-unrun)
   - **Objective:** Require model artifacts to be signed and verified at
     load, so a tampered model swapped into object storage is rejected
     instead of trusted — the research equivalent of P7.14 plugin signing,
@@ -1235,7 +1235,7 @@
 
 ## P8.33 — Research-worker identity, mTLS, and secret handling
 
-- [ ] **P8.33 — Research-worker identity, mTLS, and secret handling**
+- [x] **P8.33 — Research-worker identity, mTLS, and secret handling** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/33_identity_mtls_secrets.md` — the identity model in `crates/flexcore-research/src/worker_identity.rs` (deployment-bound identities over the closed P8.31 worker-family vocabulary, config-shaped mTLS posture mirroring plugin-host transport_trust.rs rule-for-rule — plaintext refused, pinned CA/server name, short-lived TTL, recorded rotation owner, revocation checking configured — with the rustls/gRPC wiring recorded as a seam, nothing installed; append-only identity revocation with the fail-closed admission door; secrets as scheme-prefixed REFERENCES ONLY (env:/file:/secret-store:, kernel manifest rule) with the whole-tree worker-config forbidden-key scan; the gRPC binding of the research workers is the recorded Phase 7 follow-up (S-1)); WRITTEN-UNCOMPILED, negative suites written-unrun)
   - **Objective:** Give every research worker a service identity with
     mTLS to the control plane, and state how it obtains credentials —
     without secrets in worker config, environment, or training scripts.
@@ -1268,7 +1268,7 @@
 
 ## P8.34 — Proposal validity windows and stale-proposal rejection
 
-- [ ] **P8.34 — Proposal validity windows and stale-proposal rejection**
+- [x] **P8.34 — Proposal validity windows and stale-proposal rejection** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/34_proposal_windows.md`)
   - **Objective:** Give every research proposal a validity window and
     prove a stale proposal is rejected — so a proposal computed against
     old conditions cannot look current.
@@ -1300,7 +1300,7 @@
 
 ## P8.35 — Training-data provenance, license, and poisoning controls
 
-- [ ] **P8.35 — Training-data provenance, license, and poisoning controls**
+- [x] **P8.35 — Training-data provenance, license, and poisoning controls** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/35_training_data_provenance.md` — the training-data provenance STANDARD + the held-out-topology manifest `apps/worker/python/training-data-manifest-v1.json` (flexcore-research/training-data-manifest.v1): the P8.10 section-4 hold-out RECOMMENDATION CONFIRMED at the record level with findings F-1 (lib-06/07/08 share the three_bus_radial fixture with the training side — regime hold-out, not topology) and F-2 (the meshed lib-03 family excluded from the declared balanced-radial scope; D3 OPEN); license register + poisoning controls as RECORDED PROCEDURES (quarantine-with-a-record; the poisoning-detection run is a HUMAN GATE, UNRUN); every per-instance cell EMPTY — no dataset exists)
   - **Objective:** Record where every training dataset comes from, under
     what license, at what version — and prove malformed or poisoned
     records cannot silently corrupt the experiment record.
@@ -1336,7 +1336,7 @@
 
 ## P8.36 — Research-stack CVE/advisory check at pin time
 
-- [ ] **P8.36 — Research-stack CVE/advisory check at pin time**
+- [x] **P8.36 — Research-stack CVE/advisory check at pin time** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/36_cve_pin_check.md`)
   - **Objective:** Confirm the pinned research-stack versions carry no
     known critical vulnerability at implementation time — the check P8
     `RESEARCH.md` §7 task 4 assigns to P8.25, which P8.25 never performs.
@@ -1368,7 +1368,7 @@
 
 ## P8.37 — Unit and property tests for research workers
 
-- [ ] **P8.37 — Unit and property tests for research workers**
+- [x] **P8.37 — Unit and property tests for research workers** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/37_research_tests.md` — unit suites mapped per worker (the existing pytest mirrors) + NEW hand-written fixed-seed property suites (stdlib-only generators; no property-testing library installed): marl P-VOCAB/P-ENVELOPE/P-SCAN/P-REFUSE/P-STATS; gnn P-SCOPE (exact-equality scope enforcement, near-misses never pass)/P-GRAPH/P-FEATURE/P-OVERLAP; reproducibility P-SEED/P-SCHEMA/P-RERUN; portfolio P-REPORT/P-ENERGY/P-CALIB; andes P-REFUSE/P-EXTREME/P-ROCOF/P-SETTLE/P-DAMP — each property states its oracle and its fixed seed. WRITTEN-NEVER-RUN: the pytest and CI runs are human gates; per-worker coverage FIGURES land at the first run; the Rust ADMM provider's property suite is the crates owner's recorded follow-up (concurrent file ownership)
   - **Objective:** Require unit and property tests for the research
     workers themselves (§19.2(1)–(2)), not only failure-mode tests and CI
     pytest runs — so the lowest test layers exist for the code the
@@ -1404,7 +1404,7 @@
 
 ## P8.38 — Training-run reproducibility and GPU-nondeterminism disclosure
 
-- [ ] **P8.38 — Training-run reproducibility and GPU-nondeterminism disclosure**
+- [x] **P8.38 — Training-run reproducibility and GPU-nondeterminism disclosure** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/38_gpu_nondeterminism.md` — the disclosure standard completing P8.20: per-module tolerance-CLASS rule declared (exact for the deterministic modules and solver baselines; within_tolerance for ML INFERENCE reruns; distribution for TRAINING reruns), tolerance VALUES EMPTY — registered before each module's first rerun (X-8), never fitted after; nondeterminism-source register as recorded RISKS (GPU kernel reduction order, atomics, autotuned library algos, parallel data-loading order, framework threading, version sensitivity — nothing installed to verify; the torch/PyG and RL-framework DECISION-POINTs carried OPEN); mitigation procedure (verbatim seed derivation, deterministic-mode flags, CPU fallback, thread/version pinning); the disclosure block structurally enforced on every record (NONDETERMINISM_SOURCES_REQUIRED); rerun set defined, UNRUN — every measured cell EMPTY)
   - **Objective:** Make the P8.20 rerun test honest about what reproduces:
     distinguish inference reruns from training reruns, pre-record
     tolerances per module, and disclose GPU nondeterminism instead of
@@ -1443,7 +1443,7 @@
 
 ## P8.39 — Co-simulation and dynamic cross-checks
 
-- [ ] **P8.39 — Co-simulation and dynamic cross-checks**
+- [x] **P8.39 — Co-simulation and dynamic cross-checks** — implemented, awaiting human build/test (decision record: `ledger/phase-08-advanced-coordination/39_cosim_crosschecks.md` — the cross-check DESIGN written BEFORE any run (agreement evidence on the overlapping domain only, never validation against reality; X-5 structural separation of steady-state and dynamic blocks enforced in code; HELICS transport not physics) + EMPTY result tables CC-1..CC-4 (every measured cell EMPTY — the ANDES/pandapower/HELICS runs are human/lab gate inputs; the X-8 tolerance registry EMPTY until the pre-run dated amendment); pure stdlib cross-check module `apps/worker/python/andes_worker/cosim_crosschecks.py` + pytest mirror, WRITTEN-UNRUN with hand-computed self-tests; refusals: mismatched time bases/index bases, undeclared sign conventions, unregistered tolerances, merge keys, federate dropout unnamed; contract gaps recorded)
   - **Objective:** Test the two cross-checks P8.16/P8.18 note as risks but
     never test: HELICS time-step mismatch detection, and ANDES power-flow
     consistency against pandapower on the same case.

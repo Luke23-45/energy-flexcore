@@ -19,7 +19,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use flexcore_control_plane::auth::{DenyAllResolver, IdentityResolver, phase3_default_policies};
+use flexcore_control_plane::auth::{DenyAllResolver, IdentityResolver, phase4_default_policies};
 use flexcore_control_plane::config::Config;
 use flexcore_control_plane::metrics::track_metrics;
 use flexcore_control_plane::probes::{HealthCheck, Readiness};
@@ -119,13 +119,15 @@ async fn main() {
     // Composition: backend -> state (use cases are built per unit of work,
     // see state.rs — the repository ports are transaction-bound). P3.28:
     // the policy set is the cumulative phase set (Phase 3 grants added).
+    // P4.30: the Phase 4 read-surface grants are added (command.read,
+    // feasibility.read).
     let state = AppState::new(
         Backend::Postgres {
             store: store.clone(),
             ids,
             clock,
         },
-        phase3_default_policies(),
+        phase4_default_policies(),
         identity,
         readiness,
         // Telemetry read port (P2.12): the Postgres adapter does not
@@ -168,6 +170,20 @@ async fn main() {
         readiness_on_signal.begin_shutdown();
         let _ = signal_tx.send(true);
     });
+
+    // P5.25 — live updates (§15.1, §21.3): an EPHEMERAL core-NATS
+    // subscription on the same event subjects the durable consumers
+    // process (`flexcore.v1.>`, P1.14 §3) forwards every message into the
+    // in-process `LiveEventBus`; the `GET /api/v1/live` SSE handlers
+    // subscribe to the bus and filter per caller tenant from the decoded
+    // payload (D-J2). No JetStream consumer, no inbox record, no side
+    // effect: the durable-consumer rule (P1.14 §5.1) is reserved for
+    // stateful work, and this stream is a stateless view.
+    tokio::spawn(flexcore_control_plane::routes_live::run_live_forwarder(
+        nats.clone(),
+        state.live.clone(),
+        signal_rx.clone(),
+    ));
 
     let drain = cfg.drain_timeout;
     let drain_rx = signal_rx.clone();

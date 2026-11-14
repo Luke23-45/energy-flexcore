@@ -38,6 +38,19 @@ flexcore-simulator = { path = "../../crates/flexcore-simulator" }
 flexcore-contracts = { workspace = true }
 flexcore-domain = { workspace = true }
 flexcore-ports = { workspace = true }
+# P5.14/P5.15 composition (ledger phase-5 wave 1b): the scenario-run
+# composition module drives the REAL P4.11–P4.16 application adapter chain
+# (CommandGates + SimulatorDispatchAdapter + the SimulatorDispatchTransport
+# port), the REAL P4.04–P4.07 grid pipeline, and the REAL P3.24 rolling-roll
+# planner, so it depends on flexcore-application (the adapter seams),
+# flexcore-events (the event envelope the gate outbox encodes), and
+# flexcore-grid-api (the grid pipeline + the P5.15 WorkerProcessBackend).
+# Apps are composition roots: these edges are allowed
+# (tools/check_dependency_rule.py). The replay/replay-comparison surface
+# above is unchanged.
+flexcore-application = { workspace = true }
+flexcore-events = { workspace = true }
+flexcore-grid-api = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

@@ -1,0 +1,52 @@
+# P8.13/P8.14 — MARL worker framework pin (DECISION-POINT: NOTHING
+#               SELECTED, NOTHING INSTALLED).
+#
+# The Phase 8 loop bans installation: nothing in this file was ever
+# `pip install`ed into any environment in this repository's history, and
+# NO framework version is selected or pinned — the RL framework is a
+# recorded DECISION-POINT (P8.03 §2: Ray/RLlib UNPINNED-REVERIFY — no
+# version verified from a primary source as of the 2026-11-07 cut-off,
+# RESEARCH.md §7 task 1; D4 OPEN). This file therefore contains NO pin
+# line, deliberately: an uncommented pin here would be an unverified
+# selection, which the loop forbids.
+#
+# WHAT THE HUMAN BUILD/TEST PASS MUST DO (the gate order, per P8.03 §2
+# and 13_marl_design.md §5):
+#
+#   1. Verify the current Ray/RLlib version from a PRIMARY source (Ray
+#      releases / PyPI — RESEARCH.md §7 task 1; only 2.56.1 / 2.57.0 from
+#      July–August 2026 secondary snapshots were found in research).
+#   2. Record the RLlib API-stack choice EXPLICITLY (P8.13 §5): the NEW
+#      API stack (RLModule/Learner/EnvRunner/ConnectorV2) is default and
+#      PyTorch-only; MADDPG/QMIX live only in the REMOVED rllib_contrib
+#      collection (R8-C4) — a design assuming them would be wrong.
+#   3. A Ray/RLlib selection FORCES the PyTorch leg of the P8.03 §4
+#      torch/PyG DECISION-POINT — resolve that pair per
+#      apps/worker/python/gnn_worker/requirements-gnn.txt in the SAME
+#      isolated environment.
+#   4. Confirm licenses from the projects' primary sources (Ray/RLlib
+#      Apache-2.0 family, Gymnasium MIT family, PyTorch BSD-style family
+#      — all UNVERIFIED until confirmed) and run the P8.36 at-pin-time
+#      advisory check, recorded per version with a date.
+#   5. ONLY THEN an install, into an ISOLATED research environment —
+#      never into a system environment and never into the platform's
+#      runtime. ray/rllib/gymnasium/torch must NEVER appear in the cargo
+#      tree or any core dependency set (the ANDES/HELICS/torch exclusion
+#      posture of 03_research_license_audit.md §2 applies verbatim).
+#
+# The selected lines then go here, e.g. (ILLUSTRATIVE, NOT A PIN):
+#   ray[rllib]==<verified-version-selected-by-the-human-gate>
+#   gymnasium==<verified-compatible-version-selected-by-the-human-gate>
+#
+# Deliberately NOT dependencies of this worker:
+# - torch/torch_geometric: owned by the GNN worker's pin file (the
+#   torch/PyG pair); the MARL selection touches it only through step 3
+#   above (RLlib is PyTorch-only).
+# - andes (GPLv3), pandapower, helics: simulation/co-sim tools owned by
+#   other workers (andes_worker, grid_worker, helics_federates); the MARL
+#   worker imports no simulator and no transport. The P8.13 environment
+#   references crates/flexcore-simulator BY CITATION — no crate import,
+#   no Rust dependency, ever.
+# - No solver of any kind: this worker produces candidate_setpoint_vector
+#   PROPOSALS (ADR-010) into the P8.05 validation harness; it never
+#   solves, never dispatches, never authorizes.

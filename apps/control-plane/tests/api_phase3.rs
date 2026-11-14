@@ -1470,6 +1470,16 @@ async fn the_surface_has_no_execute_command_operation() {
     // annotations, so a new route appears here) contains no
     // command/execute/dispatch/approve operation; (2) the forbidden paths
     // answer 404 live.
+    //
+    // P4.30 exception (recorded in the decision record
+    // `30_persistence_wiring.md` §1.4): the Phase 4 line adds the
+    // READ-ONLY evidence resources `/api/v1/dispatch-commands` and
+    // `/api/v1/feasibility-checks` — their names contain "dispatch"/
+    // "command" but they are GET-only evidence reads, not execute
+    // endpoints; the GET-only structural guarantee for them lives in
+    // `tests/api_phase4.rs` (the_surface_has_no_execute... + the 405
+    // probes). They are exempt from THIS loop's substring ban and nothing
+    // else is.
     let (router, _outbox, _journal, _records, _revisions, _envelopes) = composed_phase3_router();
     let spec = openapi_spec(&router).await;
     let paths = spec["paths"]
@@ -1483,7 +1493,17 @@ async fn the_surface_has_no_execute_command_operation() {
     );
     for path in paths.keys() {
         let lowered = path.to_lowercase();
+        let phase4_read_resource = matches!(
+            path.as_str(),
+            "/api/v1/dispatch-commands"
+                | "/api/v1/dispatch-commands/{command_id}"
+                | "/api/v1/feasibility-checks"
+                | "/api/v1/feasibility-checks/{check_id}"
+        );
         for banned in ["command", "execute", "dispatch", "approve", "approval"] {
+            if phase4_read_resource {
+                continue;
+            }
             assert!(
                 !lowered.contains(banned),
                 "the API surface must never expose a {banned} operation (found {path})"

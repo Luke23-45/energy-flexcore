@@ -1,0 +1,39 @@
+# P8.16 — ANDES dynamic-worker dependency pin (RECORDED, NEVER INSTALLED).
+#
+# The Phase 8 loop bans installation: nothing in this file was ever
+# `pip install`ed into any environment in this repository's history. This
+# file records the pin the human's build/test pass must honour when the
+# ANDES worker is first executed. It is a D4/G-4 (license/dependency
+# audit) input, not a lockfile.
+#
+# ANDES pin (RESEARCH.md §4, phase-8 ledger; verified against PyPI and the
+# ANDES release notes on 2026-11-07: ANDES 2.0.0, released 11 March 2026;
+# license GPLv3 — "ANDES is licensed under the GPL v3 License").
+#
+# GATE ORDER (P8.03 six-point isolation design; 16_andes_integration.md §4):
+#   1. legal confirmation of the GPLv3 isolation posture (gate G-4, OPEN),
+#   2. the P8.36 at-pin-time advisory check, recorded per version with a
+#      date (R8-C5: re-check PyPI for a verified later release first),
+#   3. ONLY THEN an install, into an ISOLATED research environment —
+#      never into a system environment and never into the platform's
+#      runtime. ANDES must NEVER appear in the cargo tree or any
+#      Apache-2.0-recommended core dependency set (deny.toml keeps GPLv3
+#      disallowed by construction).
+andes==2.0.0
+
+# Deliberately NOT dependencies of this worker:
+# - pandapower: the distribution QUASI-STATIC power-flow pipeline stays in
+#   the Phase 4 grid worker (`apps/worker/python/grid_worker.py`, pin 3.5.6
+#   in `apps/worker/python/requirements.txt`). ANDES is not a replacement
+#   for it, and a steady-state power flow is NOT transient-stability
+#   evidence (report 19.1) — the two tools' scopes are never merged.
+# - torch/jax/ray/gymnasium: the GNN/MARL stack is a separate recorded
+#   decision (P8.03 §4 DECISION-POINT, P8.10/P8.13 pins); this worker
+#   carries none of it.
+# - helics: co-simulation transport is a separate pin
+#   (`../helics_federates/requirements-helics.txt`, 3.7.0 UNVERIFIED); the
+#   ANDES worker is a stand-alone research process in this record.
+# - No optimizer of any kind: this worker runs simulations and eigenvalue
+#   analyses; it never optimizes, and solver classes are never conflated
+#   (AGENTS.md rule 4). Its outputs are proposals/diagnostics (ADR-010),
+#   never dispatch decisions.

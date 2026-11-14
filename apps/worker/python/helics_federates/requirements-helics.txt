@@ -1,0 +1,34 @@
+# P5.16 — HELICS co-simulation dependency pin (RECORDED, NEVER INSTALLED).
+#
+# The Phase 5 loop bans installation: nothing in this file was ever
+# `pip install`ed into any environment in this repository's history. This
+# file records the pin the human's build/test pass must honour when the
+# federation is first executed. It is a D4 (license/dependency audit)
+# input, not a lockfile.
+#
+# Co-simulation orchestrator pin (RESEARCH.md §1, phase-5 ledger; verified
+# against the HELICS project CHANGELOG on 2026-11-07: HELICS 3.7.0,
+# released 25 August 2026; license BSD-3-Clause). HELICS coordinates the
+# federation's time steps and value exchange; it does NOT replace the
+# federates' physics models (report §12.4, §19.1).
+#
+# IMPORTANT (RESEARCH.md open task 3 — carried forward, still OPEN): the
+# `pyhelics`/`helics` PyPI binding version matching HELICS 3.7.0 must be
+# CONFIRMED at implementation time before the first real federation run;
+# the archived `helics-apps` package must NOT be used (RESEARCH.md §1: its
+# final 3.7.0 upload is a shim to `pip install helics`). The pin below
+# names the co-simulation version recorded in RESEARCH.md; the binding
+# package/version is the open verification item.
+helics==3.7.0
+
+# Deliberately NOT dependencies of the federates (solver-class and
+# pipeline discipline):
+# - pandapower is NOT a federate dependency: the grid federate re-uses the
+#   UNMODIFIED P5.15 worker (`apps/worker/python/grid_worker.py`) through
+#   its own subprocess and the `flexcore-grid-worker/1` protocol; the AC
+#   power flow stays in the Phase 4 pipeline. pandapower is pinned in
+#   `apps/worker/python/requirements.txt` (3.5.6, D-P4.01-1) for THAT
+#   worker only.
+# - No optimizer of any kind: the federates carry no physics and no
+#   optimization (AC power flow ≠ AC-OPF; the setpoints of the control
+#   federate come from a pre-computed fixture, never an optimizer).

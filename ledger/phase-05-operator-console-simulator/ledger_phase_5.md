@@ -32,7 +32,7 @@
 
 ### P5.01 — Console scaffold and frontend stack (§7.5, §21.4)
 
-- [ ] **Objective:** Scaffold the operator console on the report's frontend stack, as a static bundle served by the control plane, with no native mobile or desktop client.
+- [x] **Objective:** Scaffold the operator console on the report's frontend stack, as a static bundle served by the control plane, with no native mobile or desktop client. — implemented, awaiting human build/test (decision record: `01_25_scaffold_live.md`)
 - **Report trace:** §7.5, §21.4 (build/distribution form), §8.1 (`web/console/`).
 - **Inputs/prerequisites:** Phase 1–4 APIs (REST/OpenAPI); RESEARCH.md frontend versions.
 - **Steps:**
@@ -50,7 +50,7 @@
 
 ### P5.02 — Overview workspace (§20.1 item 1)
 
-- [ ] **Objective:** Build the Overview workspace: fleet availability, current aggregate power, active schedules, key alarms, delivery status.
+- [x] **Objective:** Build the Overview workspace: fleet availability, current aggregate power, active schedules, key alarms, delivery status. — implemented, awaiting human build/test (decision record: `02_04_workspaces_a.md`)
 - **Report trace:** §20.1 item 1, §20.2.
 - **Inputs/prerequisites:** P5.01; Phase 2–4 APIs (telemetry, schedules, dispatch, alarms as defined by prior phases — record any missing alarm contract as a gap, do not invent one).
 - **Steps:**
@@ -67,7 +67,7 @@
 
 ### P5.03 — Portfolios, Sites, and Assets workspaces (§20.1 items 2–4)
 
-- [ ] **Objective:** Build the Portfolios, Sites, and Assets workspaces on the Phase 2 registry contracts.
+- [x] **Objective:** Build the Portfolios, Sites, and Assets workspaces on the Phase 2 registry contracts. — implemented, awaiting human build/test (decision record: `02_04_workspaces_a.md`)
 - **Report trace:** §20.1 items 2–4, §20.2, §10.4.
 - **Inputs/prerequisites:** P5.01; Phase 2 registry/telemetry APIs.
 - **Steps:**
@@ -84,7 +84,7 @@
 
 ### P5.04 — Grid workspace (§20.1 item 5)
 
-- [ ] **Objective:** Build the Grid workspace: topology/model version, feeder/substation boundaries, voltage/thermal validation, model health.
+- [x] **Objective:** Build the Grid workspace: topology/model version, feeder/substation boundaries, voltage/thermal validation, model health. — implemented, awaiting human build/test (decision record: `02_04_workspaces_a.md`)
 - **Report trace:** §20.1 item 5, §12.5, §20.2, §19.4 (grid feasibility metrics).
 - **Inputs/prerequisites:** P5.01; Phase 4 feasibility results and model health (P4.03, P4.06–P4.07).
 - **Steps:**
@@ -101,7 +101,7 @@
 
 ### P5.05 — Schedules workspace (§20.1 item 6)
 
-- [ ] **Objective:** Build the Schedules workspace: day-ahead/intraday planning, objective selection, schedule alternatives, scenario comparison.
+- [x] **Objective:** Build the Schedules workspace: day-ahead/intraday planning, objective selection, schedule alternatives, scenario comparison. — implemented, awaiting human build/test (decision record: `05_09_workspaces_b.md`)
 - **Report trace:** §20.1 item 6, §12.1, §12.6, §23 Stage 3 (comparison workflow, P3.23).
 - **Inputs/prerequisites:** P5.01; Phase 3 schedule/comparison APIs (P3.21–P3.23).
 - **Steps:**
@@ -118,7 +118,7 @@
 
 ### P5.06 — Dispatch workspace (§20.1 item 7)
 
-- [ ] **Objective:** Build the Dispatch workspace: proposed commands, validation results, approvals, issue/acknowledgement/tracking lifecycle.
+- [x] **Objective:** Build the Dispatch workspace: proposed commands, validation results, approvals, issue/acknowledgement/tracking lifecycle. — implemented, awaiting human build/test (decision record: `05_09_workspaces_b.md`)
 - **Report trace:** §20.1 item 7, §14.1–§14.2, §20.2.
 - **Inputs/prerequisites:** P5.01; Phase 4 command APIs (P4.30).
 - **Steps:**
@@ -136,7 +136,7 @@
 
 ### P5.07 — Market & Programs, Plugins & Integrations, Administration workspaces (§20.1 items 8, 10, 12)
 
-- [ ] **Objective:** Build the three supporting workspaces honestly: show what exists, and show what does not exist yet instead of inventing it.
+- [x] **Objective:** Build the three supporting workspaces honestly: show what exists, and show what does not exist yet instead of inventing it. — implemented, awaiting human build/test (decision record: `07_31_market_plugins_admin_alarms.md`)
 - **Report trace:** §20.1 items 8, 10, 12; §25.2 (D1, D5); §5 (plugins — Stage 7).
 - **Inputs/prerequisites:** P5.01; Phase 1–4 APIs as they exist.
 - **Steps:**
@@ -153,7 +153,7 @@
 
 ### P5.08 — Simulation Lab workspace (§20.1 item 9)
 
-- [ ] **Objective:** Build the Simulation Lab workspace: scenarios, replay, benchmark runs, result comparison.
+- [x] **Objective:** Build the Simulation Lab workspace: scenarios, replay, benchmark runs, result comparison. — implemented, awaiting human build/test (decision record: `08_simulation_lab.md`)
 - **Report trace:** §20.1 item 9, §19.1–§19.4, §24 step 10.
 - **Inputs/prerequisites:** P5.01; P5.14–P5.20 (adapters, replay, benchmarks).
 - **Steps:**
@@ -170,7 +170,7 @@
 
 ### P5.09 — Audit & Reports workspace (§20.1 item 11)
 
-- [ ] **Objective:** Build the Audit & Reports workspace: decision evidence, operator actions, schedule vs actual, dispatch failures.
+- [x] **Objective:** Build the Audit & Reports workspace: decision evidence, operator actions, schedule vs actual, dispatch failures. — implemented, awaiting human build/test (decision record: `05_09_workspaces_b.md`)
 - **Report trace:** §20.1 item 11, §15.3, §21.3, §24 step 9.
 - **Inputs/prerequisites:** P5.01; Phase 4 audit data (P4.30).
 - **Steps:**
@@ -187,7 +187,7 @@
 
 ### P5.10 — Design principles: freshness and value types (§20.2)
 
-- [ ] **Objective:** Apply the §20.2 freshness and value-type principles across every workspace, not just Overview.
+- [x] **Objective:** Apply the §20.2 freshness and value-type principles across every workspace, not just Overview. — implemented, awaiting human build/test (decision record: `10_12_design_pass.md`)
 - **Report trace:** §20.2, §10.4.
 - **Inputs/prerequisites:** P5.02–P5.09.
 - **Steps:**
@@ -204,7 +204,7 @@
 
 ### P5.11 — Design principles: state distinction and rejection explanations (§20.2)
 
-- [ ] **Objective:** Enforce the remaining §20.2 state and explanation principles: distinct lifecycle states, model version/timestamp on feasibility outcomes, explicit confirmation for high-impact actions.
+- [x] **Objective:** Enforce the remaining §20.2 state and explanation principles: distinct lifecycle states, model version/timestamp on feasibility outcomes, explicit confirmation for high-impact actions. — implemented, awaiting human build/test (decision record: `10_12_design_pass.md`)
 - **Report trace:** §20.2, §14.1, §12.5.
 - **Inputs/prerequisites:** P5.04–P5.06.
 - **Steps:**
@@ -221,7 +221,7 @@
 
 ### P5.12 — Accessibility, role-specific screens, and demo-data honesty (§20.2, §21.4)
 
-- [ ] **Objective:** Make the console usable by role and by assistive technology, and keep any demo data visibly demo.
+- [x] **Objective:** Make the console usable by role and by assistive technology, and keep any demo data visibly demo. — implemented, awaiting human build/test (decision record: `10_12_design_pass.md`)
 - **Report trace:** §20.2, §21.4 (browser matrix), §17.3 (RBAC).
 - **Inputs/prerequisites:** P5.02–P5.11.
 - **Steps:**
@@ -238,7 +238,7 @@
 
 ### P5.13 — Simulation honesty in the console (§20.2, §21.4, §14.1)
 
-- [ ] **Objective:** Guarantee the console never presents simulation as field reality: every simulated issue, acknowledgement, and tracking result is labelled simulated, and acknowledgement is never shown as physical delivery.
+- [x] **Objective:** Guarantee the console never presents simulation as field reality: every simulated issue, acknowledgement, and tracking result is labelled simulated, and acknowledgement is never shown as physical delivery. — implemented, awaiting human build/test (decision record: `13_26_honesty_security.md`)
 - **Report trace:** §20.2, §21.4, §14.1, §14.2.
 - **Inputs/prerequisites:** P5.06, P5.09; Phase 4 handover (P4.32 simulation-only boundary).
 - **Steps:**
@@ -255,7 +255,7 @@
 
 ### P5.14 — Simulator adapters: asset simulator integration (§19.1, §8.1)
 
-- [ ] **Objective:** Integrate the simulator adapters so the console and the control plane run the §24 vertical slice against simulated assets, not stubs.
+- [x] **Objective:** Integrate the simulator adapters so the console and the control plane run the §24 vertical slice against simulated assets, not stubs. — implemented, awaiting human build/test (decision record: `14_15_adapters.md`)
 - **Report trace:** §19.1 (simulation strategy), §8.1 (`plugins/builtin/asset-simulator`, `apps/sim-runner`), §24 steps 1–2.
 - **Inputs/prerequisites:** Phase 2 asset simulator; P5.01.
 - **Steps:**
@@ -272,7 +272,7 @@
 
 ### P5.15 — Grid simulator adapter integration (§19.1, §12.4)
 
-- [ ] **Objective:** Integrate the grid simulator adapter (pandapower, per Phase 4) into the scenario runs so feasibility results in the console come from the real adapter.
+- [x] **Objective:** Integrate the grid simulator adapter (pandapower, per Phase 4) into the scenario runs so feasibility results in the console come from the real adapter. — implemented, awaiting human build/test (decision record: `14_15_adapters.md`)
 - **Report trace:** §19.1, §12.4, §12.5, §20.1 item 5.
 - **Inputs/prerequisites:** P4.02 adapter; P5.14.
 - **Steps:**
@@ -289,7 +289,7 @@
 
 ### P5.16 — HELICS co-simulation integration (§12.4, §19.1)
 
-- [ ] **Objective:** Integrate HELICS as a co-simulation orchestrator for a multi-federate scenario, with HELICS coordinating — not replacing — the physics models.
+- [x] **Objective:** Integrate HELICS as a co-simulation orchestrator for a multi-federate scenario, with HELICS coordinating — not replacing — the physics models. — implemented, awaiting human build/test (decision record: `16_helics_cosim.md`)
 - **Report trace:** §12.4 (HELICS row), §19.1 (multi-domain co-simulation), §7.4.
 - **Inputs/prerequisites:** P5.14–P5.15; RESEARCH.md HELICS version (3.7.0).
 - **Steps:**
@@ -308,7 +308,7 @@
 
 ### P5.17 — Additional simulator adapters: scoping decision (§19.1, §12.4)
 
-- [ ] **Objective:** Decide explicitly, per simulator track in §19.1, which adapters are integrated in Phase 5 and which are deferred — and record the decision.
+- [x] **Objective:** Decide explicitly, per simulator track in §19.1, which adapters are integrated in Phase 5 and which are deferred — and record the decision. — implemented, awaiting human build/test (decision record: `17_scoping_decision.md`)
 - **Report trace:** §19.1, §12.4, §23 Stage 5.
 - **Inputs/prerequisites:** P5.14–P5.16.
 - **Steps:**
@@ -325,7 +325,7 @@
 
 ### P5.18 — Scenario definition and replay (§19.2 layer 5, §24 step 10)
 
-- [ ] **Objective:** Define scenarios as pinned, replayable records and implement replay that re-executes the same scenario from the same inputs.
+- [x] **Objective:** Define scenarios as pinned, replayable records and implement replay that re-executes the same scenario from the same inputs. — implemented, awaiting human build/test (decision record: `18_20_replay_library.md`)
 - **Report trace:** §19.2 layer 5, §24 step 10, §19.3.
 - **Inputs/prerequisites:** P5.14–P5.16; P3.26 scenarios.
 - **Steps:**
@@ -342,7 +342,7 @@
 
 ### P5.19 — Replay reproducibility verification (§24 step 10, §19.2 layer 5)
 
-- [ ] **Objective:** Prove replay reproducibility: the same scenario, same versions, same seeds produce the same results within a stated tolerance.
+- [x] **Objective:** Prove replay reproducibility: the same scenario, same versions, same seeds produce the same results within a stated tolerance. — implemented, awaiting human build/test (decision record: `18_20_replay_library.md`)
 - **Report trace:** §24 step 10, §19.2 layer 5, §22.3 (simulator benchmark results are reproducible).
 - **Inputs/prerequisites:** P5.18.
 - **Steps:**
@@ -359,7 +359,7 @@
 
 ### P5.20 — Scenario library: benchmark cases (§19.3)
 
-- [ ] **Objective:** Build the Phase 5 scenario library from the §19.3 benchmark cases, starting small and adding scale gradually.
+- [x] **Objective:** Build the Phase 5 scenario library from the §19.3 benchmark cases, starting small and adding scale gradually. — implemented, awaiting human build/test (decision record: `18_20_replay_library.md`)
 - **Report trace:** §19.3, §19.4.
 - **Inputs/prerequisites:** P5.18–P5.19.
 - **Steps:**
@@ -376,7 +376,7 @@
 
 ### P5.21 — Failure injection in the simulator (§19.2 layer 6, §23 Stage 5)
 
-- [ ] **Objective:** Implement failure injection for simulator runs: dropped/reordered/duplicated messages, clock skew, stale telemetry, unavailable assets, solver timeout, plugin crash, partial fleet response.
+- [x] **Objective:** Implement failure injection for simulator runs: dropped/reordered/duplicated messages, clock skew, stale telemetry, unavailable assets, solver timeout, plugin crash, partial fleet response. — implemented, awaiting human build/test (decision record: `21_24_faults_visibility.md`)
 - **Report trace:** §19.2 layer 6, §23 Stage 5, §17.4.
 - **Inputs/prerequisites:** P5.14–P5.16, P4.31 (platform fault-injection suites — reuse, do not duplicate).
 - **Steps:**
@@ -393,7 +393,7 @@
 
 ### P5.22 — Failure-injection evidence and operator visibility (§19.2 layer 6, §20.2)
 
-- [ ] **Objective:** Make injected failures visible to the operator with their cause and the platform's response, so a failure is never a silent blank screen.
+- [x] **Objective:** Make injected failures visible to the operator with their cause and the platform's response, so a failure is never a silent blank screen. — implemented, awaiting human build/test (decision record: `21_24_faults_visibility.md`)
 - **Report trace:** §19.2 layer 6, §20.2, §21.3.
 - **Inputs/prerequisites:** P5.21.
 - **Steps:**
@@ -410,7 +410,7 @@
 
 ### P5.23 — Benchmark runs and evaluation metrics (§19.3–§19.4)
 
-- [ ] **Objective:** Run the Phase 5 benchmarks and report the §19.4 metrics honestly, with no arbitrary universal targets.
+- [x] **Objective:** Run the Phase 5 benchmarks and report the §19.4 metrics honestly, with no arbitrary universal targets. — implemented, awaiting human build/test (decision record: `23_benchmark_report.md`; the measured run is the human's gate — the template's cells are EMPTY, no figure exists yet)
 - **Report trace:** §19.3–§19.4, §22.2.
 - **Inputs/prerequisites:** P5.18–P5.20.
 - **Steps:**
@@ -427,7 +427,7 @@
 
 ### P5.24 — Performance and load measurement (§19.2 layer 8, §19.4)
 
-- [ ] **Objective:** Measure console and platform performance under load: telemetry ingest rate, scheduling runtime, query latency, command fan-out, recovery.
+- [x] **Objective:** Measure console and platform performance under load: telemetry ingest rate, scheduling runtime, query latency, command fan-out, recovery. — implemented, awaiting human build/test (decision record: `24_load_measurement.md`; the harness is written, never run — console browser-side figures are a pre-registered MANUAL procedure, no figure exists yet)
 - **Report trace:** §19.2 layer 8, §19.4 (platform metrics), §21.3.
 - **Inputs/prerequisites:** P5.23; Phase 1–4 services running.
 - **Steps:**
@@ -444,7 +444,7 @@
 
 ### P5.25 — Live updates: SSE/WebSocket and observability (§15.1, §21.3)
 
-- [ ] **Objective:** Wire live console updates over SSE/WebSocket and correlate them with the platform's observability records.
+- [x] **Objective:** Wire live console updates over SSE/WebSocket and correlate them with the platform's observability records. — implemented, awaiting human build/test (decision record: `01_25_scaffold_live.md`)
 - **Report trace:** §15.1, §21.3, §7.5.
 - **Inputs/prerequisites:** P5.01; Phase 1–4 events (NATS) and tracing.
 - **Steps:**
@@ -462,7 +462,7 @@
 
 ### P5.26 — Console security: RBAC, tenancy, and step-up approval (§17, §16.2, §20.2)
 
-- [ ] **Objective:** Enforce console-side security: tenant-scoped views, RBAC on every action, step-up approval for high-impact actions, and audit of denials.
+- [x] **Objective:** Enforce console-side security: tenant-scoped views, RBAC on every action, step-up approval for high-impact actions, and audit of denials. — implemented, awaiting human build/test (decision record: `13_26_honesty_security.md`)
 - **Report trace:** §17.2–§17.4, §16.2, §20.2, §21.3.
 - **Inputs/prerequisites:** P5.02–P5.09; Phase 1 identity/RBAC; P4.13, P4.28.
 - **Steps:**
@@ -480,7 +480,7 @@
 
 ### P5.27 — Control-authority mode enforcement in the console (§21.4, §17.5)
 
-- [ ] **Objective:** Make the console enforce (not just display) the deployment's control-authority mode.
+- [x] **Objective:** Make the console enforce (not just display) the deployment's control-authority mode. — implemented, awaiting human build/test (decision record: `27_mode_enforcement.md`)
 - **Report trace:** §21.4, §17.5, §5.7.
 - **Inputs/prerequisites:** P5.13, P5.26; deployment mode configuration from Phase 1.
 - **Steps:**
@@ -497,7 +497,7 @@
 
 ### P5.28 — CI quality gates for the console (§22.2, §7.5)
 
-- [ ] **Objective:** Wire the console into the repo's CI quality gates so a failing lint, type-check, test, or build blocks the change.
+- [x] **Objective:** Wire the console into the repo's CI quality gates so a failing lint, type-check, test, or build blocks the change. — implemented, awaiting human build/test (decision record: `28_ci_gates.md`)
 - **Report trace:** §22.2, §7.5, §21.4 (browser/OS matrix).
 - **Inputs/prerequisites:** P5.01, P5.25.
 - **Steps:**
@@ -514,7 +514,7 @@
 
 ### P5.29 — Documentation and operator guide (§20, §24)
 
-- [ ] **Objective:** Document the console for its operator: what each workspace shows, what each state means, and what the console cannot do.
+- [x] **Objective:** Document the console for its operator: what each workspace shows, what each state means, and what the console cannot do. — implemented, awaiting human build/test (decision record: `29_operator_guide.md`; the guide's required non-author review is recorded OPEN — a human gate)
 - **Report trace:** §20.1–§20.2, §24 steps 9–10, §21.4.
 - **Inputs/prerequisites:** P5.02–P5.13.
 - **Steps:**
@@ -531,7 +531,7 @@
 
 ### P5.30 — Exit-gate demonstration and handover to Stage 6 (§23 Stage 5)
 
-- [ ] **Objective:** Demonstrate the §23 Stage 5 exit gate end-to-end and hand over to Stage 6 with an honest record of what is ready and what is not.
+- [x] **Objective:** Demonstrate the §23 Stage 5 exit gate end-to-end and hand over to Stage 6 with an honest record of what is ready and what is not. — implemented, awaiting human build/test; demonstration NOT HELD, sign-off NOT SIGNED (decision record: `30_stage5_exit_record.md`)
 - **Report trace:** §23 Stage 5 exit gate, §24 steps 9–10, §22.3.
 - **Inputs/prerequisites:** P5.01–P5.33.
 - **Steps:**
@@ -550,7 +550,7 @@
 
 ### P5.31 — Alarm model and contract: own the gap behind §20.1 item 1 "key alarms" (§20.1 item 1, §15.3)
 
-- [ ] **Objective:** Resolve the alarm-contract gap P5.02 records but no subtask owns: either define the minimal alarm model the Overview workspace displays, or formally escalate it to the owning phase with an owner and a date — so "key alarms" (§20.1 item 1) is buildable, not permanently "to be recorded as a gap".
+- [x] **Objective:** Resolve the alarm-contract gap P5.02 records but no subtask owns: either define the minimal alarm model the Overview workspace displays, or formally escalate it to the owning phase with an owner and a date — so "key alarms" (§20.1 item 1) is buildable, not permanently "to be recorded as a gap". — implemented, awaiting human build/test (decision record: `07_31_market_plugins_admin_alarms.md`)
 - **Report trace:** §20.1 item 1, §15.3 (event vocabulary — no Alarm event exists), §20.2.
 - **Inputs/prerequisites:** P5.02 (gap as recorded there); Phase 2 telemetry/quality model (alarm sources, if any); P9.25 (pilot alert catalogue — the consumer, not the definer).
 - **Steps:**
@@ -567,7 +567,7 @@
 
 ### P5.32 — Tenant-context display and tenant-switch guard (§16.2, §20.2)
 
-- [ ] **Objective:** Make the current tenant visible on every workspace and guard tenant switching, so an operator can never act under the wrong tenant without a visible cue.
+- [x] **Objective:** Make the current tenant visible on every workspace and guard tenant switching, so an operator can never act under the wrong tenant without a visible cue. — implemented, awaiting human build/test (decision record: `32_33_tenant_live_ordering.md`; the per-workspace MISMATCH-badge row wiring is recorded as the defined integration point — the workspaces were read-only in this pass)
 - **Report trace:** §16.2 (tenant context from authenticated claims), §20.2 (role-specific screens).
 - **Inputs/prerequisites:** P5.26 (tenant context derived from claims); P5.02–P5.09 (workspaces).
 - **Steps:**
@@ -584,7 +584,7 @@
 
 ### P5.33 — Live-update ordering and deduplication (§15.4, §15.1)
 
-- [ ] **Objective:** Make the live-update stream (§15.1) robust to at-least-once delivery: out-of-order or duplicate events must never overwrite fresher displayed state.
+- [x] **Objective:** Make the live-update stream (§15.1) robust to at-least-once delivery: out-of-order or duplicate events must never overwrite fresher displayed state. — implemented, awaiting human build/test (decision record: `32_33_tenant_live_ordering.md`; the wire carries no sequence field, so per-entity event_time anchors substitute — recorded as a gap, not invented)
 - **Report trace:** §15.4 (at-least-once, idempotent consumers), §15.1, §21.3.
 - **Inputs/prerequisites:** P5.25 (live updates, disconnect/re-sync); P4.24 (command idempotency/sequence discipline — reuse the pattern, do not reinvent it).
 - **Steps:**

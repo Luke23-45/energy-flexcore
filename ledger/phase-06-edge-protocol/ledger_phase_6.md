@@ -57,7 +57,7 @@
 
 ## P6.01 — Close, or formally record as still open, decision D5 (first protocol and asset mix)
 
-- [ ] **P6.01 — Close, or formally record as still open, decision D5 (first protocol and asset mix)**
+- [x] **P6.01 — Close, or formally record as still open, decision D5 (first protocol and asset mix)** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/01_d5_disposition.md`)
   - **Objective:** Produce a single written D5 decision record naming the one
     pilot protocol adapter and the asset mix it serves, or record D5 as still
     OPEN with owner, venue, and date — and stop adapter implementation until
@@ -99,7 +99,7 @@
 
 ## P6.02 — License and dependency audit for the Phase 6 stack (D4 follow-through)
 
-- [ ] **P6.02 — License and dependency audit for the Phase 6 stack (D4 follow-through)**
+- [x] **P6.02 — License and dependency audit for the Phase 6 stack (D4 follow-through)** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/02_license_audit.md`)
   - **Objective:** Prove every library, protocol stack, and test tool this
     phase will introduce is license-compatible with the recommended
     Apache-2.0 core license, or record the incompatibility and the decision
@@ -136,7 +136,7 @@
 
 ## P6.03 — Cyber and OT boundary review for the pilot site (D6)
 
-- [ ] **P6.03 — Cyber and OT boundary review for the pilot site (D6)**
+- [x] **P6.03 — Cyber and OT boundary review for the pilot site (D6)** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/03_d6_boundary_review.md`)
   - **Objective:** Produce the site-specific cyber/OT boundary review that
     D6 requires before any read-only pilot, covering zones, flows, and the
     exact network path the edge agent will use.
@@ -182,7 +182,7 @@
 
 ## P6.04 — Phase readiness check against Stages 1–5 outputs
 
-- [ ] **P6.04 — Phase readiness check against Stages 1–5 outputs**
+- [x] **P6.04 — Phase readiness check against Stages 1–5 outputs** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/04_readiness_check.md`)
   - **Objective:** Verify, by running the checks, that the Stages 1–5
     deliverables this phase depends on actually exist and pass — before any
     Phase 6 code is written.
@@ -214,7 +214,7 @@
 
 ## P6.05 — Edge agent crate and composition-root design
 
-- [ ] **P6.05 — Edge agent crate and composition-root design**
+- [x] **P6.05 — Edge agent crate and composition-root design** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/05_12_20_edge_foundation.md`)
   - **Objective:** Define the edge agent as a separate Rust daemon/service
     (`apps/edge-agent`) with its crate boundaries, dependency direction, and
     composition root — without yet implementing protocol adapters.
@@ -251,7 +251,7 @@
 
 ## P6.06 — Edge identity, enrollment, and certificate lifecycle
 
-- [ ] **P6.06 — Edge identity, enrollment, and certificate lifecycle**
+- [x] **P6.06 — Edge identity, enrollment, and certificate lifecycle** — implemented, awaiting human build/test (decision record: `06_07_identity_channel.md`)
   - **Objective:** Implement secure site enrollment: each edge agent holds a
     unique identity scoped to one tenant and one approved site/asset set,
     with short-lived credentials and rotation.
@@ -291,7 +291,7 @@
 
 ## P6.07 — Outbound mTLS channel (edge-initiated, no inbound OT access)
 
-- [ ] **P6.07 — Outbound mTLS channel (edge-initiated, no inbound OT access)**
+- [x] **P6.07 — Outbound mTLS channel (edge-initiated, no inbound OT access)** — implemented, awaiting human build/test (decision record: `06_07_identity_channel.md`)
   - **Objective:** Implement the edge-to-central channel as an
     edge-initiated, mutually authenticated TLS connection, with no inbound
     internet access into the OT network.
@@ -330,7 +330,7 @@
 
 ## P6.08 — Edge telemetry ingestion from the site EMS (read path)
 
-- [ ] **P6.08 — Edge telemetry ingestion from the site EMS (read path)**
+- [x] **P6.08 — Edge telemetry ingestion from the site EMS (read path)** — implemented, awaiting human build/test (decision record: `08_09_ingest_buffer.md`)
   - **Objective:** Read telemetry from the site EMS through the selected
     integration, normalize it to the canonical model, and forward it over
     the mTLS channel — read-only in this phase.
@@ -369,7 +369,7 @@
 
 ## P6.09 — Telemetry buffering, store-and-forward, and recovery
 
-- [ ] **P6.09 — Telemetry buffering, store-and-forward, and recovery**
+- [x] **P6.09 — Telemetry buffering, store-and-forward, and recovery** — implemented, awaiting human build/test (decision record: `08_09_ingest_buffer.md`)
   - **Objective:** Buffer telemetry locally in a bounded, encrypted queue
     when the central channel is down, and forward it in order on recovery
     without loss within the bound or silent overflow beyond it.
@@ -407,7 +407,7 @@
 
 ## P6.10 — OpenEMS integration: EdgeConfig discovery and channel mapping
 
-- [ ] **P6.10 — OpenEMS integration: EdgeConfig discovery and channel mapping**
+- [x] **P6.10 — OpenEMS integration: EdgeConfig discovery and channel mapping** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/10_11_openems.md`)
   - **Objective:** Discover the OpenEMS Edge configuration (EdgeConfig JSON)
     and map its components/channels to FlexCore assets, with no assumption
     about which devices a site has.
@@ -443,7 +443,7 @@
 
 ## P6.11 — OpenEMS integration: read-only data path end to end
 
-- [ ] **P6.11 — OpenEMS integration: read-only data path end to end**
+- [x] **P6.11 — OpenEMS integration: read-only data path end to end** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/10_11_openems.md`)
   - **Objective:** Demonstrate the complete read-only path — OpenEMS Edge
     channels → FlexCore edge agent → mTLS → control plane → stored
     telemetry — in the lab, with no write call issued to OpenEMS.
@@ -475,7 +475,7 @@
 
 ## P6.12 — Selected protocol adapter: interface and anti-corruption layer
 
-- [ ] **P6.12 — Selected protocol adapter: interface and anti-corruption layer**
+- [x] **P6.12 — Selected protocol adapter: interface and anti-corruption layer** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/05_12_20_edge_foundation.md`)
   - **Objective:** Define the selected adapter (per D5, P6.01) behind the
     `ProtocolAdapter`/`TelemetrySource` port, with an anti-corruption layer
     that converts the protocol's terms, units, timestamps, and status codes
@@ -510,7 +510,7 @@
 
 ## P6.13 — Selected protocol adapter: read/telemetry implementation and tests
 
-- [ ] **P6.13 — Selected protocol adapter: read/telemetry implementation and tests**
+- [x] **P6.13 — Selected protocol adapter: read/telemetry implementation and tests** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/13_14_17_adapter_command_policy.md`)
   - **Objective:** Implement the adapter's read/telemetry path against the
     real protocol (or its official simulator/test harness) and test it with
     the §19.2 fault-injection set.
@@ -545,7 +545,7 @@
 
 ## P6.14 — Command path: keep disabled by default; define the test-env enablement gate
 
-- [ ] **P6.14 — Command path: keep disabled by default; define the test-env enablement gate**
+- [x] **P6.14 — Command path: keep disabled by default; define the test-env enablement gate** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/13_14_17_adapter_command_policy.md`)
   - **Objective:** Prove the command path is disabled by default in v0.4.0
     and define — in writing, with named approvers — the only conditions
     under which it may be enabled in a test environment.
@@ -581,7 +581,7 @@
 
 ## P6.15 — Command verification at the edge (test-env only): signature, expiry, sequence
 
-- [ ] **P6.15 — Command verification at the edge (test-env only): signature, expiry, sequence**
+- [x] **P6.15 — Command verification at the edge (test-env only): signature, expiry, sequence** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/15_16_command_verify_forward.md`)
   - **Objective:** For the test-environment command path only, implement
     edge-side verification of every command — signature, expiry, sequence,
     and allowlist — before any forwarding to a site adapter.
@@ -618,7 +618,7 @@
 
 ## P6.16 — Command forwarding only to allowlisted adapters; fallback on failure
 
-- [ ] **P6.16 — Command forwarding only to allowlisted adapters; fallback on failure**
+- [x] **P6.16 — Command forwarding only to allowlisted adapters; fallback on failure** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/15_16_command_verify_forward.md`)
   - **Objective:** Forward a verified test-env command only to its
     allowlisted site adapter, and define per-asset fallback behaviour when
     forwarding, acknowledgement, or tracking fails.
@@ -657,7 +657,7 @@
 
 ## P6.17 — Local policy enforcement and adapter health monitoring
 
-- [ ] **P6.17 — Local policy enforcement and adapter health monitoring**
+- [x] **P6.17 — Local policy enforcement and adapter health monitoring** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/13_14_17_adapter_command_policy.md`)
   - **Objective:** Enforce site-local policy at the edge (rate limits,
     operating windows, per-adapter enablement) and monitor adapter health
     with operator-visible status.
@@ -693,7 +693,7 @@
 
 ## P6.18 — Local audit buffer and offline behaviour
 
-- [ ] **P6.18 — Local audit buffer and offline behaviour**
+- [x] **P6.18 — Local audit buffer and offline behaviour** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/18_21_audit_offline_isolation.md`)
   - **Objective:** Keep a local, bounded audit buffer at the edge so that
     enrollment, command, rejection, and health events survive a central
     outage, and define offline behaviour (what the edge does — and does not
@@ -729,7 +729,7 @@
 
 ## P6.19 — Adapter conformance tests and the conformance claim boundary
 
-- [ ] **P6.19 — Adapter conformance tests and the conformance claim boundary**
+- [x] **P6.19 — Adapter conformance tests and the conformance claim boundary** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/19_23_22_conformance_security_performance.md`)
   - **Objective:** Build the adapter conformance test suite for the selected
     protocol and write down, explicitly, what passing it does and does not
     entitle FlexCore to claim.
@@ -769,7 +769,7 @@
 
 ## P6.20 — Edge deployment profile: packaging, service, and signed updates
 
-- [ ] **P6.20 — Edge deployment profile: packaging, service, and signed updates**
+- [x] **P6.20 — Edge deployment profile: packaging, service, and signed updates** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/20_deployment_profile.md`)
   - **Objective:** Ship the edge agent as a versioned Linux package/OCI
     image or systemd service per §18.3/§21.4, with signed, verified update
     bundles and staged rollback.
@@ -802,7 +802,7 @@
 
 ## P6.21 — Multi-site and multi-tenant isolation at the edge
 
-- [ ] **P6.21 — Multi-site and multi-tenant isolation at the edge**
+- [x] **P6.21 — Multi-site and multi-tenant isolation at the edge** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/18_21_audit_offline_isolation.md`)
   - **Objective:** Prove one edge agent cannot see, forward, or command
     another tenant's or site's assets, and that a compromised edge cannot
     escalate to other sites.
@@ -835,7 +835,7 @@
 
 ## P6.22 — Performance, resource, and scale validation of the edge agent
 
-- [ ] **P6.22 — Performance, resource, and scale validation of the edge agent**
+- [x] **P6.22 — Performance, resource, and scale validation of the edge agent** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/19_23_22_conformance_security_performance.md`)
   - **Objective:** Measure the edge agent's resource use and throughput on
     the target gateway hardware profile and record limits — no invented
     numbers.
@@ -867,7 +867,7 @@
 
 ## P6.23 — Security testing: replay, forgery, malicious telemetry, secrets exposure
 
-- [ ] **P6.23 — Security testing: replay, forgery, malicious telemetry, secrets exposure**
+- [x] **P6.23 — Security testing: replay, forgery, malicious telemetry, secrets exposure** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/19_23_22_conformance_security_performance.md`)
   - **Objective:** Run the §19.2(7) security test layer against the edge
     and adapter surface and record every finding with severity and fix.
   - **Report trace:** §19.2(7); §17.4; §5.7.
@@ -901,7 +901,7 @@
 
 ## P6.24 — Read-only end-to-end lab integration (the exit-gate run)
 
-- [ ] **P6.24 — Read-only end-to-end lab integration (the exit-gate run)**
+- [x] **P6.24 — Read-only end-to-end lab integration (the exit-gate run)** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/24_exit_gate_lab_run_record.md`)
   - **Objective:** Execute the §23 Stage 6 exit gate as a single witnessed
     lab run: read-only end-to-end site integration works; the command path
     stays disabled unless explicitly approved for the test environment.
@@ -937,7 +937,7 @@
 
 ## P6.25 — Operator console surfacing for sites, edge, and adapters
 
-- [ ] **P6.25 — Operator console surfacing for sites, edge, and adapters**
+- [x] **P6.25 — Operator console surfacing for sites, edge, and adapters** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/25_31_32_console_clock_decommission.md`)
   - **Objective:** Show edge connectivity, adapter status, telemetry
     freshness, and command-path state in the operator console — with
     proposed vs executed states visually distinct.
@@ -972,7 +972,7 @@
 
 ## P6.26 — Documentation: edge operations, adapter, and protocol guides
 
-- [ ] **P6.26 — Documentation: edge operations, adapter, and protocol guides**
+- [x] **P6.26 — Documentation: edge operations, adapter, and protocol guides** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/26_27_28_docs_ci_drill.md`)
   - **Objective:** Write the operator, integration, and protocol
     documentation for this phase — including limits — under `docs/`
     (operations, protocols, security), without touching the report or the
@@ -1004,7 +1004,7 @@
 
 ## P6.27 — CI gates for edge and adapter code
 
-- [ ] **P6.27 — CI gates for edge and adapter code**
+- [x] **P6.27 — CI gates for edge and adapter code** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/26_27_28_docs_ci_drill.md`)
   - **Objective:** Wire the §22.2 CI gates to the new edge/adapter code and
     add the adapter conformance suite (P6.19) to CI.
   - **Report trace:** §22.2; §9.3.
@@ -1032,7 +1032,7 @@
 
 ## P6.28 — Failure-mode and recovery drill (edge + adapter)
 
-- [ ] **P6.28 — Failure-mode and recovery drill (edge + adapter)**
+- [x] **P6.28 — Failure-mode and recovery drill (edge + adapter)** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/26_27_28_docs_ci_drill.md`)
   - **Objective:** Run a single combined drill covering the §19.2(6) fault
     set against the edge and adapter, and record recovery time and data
     loss for each fault.
@@ -1065,7 +1065,7 @@
 
 ## P6.29 — Handover to Phase 7 (plugin SDK): what the edge exposes as seams
 
-- [ ] **P6.29 — Handover to Phase 7 (plugin SDK): what the edge exposes as seams**
+- [x] **P6.29 — Handover to Phase 7 (plugin SDK): what the edge exposes as seams** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/29_phase7_seam_handover.md`)
   - **Objective:** Hand Phase 7 a precise list of the capability seams the
     edge and adapter work created (or deliberately did not create), so the
     plugin SDK builds on real contracts, not on assumed ones.
@@ -1098,7 +1098,7 @@
 
 ## P6.30 — Phase retrospective, open items, and v0.4.0 release-gate record
 
-- [ ] **P6.30 — Phase retrospective, open items, and v0.4.0 release-gate record**
+- [x] **P6.30 — Phase retrospective, open items, and v0.4.0 release-gate record** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/30_retrospective_release_gate.md`)
   - **Objective:** Close the phase honestly: record what passed, what did
     not, every open item with an owner, and the v0.4.0 release-gate
     position per §22.3.
@@ -1137,7 +1137,7 @@
 
 ## P6.31 — Edge time synchronization and clock-quality monitoring
 
-- [ ] **P6.31 — Edge time synchronization and clock-quality monitoring**
+- [x] **P6.31 — Edge time synchronization and clock-quality monitoring** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/25_31_32_console_clock_decommission.md`)
   - **Objective:** Own the edge clock: define the time-synchronization source, the tolerance, and the clock-quality status that P6.15's command verification depends on — so an expired/stale command cannot pass on a drifting edge clock.
   - **Report trace:** §10.3 (clock-quality/synchronization status); §17.4 (clock drift threat); §14.3 (expiry).
   - **Inputs / prerequisites:** P6.05 skeleton; P6.15 (consumer of the clock-quality check); D6 review (P6.03 — site network must permit the sync source).
@@ -1155,7 +1155,7 @@
 
 ## P6.32 — Edge decommissioning and unenrollment
 
-- [ ] **P6.32 — Edge decommissioning and unenrollment**
+- [x] **P6.32 — Edge decommissioning and unenrollment** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/25_31_32_console_clock_decommission.md`)
   - **Objective:** Implement the counterpart of enrollment (P6.06): cleanly unenroll an edge agent — revoke its identity, wipe its local secrets and buffers, and confirm removal — so a retired edge leaves no live identity or buffered data behind.
   - **Report trace:** §18.1 (enrollment); §17.3 (short-lived credentials, certificate rotation); §16.2 (identity scoped to one tenant/site).
   - **Inputs / prerequisites:** P6.06 (identity binding, revocation handling); P6.09 (telemetry buffer); P6.18 (audit buffer); P6.26 (decommission documentation).
@@ -1173,7 +1173,7 @@
 
 ## P6.33 — Exit-gate evidence-pack completeness
 
-- [ ] **P6.33 — Exit-gate evidence-pack completeness**
+- [x] **P6.33 — Exit-gate evidence-pack completeness** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/33_evidence_pack_completeness.md`)
   - **Objective:** Make the P6.24 exit-gate pack complete: it must cite the conformance results (P6.19), the failure-mode drill results (P6.28), and the security-findings clearance (P6.23) — the three evidence types the pack as specified omits.
   - **Report trace:** §23 Stage 6 (exit gate); §22.3 (edge offline/degraded modes tested; release-gate position).
   - **Inputs / prerequisites:** P6.19, P6.23, P6.28, P6.24.
@@ -1191,7 +1191,7 @@
 
 ## P6.34 — Secure-boot position record for edge hosts
 
-- [ ] **P6.34 — Secure-boot position record for edge hosts**
+- [x] **P6.34 — Secure-boot position record for edge hosts** — implemented, awaiting human build/test (decision record: `ledger/phase-06-edge-protocol/34_secure_boot_position.md`)
   - **Objective:** Record the secure-boot position for each edge gateway profile, closing the one §17.3 control P6.20 (signed updates) does not cover.
   - **Report trace:** §17.3 (secure boot/update policy for edge hosts where customer platform supports it); §18.3; §21.2.
   - **Inputs / prerequisites:** P6.20 (deployment profile, signed updates); gateway hardware specification (per profile, x86-64 and ARM64).

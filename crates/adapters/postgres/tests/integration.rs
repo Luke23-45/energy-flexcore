@@ -55,7 +55,7 @@ use sqlx::PgPool;
 // The recorded down files (P1.12 §7: every migration has a down file or a
 // recorded irreversible reason; the only irreversible part — role removal —
 // is documented in 0001's down file).
-const DOWN_FILES: [&str; 10] = [
+const DOWN_FILES: [&str; 17] = [
     include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0001_quality_enum.down.sql"
@@ -97,6 +97,38 @@ const DOWN_FILES: [&str; 10] = [
     include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0010_telemetry_storage_p2_06.down.sql"
+    )),
+    // P2.31–P4.30: the recorded down files of the later migrations (the
+    // table had lagged at 0010; extended additively by the P4.30 subtask
+    // so the down/up replay covers the full set — the down files replay
+    // in reverse, newest first).
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0011_telemetry_api_read_grant_p2_19.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0012_correction_versions_p2_31.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0013_optimization_results_p3_21.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0014_schedule_revisions_p3_22.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0015_envelopes_p3_28.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0016_commands_p4_10.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0017_feasibility_checks_p4_30.down.sql"
     )),
 ];
 

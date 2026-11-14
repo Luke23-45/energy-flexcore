@@ -549,6 +549,24 @@ pub struct CommandTransitionReceipt {
     pub tenant_id: TenantId,
 }
 
+// --- Listing (P4.30) -------------------------------------------------------------
+
+/// The listing filter of [`CommandRecordStore::list_commands`]. Every
+/// field is optional; an absent filter lists the tenant's records newest
+/// first. There is NO unbounded query: the caller ALWAYS applies the page
+/// size (the recorded P2.12/P3.28 listing convention).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CommandListFilter {
+    /// Restrict to one stored state (one of [`COMMAND_STATES`]; any other
+    /// value is [`CommandStoreError::InvalidRecord`]).
+    pub state: Option<String>,
+    /// Keyset cursor: return commands strictly BEFORE this command_id in
+    /// the listing order (the opaque cursor of the previous page; the
+    /// primary keys are UUIDv7s, so `command_id` order is a stable time
+    /// order).
+    pub after_command_id: Option<String>,
+}
+
 // --- The port -------------------------------------------------------------------
 
 /// The command-record persistence contract (ledger P4.10 step 6; report
@@ -611,6 +629,20 @@ pub trait CommandRecordStore {
         ctx: &flexcore_domain::tenant_context::TenantContext,
         command_id: &str,
     ) -> Result<Vec<CommandTransitionRecord>, CommandStoreError>;
+
+    /// Lists command records in the caller's tenant scope, newest first
+    /// (`command_id` DESC — the primary keys are UUIDv7s, so id order is a
+    /// stable time order), applying the filter and the caller-supplied
+    /// page bound. The §15.2 `/api/v1/dispatch-commands` read resource
+    /// serves these records (read-only — no execute-command endpoint
+    /// exists, §15.2). A state filter value outside [`COMMAND_STATES`] is
+    /// [`CommandStoreError::InvalidRecord`].
+    fn list_commands(
+        &self,
+        ctx: &flexcore_domain::tenant_context::TenantContext,
+        filter: &CommandListFilter,
+        limit: u32,
+    ) -> Result<Vec<CommandRecord>, CommandStoreError>;
 
     /// The P4.12 pre-wiring gate check (cross-reference P3.22
     /// `PHASE4_GATE_NOTE`; NO feasibility gate here): rejects a command's

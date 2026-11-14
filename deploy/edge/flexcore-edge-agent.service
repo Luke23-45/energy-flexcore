@@ -1,0 +1,89 @@
+# P6.20 — flexcore-edge-agent systemd unit definition (DOCUMENTED ARTIFACT).
+
+# Status: WRITTEN, NOT INSTALLED, NOT EXECUTED. This file is the documented
+# unit definition for the edge deployment profile
+# (`ledger/phase-06-edge-protocol/20_deployment_profile.md`); installing it
+# on a site host is a Stage-6+ deployment action gated by the D6 review and
+# the P6.20 lab install/upgrade/rollback tests, none of which have run.
+#
+# Placeholders follow the ENTRY_NOTE boundary 5 rule: `pilot-site-A` is
+# PLACEHOLDER wherever a site name is structurally required.
+#
+# Design intent (§18.3, §21.4):
+# - Runs as a dedicated non-login system user with no shell (`-s /usr/sbin/nologin`).
+# - No inbound listener is opened by the binary (outbound-only, §3.3); the
+#   unit additionally denies inbound capabilities where systemd supports it.
+# - No shell access for plugins or adapters (§18.3); the unit runs the
+#   single binary with a read-only filesystem except the buffer and state
+#   directories.
+# - The command path is DISABLED by default in the shipped environment
+#   profile (`FLEXCORE_EDGE_COMMAND_PATH_ENABLED` is absent from the
+#   EnvironmentFile, which defaults it to false in code). Enabling it is a
+#   signed, per-site, test-env-only change under the P6.14 gate — never an
+#   edit to this file.
+
+[Unit]
+Description=FlexCore Edge Agent (Neryva FlexCore, v0.4.0 read-only/test-lab profile)
+Documentation=https://example.invalid/flexcore-edge-profile
+; PLACEHOLDER Documentation URL — replace with the real profile link when
+; the docs host exists. Recorded as ASSUMPTION, not a claim.
+Wants=network-online.target time-sync.target
+After=network-online.target time-sync.target
+; Time synchronisation is REQUIRED before start: the edge enforces
+; UTC-only, ordered timestamps (P0.09) and the deployment profile requires
+; a synchronised clock (§17.4 clock-drift control; P6.31 owns edge time-sync).
+
+[Service]
+Type=exec
+User=flexcore-edge
+Group=flexcore-edge
+ExecStart=/usr/local/bin/edge-agent
+EnvironmentFile=/etc/flexcore/edge/env
+; NOTE: /etc/flexcore/edge/env carries the required FLEXCORE_EDGE_* variables
+; (site id, tenant id, control-plane endpoint, adapter id). The endpoint MAY
+; embed credentials — the file is root:flexcore-edge 0640. The command-path
+; flag is deliberately ABSENT from the shipped file (defaults false).
+
+StateDirectory=flexcore-edge
+; /var/lib/flexcore-edge — the buffer root (FLEXCORE_EDGE_BUFFER_PATH
+; defaults to a path under here in the shipped profile; the P6.09 durable
+; buffer owns the directory layout). Owned by User=, mode 0700.
+
+ConfigurationDirectory=flexcore
+; /etc/flexcore — read-only configuration mount point.
+
+# --- Hardening (systemd sandboxing; verified directives only) ---------------
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+; The agent dials OUT to the control plane and to the site EMS API; it
+; opens NO listening socket. (RestrictAddressFamilies limits the address
+; families; there is no Listen* directive — inbound is structurally absent.)
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+# --- Resource profile (§21.4 bounded profile; configuration, NOT measured) --
+MemoryMax=256M
+MemoryHigh=192M
+; Bounded ceilings per the deployment profile document; the P6.22
+; performance work MEASURES the real profile on lab hardware — these values
+; are the recorded starting bounds, never a measured claim.
+TasksMax=64
+; NOTE on restart policy: the on-disk durable buffer is P6.09 (this wave's
+; buffer is in-memory and VOLATILE — a restart discards un-forwarded
+; samples, which the startup log states honestly). Until P6.09 lands, the
+; restart policy below exists but the durable-loss caveat stands.
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

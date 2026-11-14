@@ -73,5 +73,19 @@ mod engine;
 mod profiles;
 mod rng;
 
-pub use scenario::{load_scenario, Scenario, ScenarioError};
+pub use scenario::{load_scenario, FaultKind, Scenario, ScenarioError};
 pub use source::{RunStatus, SimulatorTelemetrySource};
+
+/// The simulator's own version, as recorded by the P5.14 run record
+/// (P5.19 reproducibility input). It is the crate's workspace version
+/// (`Cargo.toml`), read at compile time — never a hard-coded string that
+/// can drift from the artefact actually compiled. The P5.14
+/// `ScenarioRunRecord` carries it per run together with the scenario
+/// version and the code version, so a replay names every generator-side
+/// version that produced the records (P2.13 §4 discipline, extended to
+/// the adapter integration).
+///
+/// Recording a version is a provenance statement only: it does NOT claim
+/// certification, validation, or any physical-model fidelity for the
+/// simulator (§19.1 — the profiles are stated synthetic assumptions).
+pub const SIMULATOR_CRATE_VERSION: &str = env!("CARGO_PKG_VERSION");

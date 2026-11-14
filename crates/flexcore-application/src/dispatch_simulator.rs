@@ -851,8 +851,9 @@ pub enum TrackingTerminal {
     },
 }
 
-/// The outcome of one tracking poll.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The outcome of one tracking poll. (`PartialEq` only: the verdict carries
+/// `f64` measured/requested values, which are not `Eq`.)
+#[derive(Debug, Clone, PartialEq)]
 pub struct TrackingOutcome {
     /// The journalled ACKNOWLEDGED → TRACKING transition, exactly when this
     /// poll entered tracking (first telemetry observation).
@@ -993,10 +994,13 @@ impl<'a> SimulatorDispatchAdapter<'a> {
         })
     }
 
-    /// The frozen dispatch-payload scope of the command.
+    /// The frozen dispatch-payload scope of the command. The event's scope
+    /// IDs come from the command itself; the context supplies nothing here
+    /// beyond the call convention (the correlation is the command ID, the
+    /// replay-safe key).
     fn emit_for_command(
         &self,
-        ctx: &TenantContext,
+        _ctx: &TenantContext,
         command: &DispatchCommand,
         state_change: flexcore_ports::state_change::StateChangeReceipt,
         event: DomainEvent,

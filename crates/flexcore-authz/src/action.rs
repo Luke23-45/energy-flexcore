@@ -126,6 +126,26 @@ pub enum Action {
     CommandApprove,
     /// Read a dispatch command record and its transition journal.
     CommandRead,
+    /// Read a persisted §12.5 feasibility-check evidence record (the
+    /// `/api/v1/feasibility-checks` read resource; P4.30 — read-only; no
+    /// execute or check-running action exists on this surface, §15.2).
+    FeasibilityRead,
+    /// Read audit evidence records (the `/api/v1/audit-events` read
+    /// resource; P4.36 — read-only; there is NO update, delete, or
+    /// export/dump action on this surface: the trail is append-only,
+    /// §15.2, §16.2; writes stay the P1.10 `AuditSink`'s append alone).
+    AuditEventRead,
+
+    // --- Phase 5 addition (P5.31; closed-enum extension rule: a variant,
+    // its `id` arm, its `parse` arm, and explicit policy grants — nothing
+    // matches by default; evaluated at tenant scope, no role bypasses the
+    // tenant match; the recorded Phase 5 grants live in the control plane's
+    // `phase5_default_policies`) ----------------------------------------------
+    /// Read the derived alarm records (the `/api/v1/alarms` read resource;
+    /// P5.31 — READ-only; alarms are derived-on-read operator-attention
+    /// records, tenant-scoped like every record they derive from; there is
+    /// NO alarm acknowledge, create, or delete action on this surface).
+    AlarmRead,
 }
 
 impl Action {
@@ -159,6 +179,9 @@ impl Action {
             Action::CommandValidate => "command.validate",
             Action::CommandApprove => "command.approve",
             Action::CommandRead => "command.read",
+            Action::FeasibilityRead => "feasibility.read",
+            Action::AuditEventRead => "audit.event.read",
+            Action::AlarmRead => "alarm.read",
         }
     }
 
@@ -194,6 +217,9 @@ impl Action {
             "command.validate" => Some(Action::CommandValidate),
             "command.approve" => Some(Action::CommandApprove),
             "command.read" => Some(Action::CommandRead),
+            "feasibility.read" => Some(Action::FeasibilityRead),
+            "audit.event.read" => Some(Action::AuditEventRead),
+            "alarm.read" => Some(Action::AlarmRead),
             _ => None,
         }
     }
@@ -234,6 +260,12 @@ mod tests {
             Action::CommandValidate,
             Action::CommandApprove,
             Action::CommandRead,
+            // P4.30 addition (the /feasibility-checks read resource).
+            Action::FeasibilityRead,
+            // P4.36 addition (the /audit-events read resource).
+            Action::AuditEventRead,
+            // P5.31 addition (the /alarms read resource).
+            Action::AlarmRead,
         ] {
             assert_eq!(Action::parse(action.id()), Some(action));
         }
@@ -252,6 +284,10 @@ mod tests {
         assert_eq!(Action::parse("asset.del"), None);
         assert_eq!(Action::parse("asset.purge"), None);
         assert_eq!(Action::parse("telemetry.write"), None);
+        // P5.31: the alarm surface is READ-only — no write/acknowledge
+        // action exists or parses.
+        assert_eq!(Action::parse("alarm.write"), None);
+        assert_eq!(Action::parse("alarm.acknowledge"), None);
         assert_eq!(Action::parse(""), None);
         // The §5.7 capability names that must never enter this surface parse
         // to nothing, so they can only ever produce Deny(UnknownAction).

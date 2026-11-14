@@ -1,0 +1,87 @@
+{
+  "meta": {
+    "scenario_id": "library-minimal-single-asset",
+    "name": "Library minimal case: one tenant, one site, one BESS (SYNTHETIC)",
+    "version": "v1",
+    "synthetic": true,
+    "description": "P5.20 scenario-library minimal case: the smallest replayable scenario — one tenant, one portfolio, one site, ONE BESS asset, 24 h horizon, 15-minute telemetry cadence, one master seed with the recorded per-asset derivation rule. All behaviour is SYNTHETIC with stated assumptions — not validated physical models; all emitted telemetry is simulation-only (0.x line). The behaviour profile (bess_daily_cycle) and its parameters are the recorded Phase 2 profile family evaluated at fixture scale; the schema is byte-compatible with the Phase 2 exit-gate artefact (scenario-v2.json). Expected outcomes are PRE-REGISTERED in the library record that pins this fixture and in ledger/phase-05-operator-console-simulator/18_20_replay_library.md — written before any run (UNRUN at authoring time)."
+  },
+  "portfolio": {
+    "tenant": {
+      "tenant_key": "tenant-flexcore-demo"
+    },
+    "portfolio": {
+      "portfolio_key": "portfolio-demo",
+      "operator": "Neryva simulated operator",
+      "market_region": "DE-LABEL-ONLY",
+      "market_region_note": "Label only (P2.02): market region must not drive market logic; D1 is open."
+    },
+    "sites": [
+      {
+        "site_key": "site-lib",
+        "timezone": "Europe/Berlin",
+        "timezone_note": "Display-only metadata (P0.09); canonical timestamps are UTC on the scenario clock.",
+        "reactive_sign_convention": "INJECTION_POSITIVE",
+        "reactive_note": "Declared per site (P0.07 s3; P2.04 D-T4): this convention travels on every reactive-power record; Q > 0 means injection.",
+        "pcc": {
+          "pcc_key": "pcc-lib",
+          "grid_model_reference": {
+            "model": "synthetic-feeder-a",
+            "version": "v1"
+          },
+          "grid_model_note": "Reference only - the grid model fixture is declared per library record (P5.20); no IEEE feeder is used or claimed (19.3 discipline)."
+        },
+        "assets": [
+          {
+            "asset_key": "lib-min-bess-1",
+            "asset_type": "BESS",
+            "rated_power_mw": 2.0,
+            "rated_energy_mwh": 4.0,
+            "capability_profile_ref": "cap/bess-default",
+            "capability_note": "Reference only - capability-profile contents are Phase 3 (P2.02 step 6).",
+            "bus_ref": "bus-lib-lv-1",
+            "behaviour_profile": {
+              "profile_id": "bess_daily_cycle",
+              "synthetic": true,
+              "assumptions": "Synthetic rectangular-efficiency daily dispatch; no electrochemical, temperature, degradation, or state-of-health model; constant efficiency; no auxiliary consumption; instantaneous power transitions; availability constant true.",
+              "params": {
+                "charge_window_utc": ["01:00", "05:00"],
+                "discharge_window_utc": ["18:00", "21:00"],
+                "charge_power_mw": 1.0,
+                "discharge_power_mw": 1.5,
+                "initial_soc": 0.5,
+                "soc_floor": 0.05,
+                "soc_ceiling": 0.95,
+                "round_trip_efficiency": 0.9,
+                "operating_mode_states": ["CHARGING", "DISCHARGING", "IDLE"],
+                "health_state": "NOMINAL",
+                "availability": true
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "horizon": {
+    "start": "2026-06-01T00:00:00Z",
+    "duration_hours": 24,
+    "clock_note": "The scenario clock is deterministic simulation time (P0.09 s5), distinct from wall-clock time. Window and curve times are scenario-clock UTC."
+  },
+  "cadence": {
+    "default_seconds": 900,
+    "default_note": "15-minute telemetry cadence for the minimal library case (96 ticks over the 24 h horizon) - the smallest replayable volume; the scheduling-grid interval is pinned per library record (P5.03 defaults: 24 h / 15-min).",
+    "per_asset_overrides": {}
+  },
+  "seeds": {
+    "master_seed": 20260601,
+    "derivation": "seed(asset_key) = master_seed XOR splitmix64(FNV-1a-64(asset_key))",
+    "derivation_note": "One master seed plus the recorded per-asset derivation rule (D-SC4), identical to the Phase 2 exit-gate artefact."
+  },
+  "faults": {
+    "enabled": false,
+    "freshness_limit_seconds": 90,
+    "injections": [],
+    "note": "The minimal case carries no fault injections (the stress cases are separate library records, P5.20)."
+  }
+}

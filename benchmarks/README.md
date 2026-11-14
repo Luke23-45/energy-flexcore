@@ -106,3 +106,35 @@ records come from shared GitHub-hosted runners — they are context for
 regression triage, **not baseline figures and not comparable across
 commits**. The baseline is the human's single recorded run with its
 hardware/container block filled in.
+
+## Phase 8 research benchmark set (P8.19)
+
+<!-- benchmarks/README.md: additive P8.19 section. Everything above this
+     line is the P3.27 measurement-harness record — unchanged. -->
+
+The Phase 8 research evaluation cases (ledger
+`ledger/phase-08-advanced-coordination/ledger_phase_8.md` §P8.19; report
+§19.3, §19.4) are versioned as a frozen artifact:
+
+- `research-set-v1.json` — the versioned benchmark set, version id
+  **`flexcore-research-benchmark-set-v1`**. It enumerates the §19.3 base
+  cases as actually realized in this repository (synthetic portfolios
+  lib-01/lib-02; the common-substation meshed fixture lib-03; the IEEE
+  13/34/123-bus and 39/118-bus systems recorded honestly as NOT INCLUDED
+  under the per-case IEEE exclusion records — **no transmission case has
+  been RUN**) plus the research additions (PV ramps, forecast error,
+  communication-loss analogues, asset dropout, reverse power flow,
+  topology-class variation, worker timeout, non-convergence), each with
+  source, version, and parameters. Every row's `run_status` is
+  `NOT_RUN` — nothing in this repository has been executed (P8.01 G-1).
+- `research-set-v1-not-tested.json` — the not-tested list: the important
+  cases NOT run (the 10,000-bus network first among them, per the §19.3
+  closing sentence) with the reason for each.
+
+**The anti-silent-growth rule (binding, mirroring the P3.27/P8.06
+discipline):** a benchmark change — an added, removed, or re-parameterised
+case, a new fixture version, a changed solver pin — is a **NEW version**
+(`flexcore-research-benchmark-set-v2`, …) frozen as a new artifact file.
+`research-set-v1.json` is never edited in place after freeze. Every Phase 8
+evaluation cites exactly ONE version id; the same no-targets rule as above
+carries over unchanged — no universal targets, raw scaling numbers only.

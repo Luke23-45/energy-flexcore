@@ -1,0 +1,444 @@
+// P7.09 — flexcore:optimizer@1.0.0 — the Optimizer world (ledger P7.09
+// step 1). The canonical scheduling seam (report §5.2): scheduling depends
+// on this contract only; solvers are providers behind it.
+//
+// Mirrors: flexcore-optimization-api/src/port.rs::Optimizer (capabilities,
+// solve) — with src/problem.rs (the OptimizationProblem IR), src/config.rs
+// (SolverConfig, ScalingPolicy), src/result.rs (OptimizationResult, the
+// §12.6 closed six-status contract) — verified 2026-11-13; WIT translation,
+// not redefinition. Every WIT type below maps to a named Rust type in the
+// mapping table in wit/README.md §3; no contract method or type is invented.
+//
+// Solver-class discipline (AGENTS.md rule 4 — absolute): a provider
+// DECLARES what it supports (`capabilities`) and REJECTS everything else
+// with the §12.6 status `unsupported` — never by approximating. HiGHS is
+// LP/QP/MIP, not SOCP; Clarabel is convex conic (continuous SOCP), not
+// MISOCP; AC power flow is not AC-OPF. The `problem-class` declaration is
+// the enforcement point and travels with every problem and every result.
+//
+// Result completeness (report §9.2, §12.6): a result without provenance and
+// diagnostics is not eligible for operational consideration. The
+// `optimization-result` record mirrors the Rust completeness contract
+// (`OptimizationResult::validate_complete`); the host re-checks
+// completeness on every result a component returns (P7.10, P7.21).
+//
+// WASI 0.2 baseline: this world declares NO `wasi:` imports (least
+// privilege, report §5.4 — an optimizer plugin gets no ambient filesystem,
+// network, or secret access). Any future WASI import is pinned at
+// wasi:*@0.2.x (e.g. wasi:cli/imports@0.2.x); no WASI 0.3 syntax anywhere
+// (RESEARCH.md R7-C1).
+
+package flexcore:optimizer@1.0.0;
+
+/// The provider side of the Optimizer port (report §9.1; §7.4 provider
+/// contract). Exported by optimizer plugin components; consumed by the
+/// plugin host (P7.10) on behalf of the scheduling application.
+///
+/// NOTE: `///` doc markers are used here for readability in review; WIT
+/// treats every `//`-prefixed line as a comment — flagged as a
+/// first-validation checklist item in wit/README.md §5 (if the toolchain
+/// rejects `///`, these lines are edited to `//` only, comment text
+/// unchanged).
+interface optimizer {
+
+    use flexcore:core/types@1.0.0.{
+        flex-uuid,
+        utc-timestamp,
+        canonical-unit,
+    };
+
+    // --- Problem IR (mirrors src/problem.rs) ---------------------------------
+
+    // Mirrors problem.rs::ProblemClass (report §12.3 tiers). Tiers are
+    // problem classes, not quality rankings: Tier 1 = lp / convex_qp / milp;
+    // Tier 2 = continuous SOCP; Tier 3 = MISOCP/MINLP; Tier 4 = nonlinear.
+    // A provider that cannot solve a declared class returns
+    // `solve-status.unsupported` — it never approximates silently.
+    enum problem-class {
+        linear-program,
+        convex-quadratic-program,
+        mixed-integer-linear-program,
+        continuous-second-order-cone-program,
+        mixed-integer-second-order-cone-program,
+        nonlinear-program,
+    }
+
+    // Mirrors problem.rs::VariableKind.
+    enum variable-kind {
+        continuous,
+        integer,
+        binary,
+    }
+
+    // Mirrors problem.rs::Variable. Bounds: `none` = unbounded on that side
+    // (never an infinity sentinel — problem.rs rejects non-finite bounds).
+    // `unit` is a canonical-unit from flexcore:core — nothing is assumed.
+    record variable {
+        name: string,
+        kind: variable-kind,
+        unit: canonical-unit,
+        lower-bound: option<f64>,
+        upper-bound: option<f64>,
+    }
+
+    // Mirrors problem.rs::Coefficient: a (variable index, coefficient) pair.
+    // The Rust index type is usize; the WIT seam narrows it to u32 (recorded
+    // mapping decision — a formulation with more than 2^32-1 variables is
+    // out of scope for the sandboxed plugin seam; payload limits apply,
+    // report §5.4 Class B).
+    record coefficient {
+        variable: u32,
+        coefficient: f64,
+    }
+
+    // Mirrors problem.rs::RowBounds::Range (the only multi-field case).
+    record range-bounds {
+        lower: f64,
+        upper: f64,
+    }
+
+    // Mirrors problem.rs::RowBounds: `row >= value` / `row <= value` /
+    // `row == value` / `lower <= row <= upper`.
+    variant row-bounds {
+        lower(f64),
+        upper(f64),
+        equality(f64),
+        range(range-bounds),
+    }
+
+    // Mirrors problem.rs::LinearRow: one constraint row `sum a_i * x_i`
+    // subject to its declared bounds; coefficients are non-zero-sparse.
+    record linear-row {
+        name: string,
+        coefficients: list<coefficient>,
+        bounds: row-bounds,
+    }
+
+    // Mirrors problem.rs::QuadraticTerm: contributes
+    // `coefficient * x_row * x_column`; stored upper-triangle (`row <=
+    // column`), each pair at most once (validated in Rust).
+    record quadratic-term {
+        row: u32,
+        column: u32,
+        coefficient: f64,
+    }
+
+    // Mirrors problem.rs::ObjectiveSense.
+    enum objective-sense {
+        minimize,
+        maximize,
+    }
+
+    // Mirrors problem.rs::Objective:
+    // `sense (constant + sum linear + sum quadratic)` in declared units.
+    // Objective units are DECLARED, not inferred (P3.14; while D1/D2 are
+    // OPEN the units string names the synthetic cost unit explicitly).
+    record objective {
+        sense: objective-sense,
+        linear-terms: list<coefficient>,
+        quadratic-terms: list<quadratic-term>,
+        constant: f64,
+        declared-units: string,
+    }
+
+    // Mirrors problem.rs::SecondOrderCone: the Tier 2 IR element
+    // `|| diag(a)·x + b ||_2 <= c^T x + d`, covering the §11.3 inverter
+    // apparent-power cone P^2 + Q^2 <= S^2. A formulation carrying cones
+    // must declare a conic class; the Tier 1 path rejects it with
+    // `unsupported` (P3.18).
+    record second-order-cone {
+        name: string,
+        norm-members: list<coefficient>,
+        norm-offset: f64,
+        rhs-members: list<coefficient>,
+        rhs-offset: f64,
+    }
+
+    // Mirrors problem.rs::ProblemProvenance (report §9.2, §12.6): every
+    // field is copied into the result record so a result is auditable from
+    // the record alone. `candidate-id` is assigned by the caller before the
+    // solve; `input-snapshot-id` is required (a formulation without one can
+    // never produce a complete result).
+    record problem-provenance {
+        candidate-id: flex-uuid,
+        input-snapshot-id: string,
+        data-timestamp: option<utc-timestamp>,
+        grid-model-version: option<string>,
+        objective-config-version: option<string>,
+        envelope-version: option<string>,
+        forecast-version: option<string>,
+        data-provenance-label: option<string>,
+    }
+
+    // Mirrors problem.rs::OptimizationProblem: a complete, solver-neutral
+    // formulation. The declared class must be consistent with the body
+    // (validated in Rust; the provider gates the class against its declared
+    // capabilities before any solver interaction).
+    record optimization-problem {
+        name: string,
+        declared-class: problem-class,
+        variables: list<variable>,
+        rows: list<linear-row>,
+        conic-constraints: list<second-order-cone>,
+        objective: objective,
+        declared-assumptions: list<string>,
+        provenance: problem-provenance,
+    }
+
+    // --- Provider-owned configuration (mirrors src/config.rs) -----------------
+
+    // Mirrors config.rs::ScalingPolicy: the provider default is the pinned
+    // solver's automatic scaling; disabling it is an explicit, recorded
+    // choice (it flows into the config digest recorded on every result).
+    enum scaling-policy {
+        provider-default,
+        disabled,
+    }
+
+    // Mirrors config.rs::SolverConfig. Determinism: `thread-count` is fixed
+    // for determinism, default 1 (DETERMINISM_THREAD_COUNT_DEFAULT); the
+    // value used is recorded on every §12.6 result. `mip-relative-gap` must
+    // be in [0,1) when set; a provider tier that does not consume it (the
+    // continuous conic path) records it as ignored — never silence
+    // (config.rs::ConfigContract).
+    record solver-config {
+        time-limit-ms: option<u64>,
+        mip-relative-gap: option<f64>,
+        primal-feasibility-tolerance: f64,
+        dual-feasibility-tolerance: f64,
+        scaling: scaling-policy,
+        thread-count: u32,
+    }
+
+    // --- Capability declaration (mirrors port.rs SolverCapabilities) ----------
+
+    // Mirrors port.rs::ConstraintFeature (§7.4 "supported constraint
+    // types"). The Rust port carries a Vec<ConstraintFeature>; the WIT
+    // `flags` type is the idiomatic set representation — recorded mapping
+    // decision (set-of-flags instead of a list).
+    flags constraint-feature {
+        variable-bounds,
+        linear-constraints,
+        quadratic-objective,
+        integrality,
+        second-order-cones,
+    }
+
+    // Mirrors port.rs::WarmStartSupport (§7.4 "warm-start support").
+    record warm-start-support {
+        supported: bool,
+        note: string,
+    }
+
+    // Mirrors port.rs::LicenseDeclaration (§7.4 "licensing"; D4 audit input;
+    // the formal audit itself is OPEN and owned by legal + engineering).
+    record license-declaration {
+        solver-license: string,
+        note: string,
+    }
+
+    // Mirrors port.rs::DeterminismDeclaration (§7.4 "determinism"; §19.2
+    // layer 5).
+    record determinism-declaration {
+        pinned-solver-version: string,
+        thread-count-policy: string,
+        notes: list<string>,
+    }
+
+    // Mirrors port.rs::DiagnosticsDeclaration (§7.4 "diagnostic outputs").
+    record diagnostics-declaration {
+        solver-log: bool,
+        infeasibility-conflict-evidence: bool,
+        iteration-counts: bool,
+        notes: list<string>,
+    }
+
+    // Mirrors port.rs::TolerancesDeclaration (§7.4 "tolerances"; defaults
+    // trace to the pinned solver's documentation — VERIFY-BUILD).
+    record tolerances-declaration {
+        primal-feasibility-default: f64,
+        dual-feasibility-default: f64,
+        mip-relative-gap-default: option<f64>,
+        note: string,
+    }
+
+    // Mirrors port.rs::ScalingDeclaration (§7.4 "scaling").
+    record scaling-declaration {
+        default-approach: scaling-policy,
+        note: string,
+    }
+
+    // Mirrors port.rs::SolverCapabilities: the full provider declaration.
+    // Anything not declared here is rejected with `unsupported` — never
+    // approximated.
+    record solver-capabilities {
+        provider-id: string,
+        provider-version: string,
+        solver-name: string,
+        solver-version: string,
+        problem-classes: list<problem-class>,
+        constraint-features: constraint-feature,
+        scaling: scaling-declaration,
+        tolerances: tolerances-declaration,
+        warm-start: warm-start-support,
+        licensing: license-declaration,
+        determinism: determinism-declaration,
+        diagnostics: diagnostics-declaration,
+    }
+
+    // --- Result contract (mirrors src/result.rs — the §12.6 vocabulary) -------
+
+    // Mirrors result.rs::SolveStatus: the §12.6 status vocabulary, CLOSED —
+    // exactly these six statuses. No other status is legal.
+    // (Rust serialises snake_case; the WIT kebab-case names map 1:1 —
+    // wit/README.md §3.)
+    enum solve-status {
+        optimal,
+        feasible,
+        infeasible,
+        timeout,
+        numerical-failure,
+        unsupported,
+    }
+
+    // Mirrors result.rs::VariableValue: one solved variable value with its
+    // declared identity and unit (unit is the formulation's declared
+    // canonical-unit string).
+    record variable-value {
+        name: string,
+        unit: string,
+        value: f64,
+    }
+
+    // Mirrors result.rs::PrimalDiagnostics: the solution vector, aligned
+    // with the formulation's variables (the provider refuses to publish a
+    // misaligned vector).
+    record primal-diagnostics {
+        values: list<variable-value>,
+    }
+
+    // Mirrors result.rs::DualDiagnostics: reduced costs (per variable) and
+    // row duals (per row) when the solver exposes them.
+    record dual-diagnostics {
+        reduced-costs: list<f64>,
+        row-duals: list<f64>,
+    }
+
+    // Mirrors result.rs::ResidualReport: constraint residuals/violations and
+    // solve effort.
+    record residual-report {
+        max-primal-violation: option<f64>,
+        max-dual-violation: option<f64>,
+        iteration-count: option<u64>,
+    }
+
+    // Mirrors result.rs::InfeasibilityEvidence: returned with an
+    // `infeasible` result — conflict evidence where the solver exposes it,
+    // never a relaxed schedule (P3.19 step 3).
+    record infeasibility-evidence {
+        conflict-variables: list<string>,
+        conflict-rows: list<string>,
+        backend-report: string,
+    }
+
+    // Mirrors result.rs::DeterminismRecord: pinned version, thread count,
+    // time limit, and the config digest recorded on every result (§19.2
+    // layer 5; P3.19). This is the optimizer instantiation of the §9.2
+    // reproducibility-metadata vocabulary item (flexcore:core).
+    record determinism-record {
+        solver-version: string,
+        thread-count: u32,
+        time-limit-ms: option<u64>,
+        config-digest: string,
+    }
+
+    // The Rust port wraps each diagnostic block in
+    // `Diagnostics<T>` (available / not-available with a recorded reason —
+    // silence is never legal). WIT has no user-defined generics, so the
+    // wrapper becomes a concrete variant per payload; the payload records
+    // keep their exact Rust names. (`Diagnostics<T>` → `*-diagnostic`
+    // variants is a recorded mapping decision, wit/README.md §3.)
+    variant primal-diagnostic {
+        available(primal-diagnostics),
+        not-available(string),
+    }
+    variant dual-diagnostic {
+        available(dual-diagnostics),
+        not-available(string),
+    }
+    variant residuals-diagnostic {
+        available(residual-report),
+        not-available(string),
+    }
+    variant infeasibility-evidence-diagnostic {
+        available(infeasibility-evidence),
+        not-available(string),
+    }
+
+    // Mirrors result.rs::OptimizationResult: the complete §12.6/§9.2 result
+    // record. `runtime-nanos` mirrors Rust `std::time::Duration` exactly
+    // (u64 nanoseconds; recorded mapping decision). A result without
+    // provenance and diagnostics is NOT eligible for operational
+    // consideration (§9.2) — the host validates completeness (P7.10).
+    record optimization-result {
+        status: solve-status,
+        problem-class: problem-class,
+        solver-name: string,
+        solver-version: string,
+        provider-id: string,
+        provider-version: string,
+        objective-value: option<f64>,
+        objective-units: option<string>,
+        primal: primal-diagnostic,
+        dual: dual-diagnostic,
+        residuals: residuals-diagnostic,
+        infeasibility-evidence: infeasibility-evidence-diagnostic,
+        runtime-nanos: u64,
+        resources: option<string>,
+        candidate-id: option<flex-uuid>,
+        input-snapshot-id: option<string>,
+        data-timestamp: option<utc-timestamp>,
+        grid-model-version: option<string>,
+        uncertainty-and-assumptions: list<string>,
+        warnings: list<string>,
+        determinism: option<determinism-record>,
+    }
+
+    // Mirrors port.rs::OptimizerError. The Rust variants carry nested typed
+    // errors (ProblemError, ConfigError, ResultCompletenessError); at the
+    // WIT boundary each is flattened to its variant tag plus the
+    // Display-formatted reason string — recorded mapping decision (no new
+    // error kind is invented; the four tags are the Rust four). Solver
+    // outcomes are NEVER errors: they arrive in-band as an
+    // optimization-result with one of the six §12.6 statuses.
+    variant optimizer-error {
+        malformed-problem(string),
+        invalid-config(string),
+        backend-unavailable(string),
+        incomplete-result(string),
+    }
+
+    // --- The port functions -----------------------------------------------------
+
+    // Mirrors port.rs::Optimizer::capabilities (§9.1
+    // `supported_problem_classes`, §7.4 provider contract): declares what
+    // this provider supports — problem classes, constraint features,
+    // scaling, tolerances, warm start, licensing, determinism, diagnostics.
+    capabilities: func() -> solver-capabilities;
+
+    // Mirrors port.rs::Optimizer::solve (§9.1 `solve(problem, options)`):
+    // solves the formulation under the provider-owned configuration.
+    // Malformed problems, invalid configs, and backend infrastructure
+    // failures are `optimizer-error`; every solver outcome — including
+    // "cannot solve this class" — is an in-band optimization-result with
+    // one of the six §12.6 statuses.
+    solve: func(problem: optimization-problem, config: solver-config) -> result<optimization-result, optimizer-error>;
+}
+
+// The optimizer plugin world: a Class B component targeting this world
+// exports the `optimizer` interface and nothing else. No `wasi:` imports —
+// no ambient access (report §5.4 Class B); the host (P7.10) binds only what
+// this world declares.
+world optimizer-plugin {
+    export optimizer;
+}

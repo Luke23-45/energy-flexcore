@@ -1,0 +1,388 @@
+// P7.17 — The Class C worker Protobuf contract: `flexcore.worker.v1`.
+//
+// The versioned gRPC/Protobuf contract every FlexCore Class C
+// out-of-process worker serves (report §5.4 Class C; ADR-008: worker
+// contracts are Protobuf/gRPC; §10.5 Protobuf governance). This schema is
+// the GENERIC template contract: a concrete worker (the pandapower grid
+// worker of P5.15, a Phase 8 research optimizer, a forecast provider)
+// carries its domain payload as an opaque, typed-by-agreement payload
+// blob plus a `payload_type` discriminator — the envelope below is what
+// supervision (P7.18), health (P7.20), and determinism replay (P7.42)
+// all key on, so it must not drift per worker.
+//
+// Consistency seams (recorded, do not drift):
+// - Data vocabulary: payloads carry the same canonical vocabulary as the
+//   WIT worlds (`wit/flexcore-*@1.0.0`): MW/MVAr/MWh units, SOC in [0,1],
+//   UTC timestamps. The envelope never redefines a unit; the payload
+//   schema (per `payload_type`) does.
+// - §9.2 result requirements: `ResultProvenance` below mirrors the WIT
+//   result-provenance fields (plugin/model/solver version, snapshot id,
+//   termination status, reproducibility metadata). A response without
+//   provenance is not eligible for operational consideration (§9.2).
+// - Determinism (P7.42): `seed` and `request_id` are first-class fields
+//   on every request; a worker that cannot honour the seed records that
+//   in `DeterminismMetadata` instead of silently ignoring it.
+//
+// Honest status: WRITTEN-UNLINTED. `buf lint` / `buf breaking` (the
+// proto/ buf module, P1.18 governance) have never run against this file
+// in this loop — no buf toolchain was executed. Registration into the
+// `proto/` buf module (or a documented include path from it) is the
+// recorded activation step; until then this file is a design artifact,
+// not a governed schema.
+//
+// Lint note (buf STANDARD): package ends in a version suffix (v1),
+// messages/enums are UpperCamelCase, fields lower_snake_case, RPCs
+// UpperCamelCase, and every message is documented. `service` suffix rule
+// satisfied by naming the service `FlexcoreWorkerService`.
+
+syntax = "proto3";
+
+package flexcore.worker.v1;
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+// The generic worker service every Class C Python worker serves
+// (report §5.4 Class C; ADR-004: Python is isolated to workers, never a
+// backend). The service carries NO control-plane authority: every output
+// is a PROPOSAL (ADR-010) — the response's `provenance` says who produced
+// it, never what was authorized. Lifecycle mirrors the template's health
+// state machine (worker_template/health.py): STARTING -> READY ->
+// DRAINING -> STOPPING, with FAILED reported through the supervisor
+// (P7.18), which mirrors the kernel lifecycle vocabulary
+// (`crates/flexcore-kernel/src/lifecycle.rs`).
+service FlexcoreWorkerService {
+  // Health/readiness probe (maps to P7.18 readiness probing and the
+  // P7.20 health aggregation). Cheap, side-effect free, always answers.
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+
+  // The single evaluation entrypoint: one request payload in, one result
+  // payload out. Idempotent when the caller supplies an idempotency_key
+  // (P7.18 retry policy retries ONLY idempotent calls).
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+
+  // Cooperative cancellation of an in-flight Execute by request_id.
+  // Cancellation is best-effort: the worker stops computing and answers
+  // with a CANCELLED result; the supervisor's timeout remains the
+  // authoritative backstop.
+  rpc Cancel(CancelRequest) returns (CancelResponse);
+
+  // Graceful shutdown: the worker moves to DRAINING (no new work
+  // accepted), finishes in-flight requests within the granted grace
+  // window, then exits. The supervisor (P7.18) is the only legitimate
+  // caller; a worker that receives Shutdown twice still answers once.
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Envelope conventions
+// ---------------------------------------------------------------------------
+
+// The contract version carried by EVERY message in this file. A worker
+// refuses (UNSUPPORTED_CONTRACT_VERSION) any request whose major version
+// differs from the one it implements — version skew is an explicit,
+// structured error, never silent best-effort parsing. The current
+// contract version string is "flexcore.worker.v1".
+message ContractVersion {
+  // The version tag of the contract the sender speaks. Format:
+  // `flexcore.worker.v<N>`; the major number is the compatibility class
+  // (SemVer discipline per report §21.4; buf FILE breaking rules).
+  string version = 1; // e.g. "flexcore.worker.v1"
+}
+
+// Determinism metadata (P7.42 — plugin-path determinism and seeded
+// replay). Carried on every request and echoed in every response so a
+// replay can compare like with like.
+message DeterminismMetadata {
+  // The caller-chosen PRNG seed for this request. A worker whose
+  // algorithm is seeded MUST use exactly this seed; a worker that has no
+  // seedable randomness reports `seed_supported = false` rather than
+  // ignoring the field.
+  uint64 seed = 1;
+  // The caller-chosen unique request identifier. Echoed verbatim in the
+  // response; the supervisor keys timeouts, retries, and cancellation on
+  // it (P7.18). Never generated by the worker.
+  string request_id = 2;
+  // The idempotency key (P7.18 step 2): two Execute calls sharing an
+  // idempotency_key and the same payload MUST return the same result
+  // without re-executing side effects. Absent (empty) means the caller
+  // declares the call non-retryable and the supervisor will not retry it.
+  string idempotency_key = 3;
+  // Whether the worker ran this request deterministically: seeded, no
+  // wall-clock values in the result, no concurrency-dependent ordering.
+  // False is an honest admission (recorded in diagnostics), never a
+  // failure by itself — but a replay (P7.42) may only compare requests
+  // whose responses were deterministic.
+  bool deterministic = 4;
+  // Whether the worker's algorithm supports seeding at all. A worker
+  // that reports false here is excluded from the P7.42 equivalence claim.
+  bool seed_supported = 5;
+}
+
+// §9.2 provenance: the identity and reproducibility block every result
+// carries. Mirrors the WIT result-provenance vocabulary
+// (wit/flexcore-optimizer@1.0.0); a response without this block filled
+// is contract-invalid and the supervisor treats it as a contract
+// violation (P7.18 crash/failure handling).
+message ResultProvenance {
+  // The worker template/implementation version (the worker binary's own
+  // version string; recorded in every result for replay).
+  string worker_version = 1;
+  // The domain model version the result was computed against (e.g. the
+  // pandapower version, the network model version), when applicable.
+  string model_version = 2;
+  // The solver/algorithm version, when the worker wraps a solver. An
+  // empty value is valid only for workers that wrap no solver.
+  string solver_version = 3;
+  // The input snapshot identifier the request's payload was derived
+  // from (§9.2: input snapshot ID + timestamp). Echoed from the request
+  // when the caller supplied one.
+  string input_snapshot_id = 4;
+  // Termination status of the computation, from the worker's own
+  // vocabulary (e.g. "converged", "iteration_limit", "cancelled",
+  // "failed"). Free-form but mandatory; "ok" alone is not sufficient
+  // (§9.2: termination status).
+  string termination_status = 5;
+  // Human-readable diagnostics: warnings, unmodelled constraints,
+  // assumptions (§9.2). May be empty; never used for secrets.
+  repeated string diagnostics = 6;
+  // Wall-clock execution time as reported by the worker, in
+  // milliseconds. Advisory only: it is metadata about the run, never a
+  // result field, and is EXCLUDED from P7.42 equivalence comparison
+  // (timing is not a result — P7.42 risk note).
+  uint64 execution_ms = 7;
+}
+
+// ---------------------------------------------------------------------------
+// Health / readiness
+// ---------------------------------------------------------------------------
+
+// The health check request. Carries only the contract version: probing
+// must be cheap and leak nothing.
+message HealthCheckRequest {
+  // The sender's contract version; a version-skewed probe is answered
+  // with UNSUPPORTED_CONTRACT_VERSION rather than a health verdict.
+  ContractVersion contract_version = 1;
+}
+
+// The health check response: the worker's current lifecycle state.
+message HealthCheckResponse {
+  // The worker's contract version (the receiver's, echoed in kind).
+  ContractVersion contract_version = 1;
+  // The worker's current lifecycle state (worker_template/health.py
+  // state machine).
+  WorkerHealthState state = 2;
+  // Whether the worker accepts new Execute work. True only in READY.
+  bool ready = 3;
+  // Optional human-readable detail (e.g. "draining: 2 requests
+  // outstanding"). Never a secret, never a config dump.
+  string detail = 4;
+}
+
+// The worker lifecycle states (the template's health state machine;
+// mirrors the kernel lifecycle NAMES for READY/DRAINING — the
+// consistency seam recorded in P7.18 — without claiming to BE the
+// kernel state machine).
+enum WorkerHealthState {
+  // Process is up but not yet accepting work (initialization, warm-up).
+  WORKER_HEALTH_STATE_STARTING = 0;
+  // Accepting Execute work. The only state with ready = true.
+  WORKER_HEALTH_STATE_READY = 1;
+  // Finishing in-flight work, refusing new work; on the way to
+  // STOPPING (drain-before-stop, mirroring the kernel's DRAINING).
+  WORKER_HEALTH_STATE_DRAINING = 2;
+  // Shutting down; no new work, in-flight work being finalized.
+  WORKER_HEALTH_STATE_STOPPING = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Execute
+// ---------------------------------------------------------------------------
+
+// One evaluation request. The envelope is generic; the domain payload is
+// opaque bytes typed by `payload_type`.
+message ExecuteRequest {
+  // The sender's contract version. Mandatory; mismatch is a structured
+  // refusal (UNSUPPORTED_CONTRACT_VERSION).
+  ContractVersion contract_version = 1;
+  // Determinism block (seed, request_id, idempotency key). Mandatory.
+  DeterminismMetadata determinism = 2;
+  // The payload type discriminator — the agreement between caller and
+  // worker about the payload's schema, e.g.
+  // "flexcore.grid.power_flow_request.v1" or
+  // "flexcore.research.forecast_request.v1". The worker refuses an
+  // unknown payload_type (UNSUPPORTED_PAYLOAD_TYPE) instead of guessing.
+  string payload_type = 3;
+  // The serialized request payload. Opaque to the contract; validated
+  // and interpreted by the concrete worker. Size limits are the
+  // supervisor's (P7.18) and the deployment's, not this schema's.
+  bytes payload = 4;
+  // The input snapshot identifier (§9.2) the payload was derived from,
+  // echoed into ResultProvenance. Optional but strongly recommended —
+  // replay (P7.42) keys on it.
+  string input_snapshot_id = 5;
+  // The caller's deadline for this call, in milliseconds. Advisory for
+  // the worker (it may finish early or cancel cooperatively); the
+  // supervisor's per-call timeout is the authoritative backstop (P7.18).
+  uint64 deadline_ms = 6;
+  // Correlation id for tracing (§21.3): the platform's trace/request
+  // correlation, propagated unchanged into logs and the response. Never
+  // a secret.
+  string correlation_id = 7;
+  // Scope tags (tenant/site/asset, §5.7) the caller asserts for this
+  // request. The worker does not authorize them (it has no authority);
+  // it records them in diagnostics so every result is traceable to its
+  // scope. Capability enforcement happens in the host/supervisor, never
+  // in the worker.
+  map<string, string> scope = 8;
+}
+
+// One evaluation result: the §9.2-shaped envelope.
+message ExecuteResponse {
+  // The worker's contract version. Mandatory.
+  ContractVersion contract_version = 1;
+  // Echo of the request's correlation_id. Mandatory on every response —
+  // the supervisor matches results to requests by it (P7.18).
+  string correlation_id = 2;
+  // Echo of the request's request_id. Mandatory.
+  string request_id = 3;
+  // Outcome of the call. OK means the payload's own semantics decide
+  // success (e.g. a non-converged power flow is a valid OK result with
+  // its termination_status set — an in-band result, never a transport
+  // failure). The error statuses are transport/contract failures.
+  ExecuteStatus status = 4;
+  // The serialized result payload, typed by the request's payload_type
+  // (response schema per payload_type agreement). Empty on error
+  // statuses.
+  bytes payload = 5;
+  // §9.2 provenance. Mandatory on OK; filled as far as possible on
+  // error statuses too.
+  ResultProvenance provenance = 6;
+  // Determinism echo: the seed/request_id as used, and whether the run
+  // was deterministic. Mandatory on OK.
+  DeterminismMetadata determinism = 7;
+  // Structured error details when status is not OK (see
+  // worker_template/errors.py for the code vocabulary and the template
+  // README for the wire mapping).
+  WorkerErrorDetail error = 8;
+}
+
+// The Execute outcome vocabulary. Transport-level failures that never
+// reach the worker (timeout, connection refused, backpressure refusal)
+// are supervisor-side outcomes (P7.18) and are NOT statuses here — this
+// enum is what the worker itself answers with.
+enum ExecuteStatus {
+  // The request was executed and a result payload is present.
+  EXECUTE_STATUS_OK = 0;
+  // The request was refused before execution (version skew, unknown
+  // payload type, malformed envelope). No computation happened.
+  EXECUTE_STATUS_REFUSED = 1;
+  // The worker is not accepting work (DRAINING/STOPPING).
+  EXECUTE_STATUS_UNAVAILABLE = 2;
+  // Execution failed in-band after starting (the worker's own failure
+  // semantics; diagnostics say why).
+  EXECUTE_STATUS_FAILED = 3;
+  // The request was cancelled (via Cancel or the deadline) after
+  // starting; partial results are not returned.
+  EXECUTE_STATUS_CANCELLED = 4;
+}
+
+// Structured error detail over the wire (mirrors
+// worker_template/errors.py::WorkerError). A refused/failed/unavailable
+// response always carries one.
+message WorkerErrorDetail {
+  // The stable error code (see WorkerErrorCode enum).
+  WorkerErrorCode code = 1;
+  // Human-readable message. Safe for logs: never contains secret
+  // values, config dumps, or tenant data.
+  string message = 2;
+  // Whether the caller may retry this request (the supervisor combines
+  // this with its own policy — P7.18: a worker-side "retryable" hint
+  // never overrides a non-idempotent call's no-retry rule).
+  bool retryable = 3;
+  // The failing field or aspect, when applicable (e.g.
+  // "contract_version"). Free-form; optional.
+  string field = 4;
+}
+
+// The stable error-code vocabulary (worker_template/errors.py is the
+// definition of record; this enum mirrors it — the two MUST move
+// together, checked by the template's tests).
+enum WorkerErrorCode {
+  // No error (status OK).
+  WORKER_ERROR_CODE_NONE = 0;
+  // The envelope itself was unparseable or missing mandatory fields.
+  WORKER_ERROR_CODE_INVALID_REQUEST = 1;
+  // Major contract-version mismatch.
+  WORKER_ERROR_CODE_UNSUPPORTED_CONTRACT_VERSION = 2;
+  // The payload_type is unknown to this worker.
+  WORKER_ERROR_CODE_UNSUPPORTED_PAYLOAD_TYPE = 3;
+  // The worker is not accepting work (DRAINING/STOPPING).
+  WORKER_ERROR_CODE_UNAVAILABLE = 4;
+  // In-band execution failure (diagnostics carry the reason).
+  WORKER_ERROR_CODE_INTERNAL = 5;
+  // The request was cancelled.
+  WORKER_ERROR_CODE_CANCELLED = 6;
+  // Configuration is invalid — the worker refuses to serve rather than
+  // guess (fail-closed defaults; worker_template/config.py).
+  WORKER_ERROR_CODE_CONFIG_INVALID = 7;
+}
+
+// ---------------------------------------------------------------------------
+// Cancel
+// ---------------------------------------------------------------------------
+
+// A cancellation request for one in-flight Execute.
+message CancelRequest {
+  // The sender's contract version.
+  ContractVersion contract_version = 1;
+  // The request_id of the Execute to cancel.
+  string request_id = 2;
+  // Correlation id for tracing; propagated to logs.
+  string correlation_id = 3;
+  // Human-readable reason (audit/tracing only). Never a secret.
+  string reason = 4;
+}
+
+// The cancellation outcome.
+message CancelResponse {
+  // The worker's contract version.
+  ContractVersion contract_version = 1;
+  // Echo of the request's correlation_id.
+  string correlation_id = 2;
+  // True when the worker knew the request and initiated cancellation.
+  // False when the request_id was unknown or already finished — a miss
+  // is a normal outcome, not an error.
+  bool accepted = 3;
+  // Human-readable detail (e.g. "unknown request_id", "already
+  // completed").
+  string detail = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Shutdown
+// ---------------------------------------------------------------------------
+
+// A graceful-shutdown request (P7.18 supervision is the caller).
+message ShutdownRequest {
+  // The sender's contract version.
+  ContractVersion contract_version = 1;
+  // The grace window the worker may use to finish in-flight work, in
+  // milliseconds. The worker MUST stop accepting new work immediately
+  // (DRAINING) and exit when the window elapses or the work drains,
+  // whichever is first.
+  uint64 grace_ms = 2;
+  // Human-readable reason (audit/tracing only). Never a secret.
+  string reason = 3;
+}
+
+// The shutdown acknowledgement.
+message ShutdownResponse {
+  // The worker's contract version.
+  ContractVersion contract_version = 1;
+  // True when the worker entered DRAINING in response. The worker then
+  // exits on its own; the supervisor's crash isolation (P7.18) treats
+  // the subsequent process exit as expected, not as a crash.
+  bool accepted = 2;
+}

@@ -1,0 +1,388 @@
+// P7.09 — flexcore:grid@1.0.0 — the GridModelProvider world (ledger P7.09
+// step 1). The feasibility seam (report §5.2): the feasibility gate depends
+// on this contract only; grid-model providers implement it.
+//
+// Mirrors: flexcore-grid-api/src/port.rs::GridModelProvider (capabilities,
+// run_power_flow, evaluate_dispatch) — with src/scope.rs (the mandatory
+// ScopeDeclaration) — verified 2026-11-13; WIT translation, not
+// redefinition. The §9.1 sketch's `load_model(model_ref)` has NO Rust
+// counterpart (02_scope_freeze.md §2: models arrive as validated
+// VersionedNetworkModel values) and is deliberately NOT a WIT function —
+// recorded for P7.09. §9.1's `validate_dispatch` maps to
+// `evaluate_dispatch`.
+//
+// Solver-class discipline (AGENTS.md rule 4 — absolute): a run-power-flow
+// evaluation is an AC power-flow evaluation of SPECIFIED injections/
+// controls — it is NOT an AC-OPF optimization and never optimizes (the
+// port doc pins this; scope.rs requires the solver statement to say so).
+//
+// Fail-closed (§17.5 invariant 9): a non-converged or errored run is
+// `inconclusive` — never a pass. Coverage limitations are mandatory on
+// every result (§12.5 step 6); a scope that claims to model everything is
+// not permitted (§12.4: there is no universal validator).
+//
+// Units (report §10.2, frozen): active power MW with `P > 0` = export at
+// the point of connection; reactive power MVAr with the sign interpreted
+// ONLY under the declared `reactive-sign-convention` carried with each
+// candidate (no default); voltage kV at the nominal base and per-unit in
+// the solver representation; current in A or per-unit on an explicit base.
+//
+// WASI 0.2 baseline: this world declares NO `wasi:` imports (least
+// privilege, report §5.4). Any future WASI import is pinned at
+// wasi:*@0.2.x (e.g. wasi:cli/imports@0.2.x); no WASI 0.3 syntax anywhere
+// (RESEARCH.md R7-C1).
+
+package flexcore:grid@1.0.0;
+
+/// The provider side of the GridModelProvider port (report §9.1; §12.4–
+/// §12.5). Exported by grid-model plugin components; consumed by the plugin
+/// host (P7.10) on behalf of the feasibility gate. NOTE: third-party
+/// Class B/C grid-model plugins are DEFERRED per 02_scope_freeze.md §3
+/// (D3 OPEN governs fidelity) — this world is written now so the P7.22
+/// Class A swap and the P7.10 host have a stable target, and it must not be
+/// published for third-party use before D3 is settled.
+interface grid-model-provider {
+
+    use flexcore:core/types@1.0.0.{
+        utc-timestamp,
+        reactive-sign-convention,
+    };
+
+    // --- Mandatory model-scope declaration (mirrors src/scope.rs) -------------
+
+    // Mirrors scope.rs::PhaseScope (§12.4): balanced (positive-sequence) vs
+    // unbalanced three-phase. No v0.3.0 adapter declares `unbalanced`
+    // (enters from v0.4.0 per the recommended default; D3 OPEN).
+    enum phase-scope {
+        balanced,
+        unbalanced,
+    }
+
+    // Mirrors scope.rs::TopologyScope (§12.4; §25.2).
+    enum topology-scope {
+        radial-only,
+        meshed-only,
+        radial-and-meshed,
+    }
+
+    // Mirrors scope.rs::EquipmentKind (§12.4 "which equipment types it
+    // models"). (Rust `name()` strings: "line", "two_winding_transformer",
+    // … — the WIT kebab-case names map 1:1, wit/README.md §3.)
+    enum equipment-kind {
+        line,
+        two-winding-transformer,
+        load-element,
+        static-generator,
+        shunt,
+        switch,
+        external-grid,
+    }
+
+    // Mirrors scope.rs::NotModelled: one reviewed "does NOT model" entry;
+    // surfaced verbatim as model-coverage limitations on every result
+    // (§12.5 step 6).
+    record not-modelled {
+        label: string,
+        statement: string,
+    }
+
+    // Mirrors scope.rs::ScopeDeclaration (ledger P4.02 step 3): the scope is
+    // declared, never inferred; `modelled-equipment` and `not-modelled` are
+    // non-empty (a scope that models everything is a construction error in
+    // Rust and must be rejected by the host here — §12.4). The
+    // `solver-statement` must state that the provider runs an AC
+    // power-flow evaluation of specified injections/controls and is not an
+    // AC-OPF optimizer.
+    record scope-declaration {
+        adapter-id: string,
+        phase: phase-scope,
+        topology: topology-scope,
+        modelled-equipment: list<equipment-kind>,
+        not-modelled: list<not-modelled>,
+        solver-statement: string,
+        notes: list<string>,
+    }
+
+    // --- Versioned network model (mirrors src/port.rs) -------------------------
+
+    // Mirrors port.rs::GridModelRef (P4.02 step 1; P4.03 versioning): the
+    // model identity travels onto every result, so a verdict always names
+    // the model it was evaluated against. The content hash is carried
+    // verbatim; never recomputed.
+    record grid-model-ref {
+        model-id: string,
+        version: string,
+        content-hash: string,
+    }
+
+    // Mirrors port.rs::BusSpec: `nominal-kv` is the bus nominal voltage in
+    // kV (report §10.2 — kV at the nominal base; per-unit values are
+    // relative to this base in the solver representation).
+    record bus-spec {
+        bus-id: string,
+        nominal-kv: f64,
+        is-slack: bool,
+    }
+
+    // Mirrors port.rs::BranchSpec: positive-sequence parameters, physical
+    // units, as declared by the model artefact. `rated-current-a` is the
+    // thermal-rating base for the branch loading fraction.
+    record branch-spec {
+        branch-id: string,
+        from-bus: string,
+        to-bus: string,
+        r-ohm: f64,
+        x-ohm: f64,
+        rated-current-a: f64,
+    }
+
+    // Mirrors port.rs::TransformerSpec: `rated-mva` is the rating base for
+    // the transformer loading fraction; `vk` / `vk-r` in percent.
+    record transformer-spec {
+        transformer-id: string,
+        hv-bus: string,
+        lv-bus: string,
+        rated-mva: f64,
+        vk-percent: f64,
+        vk-r-percent: f64,
+    }
+
+    // Mirrors port.rs::ExternalGridSpec: the external grid / slack source.
+    // Exactly one per model, at a bus marked slack (validated in Rust).
+    record external-grid-spec {
+        bus-id: string,
+        vm-pu: f64,
+        va-degree: f64,
+    }
+
+    // Mirrors port.rs::VersionedNetworkModel (ledger P4.02 step 1): the
+    // provider-neutral IR the feasibility gate assembles from the P4.03
+    // versioned-model store. Structural validation (unique identifiers,
+    // existing bus references, positive parameters, exactly one slack) is
+    // performed in Rust; the host re-validates before dispatching to a
+    // plugin (P7.10/P7.11).
+    record versioned-network-model {
+        model-ref: grid-model-ref,
+        base-mva: f64,
+        buses: list<bus-spec>,
+        branches: list<branch-spec>,
+        transformers: list<transformer-spec>,
+        external-grids: list<external-grid-spec>,
+    }
+
+    // Mirrors port.rs::CandidateInjection (report §10.2; ledger P4.02
+    // step 2): one candidate injection at one bus, in canonical units and
+    // sign. `active-power-mw`: MW, `P > 0` = EXPORT at the point of
+    // connection (frozen rule). `reactive-power-mvar`: MVAr, sign
+    // interpreted ONLY under `reactive-sign-convention` — the convention is
+    // required, travels with the candidate, and is never inferred.
+    record candidate-injection {
+        injection-id: string,
+        bus-id: string,
+        active-power-mw: f64,
+        reactive-power-mvar: f64,
+        reactive-sign-convention: reactive-sign-convention,
+        interval-start: option<utc-timestamp>,
+    }
+
+    // Mirrors port.rs::AppliedInjectionRecord (ledger P4.05 step 3): exactly
+    // which bus received which candidate, in canonical units — every run is
+    // reproducible from the record.
+    record applied-injection-record {
+        injection-id: string,
+        bus-id: string,
+        active-power-mw: f64,
+        reactive-power-mvar: f64,
+        reactive-sign-convention: reactive-sign-convention,
+        interval-start: option<utc-timestamp>,
+    }
+
+    // --- Network limits and the limit verdict (mirrors src/port.rs) ------------
+
+    // Mirrors port.rs::NetworkLimits (§12.5 step 5): voltage band in
+    // per-unit of each bus nominal voltage; loading fractions in (0,1].
+    record network-limits {
+        voltage-min-pu: f64,
+        voltage-max-pu: f64,
+        max-branch-loading-fraction: f64,
+        max-transformer-loading-fraction: f64,
+    }
+
+    // Mirrors port.rs::LimitViolationKind (§12.5 step 5).
+    enum limit-violation-kind {
+        voltage-under,
+        voltage-over,
+        branch-overload,
+        transformer-overload,
+    }
+
+    // Mirrors port.rs::LimitViolation: the evaluated value (pu for voltage;
+    // fraction for loadings), the violated limit, and the element.
+    record limit-violation {
+        kind: limit-violation-kind,
+        element-id: string,
+        value: f64,
+        limit: f64,
+        detail: string,
+    }
+
+    // Mirrors port.rs::FeasibilityVerdict (§12.5 steps 5 and 7): the LIMIT
+    // CHECK ONLY — the reject/constrain/return policy is the gate's
+    // (§12.5 step 8), never the provider's. Fail-closed: a non-converged
+    // or errored run is `inconclusive` — never a pass (§17.5 invariant 9).
+    variant feasibility-verdict {
+        within-limits,
+        violations(list<limit-violation>),
+        inconclusive(string),
+    }
+
+    // --- Power-flow results (mirrors src/port.rs) --------------------------------
+
+    // Mirrors port.rs::PowerFlowStatus (§12.5 steps 4 and 6): a CLOSED
+    // vocabulary. `did-not-converge` is a RESULT — never silently retried
+    // with altered settings, never treated as feasible. Fail-closed.
+    enum power-flow-status {
+        converged,
+        did-not-converge,
+        provider-reported-error,
+    }
+
+    // Mirrors port.rs::BusVoltage: voltage magnitude in BOTH canonical
+    // representations (report §10.2) — per-unit of the bus nominal voltage
+    // and kV at the nominal base; the translation layer guarantees
+    // `vm-kv == vm-pu * nominal_kv` within float tolerance.
+    record bus-voltage {
+        bus-id: string,
+        vm-pu: f64,
+        vm-kv: f64,
+    }
+
+    // Mirrors port.rs::BranchLoading: current in A at both ends; loading as
+    // a fraction of `rated-current-a` (the explicit base declared in the
+    // model spec — report §10.2). Loading percent is a display conversion
+    // and never persisted as canonical.
+    record branch-loading {
+        branch-id: string,
+        current-from-a: f64,
+        current-to-a: f64,
+        loading-fraction: f64,
+    }
+
+    // Mirrors port.rs::TransformerLoading: loading as a fraction of
+    // `rated-mva` plus the side currents in A.
+    record transformer-loading {
+        transformer-id: string,
+        loading-fraction: f64,
+        hv-current-a: f64,
+        lv-current-a: f64,
+    }
+
+    // Mirrors port.rs::PowerFlowResiduals (§12.5 step 7; §9.2 evidence
+    // discipline): every field is optional WITH a recorded reason when the
+    // provider does not expose it (see the residuals-diagnostic variant).
+    record power-flow-residuals {
+        iterations: option<u64>,
+        max-power-mismatch-mw: option<f64>,
+        max-voltage-update-pu: option<f64>,
+        provider-status-text: string,
+    }
+
+    // Mirrors port.rs::Diagnostic<PowerFlowResiduals> (the
+    // `Diagnostics<T>` pattern — available, or not available WITH a
+    // recorded non-empty reason; silence is never legal). WIT has no
+    // user-defined generics, so the wrapper becomes a concrete variant
+    // (recorded mapping decision, wit/README.md §3).
+    variant residuals-diagnostic {
+        available(power-flow-residuals),
+        not-available(string),
+    }
+
+    // Mirrors port.rs::CoverageLimitation (§12.5 step 6): one
+    // model-coverage limitation, sourced from the adapter's declared
+    // scope — never invented per run. MANDATORY and non-empty on every
+    // result, including converged ones.
+    record coverage-limitation {
+        label: string,
+        statement: string,
+    }
+
+    // Mirrors port.rs::PowerFlowResult: the complete power-flow result
+    // record. Provenance is mandatory — provider identification including
+    // the PINNED provider version (P4.01: recorded on every feasibility
+    // result path) and the versioned model reference travel on every
+    // result. `runtime-nanos` mirrors Rust `std::time::Duration` (u64
+    // nanoseconds; recorded mapping decision).
+    record power-flow-result {
+        status: power-flow-status,
+        model-ref: grid-model-ref,
+        provider-id: string,
+        provider-version: string,
+        bus-voltages: list<bus-voltage>,
+        branch-loadings: list<branch-loading>,
+        transformer-loadings: list<transformer-loading>,
+        applied-injections: list<applied-injection-record>,
+        residuals: residuals-diagnostic,
+        coverage-limitations: list<coverage-limitation>,
+        warnings: list<string>,
+        runtime-nanos: u64,
+    }
+
+    // --- Capabilities and port errors (mirrors src/port.rs) ----------------------
+
+    // Mirrors port.rs::GridProviderCapabilities (§9.1 pattern): provider
+    // identity, the PINNED provider version (P4.01, REQUIRED), and the
+    // mandatory scope declaration — there is no capability statement
+    // without a scope (ledger P4.02 step 3).
+    record grid-provider-capabilities {
+        provider-id: string,
+        provider-version: string,
+        scope: scope-declaration,
+    }
+
+    // Mirrors port.rs::GridPortError. The Rust variants carry nested typed
+    // errors (ModelError, ScopeError, ResultCompletenessError); at the WIT
+    // boundary each is flattened to its variant tag plus the
+    // Display-formatted reason string — recorded mapping decision (no new
+    // error kind is invented; the six tags are the Rust six). Power-flow
+    // outcomes — including non-convergence and provider-reported errors —
+    // are NEVER errors: they arrive in-band as a power-flow-result.
+    variant grid-port-error {
+        malformed-model(string),
+        invalid-candidate(string),
+        scope-exceeded(string),
+        backend-unavailable(string),
+        backend-contract-violation(string),
+        incomplete-result(string),
+    }
+
+    // --- The port functions ---------------------------------------------------------
+
+    // Mirrors port.rs::GridModelProvider::capabilities: identity, pinned
+    // version, and the mandatory scope declaration.
+    capabilities: func() -> grid-provider-capabilities;
+
+    // Mirrors port.rs::GridModelProvider::run_power_flow (§9.1
+    // `run_power_flow`; ledger P4.02 step 1): applies the candidate
+    // injections to the versioned network model and runs the provider's
+    // power-flow evaluation. An AC power-flow evaluation of specified
+    // injections/controls — NOT an AC-OPF optimization.
+    run-power-flow: func(model: versioned-network-model, injections: list<candidate-injection>) -> result<power-flow-result, grid-port-error>;
+
+    // Mirrors port.rs::GridModelProvider::evaluate_dispatch (§9.1
+    // `validate_dispatch` shape): run-power-flow followed by the port-level
+    // limit evaluation. The Rust default implementation composes exactly
+    // these two steps and the verdict MUST be a pure function of the result
+    // and the limits (the P4.02 contract test pins this) — a provider
+    // overrides only with good cause. The WIT seam exposes it explicitly
+    // (mirroring the Rust default-method surface) so a component cannot
+    // invent its own verdict semantics.
+    evaluate-dispatch: func(model: versioned-network-model, injections: list<candidate-injection>, limits: network-limits) -> result<feasibility-verdict, grid-port-error>;
+}
+
+// The grid-model-provider plugin world: a Class B component targeting this
+// world exports the `grid-model-provider` interface and nothing else. No
+// `wasi:` imports — no ambient access (report §5.4 Class B); the host
+// (P7.10) binds only what this world declares.
+world grid-model-provider-plugin {
+    export grid-model-provider;
+}

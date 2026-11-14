@@ -1,0 +1,43 @@
+# P7.17 — Python gRPC worker template dependency pins (UNPINNED-REVERIFY,
+#         NEVER INSTALLED).
+#
+# ══════════════════════════════════════════════════════════════════════════
+# HONESTY HEADER (read before trusting anything below)
+#
+# 1. NOTHING in this file was ever `pip install`ed into any environment
+#    in this repository's history (the loop bans installation). This file
+#    RECORDS the dependency requirement; it is not a lockfile and not a
+#    verified set.
+# 2. The pins below are UNPINNED-REVERIFY: `ledger/phase-07-plugin-sdk/
+#    RESEARCH.md` records NO grpcio/protobuf version findings (its scope
+#    was the Wasmtime/WIT/Rust toolchain), so per the no-hallucinated-
+#    facts rule (AGENTS.md §3.1) NO version is written here. The line
+#    format `grpcio==UNPINNED-REVERIFY` is deliberately un-installable —
+#    a human MUST replace it with a verified pin at the first
+#    build/test pass.
+# 3. Re-verify instruction (the recorded procedure): at activation, look
+#    up the then-current grpcio and protobuf releases on PyPI
+#    (https://pypi.org/project/grpcio/,
+#    https://pypi.org/project/protobuf/), record the checked date and
+#    versions HERE and in the phase decision record
+#    (`17_18_workers_supervision.md` §6), confirm the grpcio/protobuf
+#    version compatibility table
+#    (https://github.com/grpc/grpc/blob/master/doc/versioning.md), and
+#    only then install into a scratch venv (never committed).
+# 4. The generated-stub plugin versions (buf generation of
+#    `contracts/worker_api.proto`) are pinned at activation too, per the
+#    proto/ buf governance (P1.18: "versions recorded then, never
+#    floated").
+# ══════════════════════════════════════════════════════════════════════════
+
+# The gRPC runtime for the worker server seam (worker_template/server.py).
+# UNPINNED-REVERIFY — see honesty header item 3 for the re-verify procedure.
+grpcio==UNPINNED-REVERIFY
+
+# The Protobuf runtime the generated stubs require. UNPINNED-REVERIFY.
+protobuf==UNPINNED-REVERIFY
+
+# Test-only dependency for python/workers/tests/ (the pytest suite;
+# written, never run in this loop). Same UNPINNED-REVERIFY rule applies:
+# record the verified pytest version at the first real run.
+# pytest==UNPINNED-REVERIFY

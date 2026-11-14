@@ -33,6 +33,13 @@
 //! no primary frequency response, synthetic inertia, relay protection,
 //! inverter inner-loop control, or sub-cycle control.
 
+// P5.31 — the alarm derivation rules (additive): deterministic pure
+// functions deriving the minimal alarm records (`flexcore-contracts::alarm`)
+// from existing platform facts — telemetry quality states, dispatch
+// outcomes, feasibility verdicts. Alarms are operator-attention records,
+// never protection signals, and the frozen §15.3 event vocabulary is not
+// extended.
+pub mod alarm_rules;
 pub mod bess_model;
 pub mod capability_provenance;
 pub mod capability_validate;

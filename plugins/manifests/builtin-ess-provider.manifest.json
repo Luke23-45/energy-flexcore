@@ -1,0 +1,39 @@
+{
+  "manifest-schema": "flexcore-plugin-manifest-v1",
+  "plugin-id": "neryva.sim-builtin-ess",
+  "name": "Built-in ESS Simulator Provider",
+  "version": "0.1.0",
+  "api-version": ">=0.5.0, <1.0.0",
+  "class": "builtin-rust",
+  "entry-point": {
+    "registered-type": "neryva.builtin/sim-ess"
+  },
+  "provider-of": ["ess.simulation"],
+  "consumes": ["telemetry.edge-sample"],
+  "permissions": ["telemetry.read"],
+  "configuration-schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "rated-power-mw": {
+        "type": "number",
+        "description": "Rated active power of the simulated ESS in MW (canonical units, P > 0 = export)."
+      },
+      "soc-init": {
+        "type": "number",
+        "description": "Initial state of charge as a fraction in [0,1] (API-boundary SOC convention)."
+      }
+    },
+    "required": ["rated-power-mw"]
+  },
+  "secrets": [],
+  "resources": {
+    "max-memory-mb": 64,
+    "timeout-ms": 30000
+  },
+  "metadata": {
+    "license": "Apache-2.0",
+    "description": "Deterministic built-in battery energy-storage simulator provider (Class A; simulation only).",
+    "source": "crates/flexcore-simulator"
+  }
+}

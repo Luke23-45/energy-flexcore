@@ -1,0 +1,131 @@
+{
+  "schema_version": "3",
+  "record_id": "lib-05-stress-nonconvergence",
+  "record_version": "v1",
+  "synthetic": true,
+  "purpose": "Stress case: a worker_process leg whose power flow reports converged:false (non-convergence), pre-registering the P4.08/verdict routing: an inconclusive/failed evaluation is FAIL-CLOSED (retry policy NONE, D-P4.05-2), never a pass and never silently re-run. Requires a scenario whose injections the worker cannot converge - recorded here as the case's purpose; the execution is UNRUN.",
+  "benchmark_reference": "19.3 bullet 5: stressed scenarios (non-convergence injection; AC power-flow convergence is the 19.4 grid-feasibility metric)",
+  "runtime_class": "bounded by the pinned worker timeout; a non-converged evaluation returns its factual duration (never averaged with converged runs); NOT a measured figure",
+  "scale_class": "stress",
+  "inputs": {
+    "scenario": {
+      "path": "../synthetic-portfolio/scenario-v2.json",
+      "scenario_id": "synthetic-portfolio-exit-gate",
+      "version": "v2"
+    },
+    "forecast_fixture": {
+      "path": "../synthetic-portfolio/forecast-fixture-v1.json",
+      "version": "v1",
+      "note": "the P3.31 synthetic central forecast fixture (presence + version validated here; consumption is the real-solve leg, VERIFY-BUILD)"
+    },
+    "grid_model": {
+      "fixture": "three_bus_radial",
+      "model_id": "feeder-a",
+      "version": "1",
+      "statement": "the three-bus radial synthetic fixture (the recorded Phase 4 fixture magnitudes; SYNTHETIC - no IEEE feeder is used or claimed, 19.3 discipline / 14_15_adapters.md feeder-case record)"
+    },
+    "objective_config": {
+      "objective": "SYNTHETIC_ENERGY_COST_DEVIATION_V1",
+      "provenance": "SYNTHETIC",
+      "note": "the declared objective set (P3.14) has exactly one entry; the sim-runner composition does not solve - the objective config pins what a real-solve leg (VERIFY-BUILD) would consume; D1/D2 OPEN"
+    },
+    "dispatch": {
+      "asset_key": "site-north-bess-1",
+      "target_p_mw": 0.0,
+      "target_q_mvar": 0.0,
+      "tracking_tolerance_mw": 0.5,
+      "tracking_min_samples": 1,
+      "tracking_timeout_ms": 1800000,
+      "approver": "scenario-operator",
+      "approver_role": "scenario-approver",
+      "schedule_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7ab1",
+      "revision": 1
+    },
+    "clock": {
+      "start_utc": "2026-06-01T00:00:00Z",
+      "cadence_seconds": 60,
+      "scheduling_interval_seconds": 900,
+      "horizon_hours": 24
+    }
+  },
+  "backend": {
+    "selection": "worker_process",
+    "provider_pin": "pandapower@3.5.6",
+    "worker": {
+      "program": "python",
+      "script_path": "apps/worker/python/grid_worker.py",
+      "timeout_ms": 30000
+    }
+  },
+  "seeds": {
+    "master_seed": 20260601,
+    "derivation": "seed(asset_key) = master_seed XOR splitmix64(FNV-1a-64(asset_key))"
+  },
+  "tolerances": {
+    "telemetry_leg": "byte_identical",
+    "run_record_leg": "relative_1e-9 (numeric fields)",
+    "value_relative_tolerance": 1e-09,
+    "value_absolute_floor": 1e-12,
+    "table_reference": "ledger/phase-05-operator-console-simulator/18_20_replay_library.md (tolerance table)"
+  },
+  "expected_outcomes": {
+    "pre_registered": true,
+    "status": "UNRUN",
+    "statements": [
+      "a converged:false worker response maps to the inconclusive/fail-closed route (retry NONE) - the candidate never passes on a non-converged evaluation (P4.06 fail-closed rule)",
+      "the run record names the backend 'worker_process' and carries the reported reason; no limit check runs on a non-converged result (the P4.06 rule)",
+      "the closed-loop summary records the consumption decision for the inconclusive outcome ('no_consumption', route 'retry_none')",
+      "the negative control is pre-registered: a converged run of the same record must NOT silently reproduce a non-converged run's record (the verdicts differ and are named)"
+    ],
+    "reference": "ledger/phase-05-operator-console-simulator/18_20_replay_library.md (pre-registered, never fitted after a run)"
+  },
+  "nondeterminism_controls": {
+    "thread_count": 1,
+    "controls": [
+      {
+        "source": "wall_clock",
+        "neutralization": "no wall clock is read in any run path; every instant is the scenario clock via the controlled RunClock (P0.09 s5); ingest_time is excluded from comparison by record shape (P2.13 s3)"
+      },
+      {
+        "source": "hash_map_iteration_order",
+        "neutralization": "comparison orders are deterministic (compare.rs sorts on the frozen identity tuple); run-record maps are BTreeMap; asset identities derive in scenario-file order"
+      },
+      {
+        "source": "thread_count",
+        "neutralization": "pinned thread_count = 1 in the solver configuration (the P3.26 pin block, scenarios-phase3; DEFAULT_REPLAY_TOLERANCE 1e-9); the sim-runner composition is single-threaded in-process"
+      },
+      {
+        "source": "ambient_entropy",
+        "neutralization": "all run identities are deterministic FNV-1a-64 derivations (stand_in_asset_id, deterministic_uuid); the pinned master seed is the only randomness source"
+      },
+      {
+        "source": "floating_point_backend",
+        "neutralization": "the scripted grid backend is a recorded fixture and byte-stable; a worker_process leg is tolerance-bounded (relative 1e-9, floor 1e-12) with the provider pin recorded per run"
+      }
+    ]
+  },
+  "solver_pins": [
+    {
+      "solver": "HiGHS",
+      "version": "1.15.1",
+      "license": "MIT",
+      "class": "LP/QP/MILP (never SOCP - AGENTS.md rule 4); not exercised by the sim-runner composition (the real-solve leg is VERIFY-BUILD)"
+    },
+    {
+      "solver": "Clarabel.rs",
+      "version": "0.11.1",
+      "license": "Apache-2.0",
+      "class": "continuous conic incl. SOCP; no integer variables; not exercised by the sim-runner composition"
+    },
+    {
+      "solver": "pandapower",
+      "version": "3.5.6",
+      "license": "BSD-3-Clause",
+      "class": "AC power flow evaluation of specified injections (never an AC-OPF; AGENTS.md rule 4)"
+    }
+  ],
+  "ieee_case_record": {
+    "included": false,
+    "reason": "excluded: no IEEE 13/34/123-bus distribution or 39/118-bus transmission model is available in this repository, and neither licensing nor model availability is confirmed (19.3; the 14_15_adapters.md feeder-case record). All cases are SYNTHETIC fixtures. The per-case record is mandatory; the exclusion is the honest entry, and a future inclusion requires the confirmed license/availability recorded here first."
+  }
+}

@@ -1,0 +1,26 @@
+# P7.27 — Buf governance for the Class C worker contract (report §10.5,
+# §15.1; §22.2 CI gates). Backing config for the `worker-contract-buf` CI
+# job; mirrors the P1.18 `proto/` module discipline (the file's own header
+# names this activation: "Registration into the `proto/` buf module (or a
+# documented include path from it) is the recorded activation step" — the
+# separate-module form is chosen because buf v2 module paths must live
+# inside their module root, and `proto/` has no .proto files of its own).
+#
+# RUN-STATUS HONESTY: config only. No buf CLI execution happened in the
+# writing loop (loop bans; ENTRY_NOTE.md) — `buf lint` / `buf breaking`
+# have NEVER run against `worker_api.proto`. The first CI run of the
+# `worker-contract-buf` job is the verification point.
+#
+# Versioning rule (report §21.4, as in proto/buf.yaml): Protobuf schemas
+# follow SemVer discipline; the 0.x line may break contracts with a
+# documented migration note; v1.0.0 freezes the public API and plugin
+# contracts for the 1.x line.
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

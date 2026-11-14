@@ -59,12 +59,176 @@
 # network on first execution; the version pins come from
 # ledger/phase-01-rust-foundation/RESEARCH.md and rust-toolchain.toml.
 
+# P6.27 — Phase 6 additions (additive; every existing job is unchanged):
+#   edge-agent-suite (existing P6.19 job, one added step)
+#                     records the conformance suite id and the OpenEMS
+#                     version pin in the job log lines (ledger P6.27 step 2).
+#   edge-license-gate the license gate backed by the new root deny.toml:
+#                     fails the build on a dependency lacking a license
+#                     entry (P6.02 audit follow-through; P6.27 step 3).
+#   edge-supply-chain cargo-audit advisory scan, Syft SBOM/container scan,
+#                     and the license/security review gate checklist
+#                     (report §22.2 "container/dependency scanning",
+#                     "SBOM generation", "license/security review").
+#
+# Coverage note (P6.27 step 1): the §22.2 gate set already covers the Phase 6
+# crates through the workspace-wide jobs — static-checks (cargo fmt --check,
+# cargo clippy --workspace --all-targets -- -D warnings), unit-tests and
+# integration-tests (cargo test --workspace) — because crates/edge-agent and
+# the adapter code are workspace members. The scenario-regression job (the
+# sim-runner regression pattern, including the P4.31 fault-injection and
+# shadow suites) already exists and runs on every push/PR; it has NO path
+# filters, and none are introduced here (adding them would RESTRICT existing
+# coverage — a non-additive change — so the recorded P6.27 decision is to
+# leave every existing trigger untouched). The SBOM/container/advisory scans
+# below reference the standard tools by name in config only; NOTHING was
+# executed in the writing loop (loop bans), so every job above and below is
+# UNRUN — the first human CI run is the verification point, and the green-run
+# record for P6.27 is UNRUN by decision (never claimed).
+#
+# P7.26 / P7.27 / P7.35 — Phase 7 additions (additive; every existing job is
+# unchanged):
+#   plugin-sdk-conformance  the P7.21 SDK conformance suite
+#                           (`suite-id=flexcore-plugin-sdk-conformance-suite-v1`,
+#                           the wit world pins logged in the job lines — the
+#                           P6.27 version-record pattern), the P7.23
+#                           untrusted-plugin host negatives, and the P7.26
+#                           structural perf harness (the MEASURED
+#                           `flexcore-pluginhost-perf-record/v1` block is
+#                           printed, never gated on — the §19.4 rule).
+#   plugin-manifest-validation
+#                           the P7.05 kernel manifest validator suite, run
+#                           via cargo test (`crates/flexcore-kernel/tests/
+#                           manifest_p7_05.rs`) — the recorded decision: the
+#                           validator IS the gate, no separate tool invented.
+#   wit-validate            the P7.09/P7.40 WIT package validation
+#                           (`wasm-tools component wit wit/` — the
+#                           PREPARED-UNRUN command from wit/TOOLCHAIN.md §4)
+#                           at the recorded pin 1.239.0 — ASSUMPTION
+#                           (RESEARCH.md §2; re-check the release page at
+#                           the first run) — plus the P7.40 pin-record
+#                           consistency check (a tool upgrade requires the
+#                           same-PR edit of wit/TOOLCHAIN.md §1).
+#                           `cargo-component`/`wit-bindgen` are UNPINNED-
+#                           REVERIFY (no verified version exists), so their
+#                           example-component build step is NOT wired here —
+#                           human gate after a release-page check
+#                           (40_toolchain_pinning.md §2/§5).
+#   worker-contract-buf     Buf lint + breaking for the Class C worker
+#                           contract (`python/workers/contracts/` — the new
+#                           P7.27 buf module, `worker_api.proto`), mirroring
+#                           the P1.18 proto/ governance.
+#   no-dylib-gate           the P7.35 ADR-006 lexical gate: fails if any
+#                           workspace Rust source/manifest declares or loads
+#                           a dynamic library (tokens calibrated against the
+#                           tree — recorded zero-hit baseline in
+#                           ledger/phase-07-plugin-sdk/26_27_35_ci_performance.md
+#                           §3, so the gate is green-by-construction).
+#
+# Coverage note (P7.27 step 1, the P6.27 pattern): the workspace-wide jobs
+# ALREADY cover the Phase 7 crates — static-checks (cargo fmt --check, cargo
+# clippy --workspace --all-targets -- -D warnings), unit-tests and
+# integration-tests (cargo test --workspace) — because flexcore-kernel and
+# flexcore-plugin-host are workspace members, and security-and-supply-chain
+# (CycloneDX `--all`) plus edge-supply-chain (cargo-audit, Syft) scan the
+# workspace/lockfile they live in. NO new fmt/clippy/test/SBOM job is added
+# and no existing job is rewritten. The license gate is the existing
+# edge-license-gate backed by deny.toml (`unlicensed = "deny"`): deny.toml
+# ALREADY allowlists `Apache-2.0 WITH LLVM-exception` (the wasmtime family —
+# checked 2026-11-13; ledger 03_sdk_license_audit.md §7 records the no-edit
+# decision), so NO deny.toml entry was added this wave.
+#
+# Recorded seam (honest): the Python worker gates (Ruff + type checks +
+# pytest; ledger P7.27 step 1) are NOT wired here — python/workers/
+# requirements.txt carries deliberately un-installable `==UNPINNED-REVERIFY`
+# pins, so an install step would fail by construction until the human pins
+# verified versions (its recorded re-verify procedure). Wiring that job is
+# the activation wave's step, not this config-only wave's.
+#
+# RUN-RECORD HONESTY: every job below is WRITTEN-UNRUN — no CI execution
+# happened in the writing loop (loop bans). The green-run record for P7.27
+# and the scratch-branch negative demonstrations (unlicensed dependency;
+# libloading dependency) are HUMAN GATE INPUTS, recorded UNRUN in
+# ledger/phase-07-plugin-sdk/26_27_35_ci_performance.md — never claimed.
+#
+# P8.28 — Phase 8 additions (additive; every existing job is unchanged):
+#   research-python-gates   the §22.2 Python gates wired to the research
+#                           workers (ledger P8.28 step 1): Ruff + type
+#                           checks + pytest over apps/worker/python (the
+#                           P8.11/P8.13/P8.14/P8.16/P8.17/P8.18/P8.22/
+#                           P8.24 worker and harness suites) and
+#                           python/workers/tests. FAIL-CLOSED BY
+#                           CONSTRUCTION TODAY (the recorded P7.27 seam,
+#                           resolved honestly here): the research-stack
+#                           pins are UNPINNED-REVERIFY (grpcio/protobuf)
+#                           or DECISION-POINT-OPEN no-pin files
+#                           (torch/PyG, RLlib, ANDES), so an install step
+#                           would fail by construction. The job's FIRST
+#                           step enforces that state: it fails with the
+#                           recorded re-verify procedure named until a
+#                           human pins verified versions — the pin gap is
+#                           RECORDED, never papered over with invented
+#                           versions (D4; P8.03; ENTRY_NOTE boundary 5).
+#   research-rust-harness-gates
+#                           the Rust gates for the P8.05 validation
+#                           harness + P8.06 baseline registry
+#                           (ledger P8.28 step 1): the dedicated,
+#                           individually inspectable `cargo test -p
+#                           flexcore-research` verdict (fmt/clippy/
+#                           workspace tests already cover the crate —
+#                           the P7.27 coverage note pattern), plus the
+#                           STRUCTURAL check of the frozen research
+#                           benchmark artifact
+#                           (benchmarks/research-set-v1.json) and its
+#                           frozen not-tested list — structure only,
+#                           never a result (no research run exists).
+#   research-worker-conformance
+#                           the research-worker conformance suite
+#                           (ledger P8.28 step 3; P7.21 extended to the
+#                           research contracts per 04_worker_contracts.md
+#                           §6): `python/workers/tests/
+#                           test_research_contracts.py` over the closed
+#                           payload vocabularies + the Rust-side twins in
+#                           `crates/flexcore-research/src/validation.rs`
+#                           (pinned by the research-rust-harness-gates
+#                           job). Same fail-closed pin gate as above.
+#   research-reproducibility-check
+#                           the CI reproducibility check STUB (ledger
+#                           P8.28 step 2; 20_reproducibility.md §5/§8(f)):
+#                           a seeded benchmark run re-executed from its
+#                           P8.20 record ALONE and compared against the
+#                           FROZEN P8.06 baseline results artifact within
+#                           the PRE-REGISTERED tolerance (X-8) — the
+#                           check compares against the frozen artifact,
+#                           NEVER against its own output (the ledger's
+#                           named risk). FAIL-CLOSED today: no frozen
+#                           results artifact, no P8.38 tolerance
+#                           pre-registration, and no reproducibility
+#                           record exists, so the gate step fails with
+#                           that statement — the check itself is UNRUN
+#                           until the artifacts exist, and a green
+#                           reproducibility run is a HUMAN GATE INPUT,
+#                           recorded UNRUN in
+#                           ledger/phase-08-advanced-coordination/
+#                           28_ci_gates.md (never claimed).
+#
+# RUN-RECORD HONESTY (Phase 8): every P8.28 job below is WRITTEN-UNRUN —
+# no CI execution happened in the writing loop. Ledger P8.28 step 4
+# (record a green CI run on the phase branch) is UNRUN and is the human
+# gate's input; the scratch-branch negative demonstration (break a
+# seed/version pin, confirm CI fails) is likewise recorded UNRUN.
+#
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+  # P10.18 (ADDITIVE — the only change to this block; push/PR behaviour is
+  # unchanged): enables the workflow_dispatch-only release-candidate-build
+  # job below. The dispatch IS the human gate (ledger P10.18); the job is
+  # WRITTEN-UNRUN and never runs on push/PR (guarded by `if:`).
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -166,6 +330,20 @@ jobs:
   # and prints the mismatch list so a generation change fails with the diff
   # visible. The code version is recorded from the commit SHA (P2.13 §4:
   # replay names scenario version + seed + code version).
+  #
+  # P4.31 addition (report §19.2 layers 4, 6, 9; §22.2): the fault-injection
+  # suite (crates/flexcore-application/tests/fault_injection.rs) and the
+  # shadow-evaluation suite (crates/flexcore-application/tests/
+  # shadow_evaluation.rs) run in this job as part of the scenario
+  # regression suite. Both are pure in-process suites over the application
+  # crate's public seams (no database, no broker — they need no services);
+  # every fault case carries its pre-registered expectation (reject / hold /
+  # fallback — never a silent pass) and the shadow report carries its
+  # limits statement (shadow agreement is not a safety claim, §21.4). The
+  # DB-gated dispatch integration suite
+  # (crates/adapters/postgres/tests/dispatch_integration.rs) runs in the
+  # integration-tests job above, where FLEXCORE_TEST_DATABASE_URL is
+  # provided.
   scenario-regression:
     runs-on: ubuntu-latest
     env:
@@ -199,6 +377,14 @@ jobs:
             exit 1
           fi
           jq -c '{scenario_id, scenario_version, seed, code_version, reference_count, match_count, mismatch_count, verdict}' "$RUN_DIR/report.json"
+      # P4.31 — fault injection + shadow evaluation (§19.2 layers 6 and 9):
+      # every injected fault must yield its pre-registered outcome (reject /
+      # hold / fallback — never a silent pass), and the shadow comparison
+      # runs with its limits statement carried on every report.
+      - name: P4.31 fault-injection suite (pre-registered outcomes; never a silent pass)
+        run: cargo test -p flexcore-application --test fault_injection
+      - name: P4.31 shadow-evaluation suite (§21.4; the report carries its limits)
+        run: cargo test -p flexcore-application --test shadow_evaluation
 
   # P2.27 step 3 — telemetry contract suite: every TelemetrySource provider
   # passes the same interface suite (P2.11; §19.2 layer 3). The suite is
@@ -281,6 +467,44 @@ jobs:
           path: ${{ runner.temp }}/phase3-scenario-regression/benchmark-record-*.json
           if-no-files-found: error
 
+  # P6.19 — the FlexCore edge adapter conformance suite (suite id
+  # `flexcore-edge-adapter-conformance-suite-v1`) runs here additively; the
+  # existing jobs are unchanged. The suite's run record (suite version +
+  # protocol-shape pin + per-case PASS/VIOLATION lines) is printed with
+  # --nocapture so the job log carries it verbatim — the ledger's "record
+  # pass/fail per case with the protocol version and suite version" step.
+  # The same job runs the P6.23 edge security suite (forgery, replay,
+  # malicious telemetry, secrets exposure — every case attempts the attack)
+  # and the P6.22 load harness (structural assertions ONLY — no timing
+  # threshold, §19.4; the MEASURED record is printed for the human to
+  # transcribe with the hardware/versions/conditions of the run).
+  #
+  # RUN-RECORD HONESTY: this job definition is UNRUN in the loop that wrote
+  # it (see ledger/phase-06-edge-protocol/19_23_22_conformance_security_performance.md
+  # — "suite runs in CI — CI execution UNRUN (human gate input)"). The
+  # first human CI run is the verification point.
+  edge-agent-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      # P6.27 — record the suite and protocol versions in the job log lines
+      # (ledger P6.27 step 2). The suite id is the ONLY thing a pass claim may
+      # name (19_23_22_conformance_security_performance.md §2); the OpenEMS pin
+      # is the RESEARCH.md §1 research pin (checked 2026-11-07), re-pinned at
+      # the P6.11 lab run — never a lab-verified version.
+      - name: Record suite and protocol versions (P6.27)
+        run: |
+          echo "suite-id=flexcore-edge-adapter-conformance-suite-v1"
+          echo "openems-pin=2026.11.0 (ledger/phase-06-edge-protocol/RESEARCH.md §1, checked 2026-11-07; re-pin at the lab run)"
+      - name: P6.19 adapter conformance suite (run record printed; never a certification claim)
+        run: cargo test -p flexcore-edge-agent --test conformance_suite_p6_19 -- --nocapture
+      - name: P6.23 edge security suite (every case attempts the attack)
+        run: cargo test -p flexcore-edge-agent --test security_p6_23
+      - name: P6.22 load harness (structural; the MEASURED record is printed, never gated on)
+        run: cargo test -p flexcore-edge-agent --test perf_harness_p6_22 -- --nocapture
+
   security-and-supply-chain:
     runs-on: ubuntu-latest
     steps:
@@ -325,3 +549,580 @@ jobs:
           input: proto
           breaking: true
           breaking_against: "https://github.com/${{ github.repository }}.git#branch=${{ github.base_ref }},subdir=proto"
+
+  # P5.28 — CI quality gates for the console (report §22.2, §7.5): a failing
+  # lint, type-check, test, or build blocks the change. This workflow already
+  # gates `pull_request` and push to `main` (see `on:` above), so this job
+  # gates every PR additively; no existing job's semantics are touched.
+  #
+  # HONESTY HEADER: EVERY command below is UNRUN. The Phase 5 loop bans
+  # npm install/build/test locally (ledger/phase-05-operator-console-simulator/
+  # ENTRY_NOTE.md), so there is no lockfile and no node_modules; the console
+  # toolchain pins are SECONDARY-SOURCE (console/package.json x-pin-policy,
+  # RESEARCH.md open task 1). This job itself has never executed — no local
+  # run, no workflow dispatch — so THE FIRST CI RUN IS THE HUMAN'S
+  # VERIFICATION POINT and may surface toolchain corrections (notably the
+  # typescript-eslint / TypeScript-major combination flagged by RESEARCH.md).
+  #
+  # DEFAULT decisions recorded in
+  # ledger/phase-05-operator-console-simulator/28_ci_gates.md:
+  #   - `npm install`, not `npm ci`: the scaffold has NO committed lockfile
+  #     (the install ban prevented generating one). After the human's first
+  #     run commits package-lock.json, switch this step to `npm ci`.
+  #   - Script names are verbatim from console/package.json: `lint`,
+  #     `typecheck` (tsc -b), `test` (vitest run — ALREADY non-watch, so no
+  #     `-- --run` suffix is appended), `build` (tsc -b && vite build).
+  #   - Node 22 LTS (DEFAULT pin, secondary source) — re-verify the current
+  #     LTS line against nodejs.org before the first run and record any
+  #     change in RESEARCH.md. `cache: npm` is NOT set: setup-node's npm
+  #     cache requires a committed lockfile, which does not exist yet.
+  #
+  # Scope note (28_ci_gates.md §7): the P5.19 scenario reproducibility check
+  # is already in this pipeline (the `scenario-regression` replay-verdict
+  # gate plus the workspace-wide `unit-tests` job, which picks up
+  # apps/sim-runner/tests/reproducibility_p5_19.rs); the console is NOT a
+  # cargo workspace member (01_25_scaffold_live.md), so those Rust jobs are
+  # unaffected by this addition. The OpenAPI drift test, the console
+  # dependency scanning/SBOM, the browser/OS-matrix level, and the
+  # deliberate-break verification are NOT wired here yet — see the recorded
+  # open items in 28_ci_gates.md.
+  console-quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node (22 LTS — DEFAULT pin, re-verify at first run)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies (npm install — no committed lockfile yet; switch to npm ci after the first run lands one)
+        run: npm install
+      - name: Lint (eslint — a failure blocks the change)
+        run: npm run lint
+      - name: Type-check (tsc -b — a failure blocks the change)
+        run: npm run typecheck
+      - name: Tests (vitest run, non-watch — a failure blocks the change)
+        run: npm run test
+      - name: Build (tsc -b && vite build — a failure blocks the change)
+        run: npm run build
+
+  # P6.27 step 3 — the license gate (report §22.2 "license/security review";
+  # P6.02 audit follow-through). ADDITIVE: the pre-existing cargo-deny step in
+  # the security-and-supply-chain job above (continue-on-error: true, written
+  # before deny.toml existed) is UNCHANGED — this job is the FAILING gate
+  # backed by the new root deny.toml: a dependency with NO license entry fails
+  # the build by construction. HONESTY: no cargo-deny execution happened in
+  # the writing loop, and the workspace has no committed Cargo.lock yet —
+  # until the first lockfile lands, this gate cannot produce a verdict and the
+  # first human run is the verification point. The "demonstrated once on a
+  # scratch branch" acceptance item (introduce a test-unlicensed dependency,
+  # confirm CI fails, remove it) is a HUMAN GATE INPUT — recorded UNRUN in
+  # ledger/phase-06-edge-protocol/26_27_28_docs_ci_drill.md; it is NEVER
+  # claimed here.
+  edge-license-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+      - name: License gate (cargo deny check licenses — fails on a dependency lacking a license entry)
+        run: cargo deny check licenses
+      - name: License/security review gate — the recorded D4 re-verify items must still be open or closed, never dropped
+        run: |
+          # The review gate is the checked-in record of the D4 items every
+          # license verdict depends on (02_license_audit.md §8; 06_07
+          # record §5). deny.toml must exist and must carry the re-verify
+          # markers; a reviewer updates the records, not this checklist.
+          test -f deny.toml || { echo "FAIL: deny.toml missing"; exit 1; }
+          grep -q "RE-VERIFY" deny.toml || { echo "FAIL: deny.toml lost the rustls/rustls-pemfile re-verify markers"; exit 1; }
+          grep -q "OpenEMS" deny.toml || { echo "FAIL: deny.toml lost the OpenEMS external-system/license note"; exit 1; }
+          echo "OK: deny.toml present with the recorded D4 re-verify markers; the license verdicts themselves come from cargo deny check licenses"
+
+  # P6.27 step 1 (remaining §22.2 gates) — advisory + container/dependency
+  # scanning and SBOM generation for the edge/adapter stack, ADDITIVE to the
+  # existing security-and-supply-chain job (which keeps gitleaks + CycloneDX).
+  # CONFIG ONLY: none of the tools below was executed in the writing loop
+  # (loop bans); every step is UNRUN and the first human CI run is the
+  # verification point. Tool names are referenced as standard configs, with
+  # no invented version pins.
+  edge-supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Advisory scan (cargo-audit — RustSec advisories against the resolved tree)
+        uses: taiki-e/install-action@cargo-audit
+      - name: cargo audit (advisories; yanked-crates report included)
+        run: cargo audit
+        # Like the license gate above, a resolved tree needs the first
+        # Cargo.lock; until it is committed this step cannot produce a
+        # verdict — the first human run is the verification point.
+      - name: SBOM + container scan (Syft — standard SBOM tool per §22.2/§9.3)
+        uses: anchore/sbom-action@v0
+        with:
+          format: cyclonedx-json
+          artifact-name: flexcore-sbom-syft.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: edge-supply-chain-sbom
+          path: "*.cdx.json"
+          if-no-files-found: error
+
+  # P7.27 step 2 — the plugin SDK conformance suite as a CI job (the recorded
+  # P7.21 §2.4 seam): the P7.21 class-agnostic suite over the kernel seams,
+  # the P7.23 untrusted-plugin host negatives, and the P7.26 structural perf
+  # harness. RUN-RECORD HONESTY (the P6.19 pattern): this job definition is
+  # UNRUN in the loop that wrote it; the first human CI run is the
+  # verification point. The suite id and the wit world pins are recorded in
+  # the job log lines (P6.27 step 2 pattern); a pass claim may name the suite
+  # id only (21_22_23_conformance_swap_untrusted.md §2.1).
+  plugin-sdk-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Record suite and world versions (P7.27)
+        run: |
+          echo "suite-id=flexcore-plugin-sdk-conformance-suite-v1"
+          echo "wit-pins=flexcore:optimizer@1.0.0 flexcore:grid@1.0.0 flexcore:telemetry@1.0.0 (the wit/ tree, ledger P7.09)"
+      - name: P7.21 plugin SDK conformance suite (run record printed; never a certification claim)
+        run: cargo test -p flexcore-kernel --test conformance_p7_21 -- --nocapture
+      - name: P7.23 untrusted-plugin negative suite (host API; every attempt must be refused)
+        run: cargo test -p flexcore-plugin-host --test untrusted_plugin_p7_23
+      - name: P7.26 perf harness (structural; the MEASURED record is printed, never gated on)
+        run: cargo test -p flexcore-plugin-host --test perf_harness_p7_26 -- --nocapture
+      - name: P7.35 no-dylib lexical-scan test (the test-side twin of the no-dylib-gate job)
+        run: cargo test -p flexcore-plugin-host --test no_dylib_p7_35
+
+  # P7.43 step 3 — the SDK scenario-regression suite: the named SDK scenarios
+  # (pinned inputs, seeds, versions, expected outcomes, tolerance) embedded
+  # from `plugins/scenarios/` and executed by the in-test interpreter over
+  # the public kernel APIs. This is the SDK leg of the platform
+  # scenario-regression pattern (P5.20 `scenarios/library/` + P6.27 edge
+  # wiring) — the pattern is reused, no scenario is duplicated across legs,
+  # and no scenario re-runs a unit suite. The suite id is recorded per run
+  # (P7.43 step 2); a failing scenario blocks the merge. Green run UNRUN
+  # (recorded, never claimed).
+  sdk-scenario-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Record scenario-suite version (P7.43 step 2)
+        run: |
+          echo "suite-id=flexcore-plugin-sdk-scenario-regression-v1"
+          echo "suite-files=plugins/scenarios/sdk-*.json (format: plugins/scenarios/README.md)"
+      - name: P7.43 SDK scenario-regression suite (every pinned expectation must be met; a scenario failure blocks the merge)
+        run: cargo test -p flexcore-kernel --test scenario_regression_p7_43 -- --nocapture
+
+  # P7.27 step 1 (plugin manifest validation) — the P7.05 kernel manifest
+  # validator IS the gate; it runs via cargo test and NO separate validation
+  # tool is invented (the recorded P7.27 decision). The kernel workspace
+  # unit-tests job already runs this suite; the dedicated job gives the gate
+  # its own, individually inspectable verdict.
+  plugin-manifest-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: P7.05 plugin manifest validator suite (schema, named errors, SemVer ranges)
+        run: cargo test -p flexcore-kernel --test manifest_p7_05
+
+  # P7.27 step 1 (WIT compatibility validation) + the P7.40 CI pin check.
+  # CONFIG ONLY — never executed in the writing loop. The wasm-tools pin is
+  # the recorded 1.239.0 ASSUMPTION (RESEARCH.md §2, wit/TOOLCHAIN.md §1):
+  # the first-run verification re-checks the release page and updates BOTH
+  # the pin here and wit/TOOLCHAIN.md §1 in the same PR (the pin-record
+  # consistency step below enforces exactly that coupling).
+  # cargo-component / wit-bindgen are UNPINNED-REVERIFY (40_toolchain_pinning.md
+  # §2) — no version is verified, so their example-component build step is
+  # deliberately NOT wired; it lands after a release-page check by the human.
+  wit-validate:
+    runs-on: ubuntu-latest
+    env:
+      # ASSUMPTION per wit/TOOLCHAIN.md §1 — re-check the release page at the
+      # first run (RESEARCH.md §7 task 2); a change requires the same-PR
+      # edit of wit/TOOLCHAIN.md §1 (checked by the step below).
+      WASM_TOOLS_VERSION: 1.239.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Pin-record consistency check (P7.40: an unrecorded toolchain change is forbidden)
+        run: |
+          grep -F "$WASM_TOOLS_VERSION" wit/TOOLCHAIN.md || {
+            echo "::error::wasm-tools $WASM_TOOLS_VERSION is not recorded in wit/TOOLCHAIN.md §1 — update the pin record in the same PR"
+            exit 1
+          }
+          echo "OK: the installed pin matches wit/TOOLCHAIN.md §1"
+      - name: Install wasm-tools at the recorded pin
+        run: cargo install wasm-tools --version "$WASM_TOOLS_VERSION" --locked
+      - name: WIT package validation (the PREPARED-UNRUN command from wit/TOOLCHAIN.md §4)
+        run: wasm-tools component wit wit/
+      - name: Record the tool version next to the results (P7.40 §5)
+        run: wasm-tools --version
+
+  # P7.27 step 1 (Buf lint/breaking) for the Class C worker contract — the
+  # NEW python/workers/contracts buf module (P7.27; mirrors the P1.18
+  # proto/ governance: STANDARD lint, FILE breaking). CONFIG ONLY — no buf
+  # execution happened in the writing loop; the first CI run is the
+  # verification point. The existing proto/ buf steps in static-checks and
+  # buf-breaking are UNCHANGED.
+  worker-contract-buf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Buf lint for the worker contract (python/workers/contracts module)
+        uses: bufbuild/buf-action@v1
+        with:
+          input: python/workers/contracts
+          setup_only: false
+          lint: true
+          breaking: false
+      - name: Buf breaking change check against the base branch
+        if: github.event_name == 'pull_request'
+        uses: bufbuild/buf-action@v1
+        with:
+          input: python/workers/contracts
+          breaking: true
+          breaking_against: "https://github.com/${{ github.repository }}.git#branch=${{ github.base_ref }},subdir=python/workers/contracts"
+
+  # P7.35 — the ADR-006 no-dylib gate: the mechanical enforcement of the
+  # "no arbitrary Rust dynamic-library loading" prohibition (report §22.1
+  # ADR-006, §5.4; ENTRY_NOTE boundary 2). LEXICAL GATE — the documented
+  # limits (stated in the job comment AND the decision record §3.3): it
+  # catches direct dylib-loading patterns, not every possible FFI route;
+  # the structural guarantee rests on THREE legs together — this gate, the
+  # dependency rule (tools/check_dependency_rule.py, run in static-checks),
+  # and review.
+  #
+  # GREEN-BY-CONSTRUCTION: the token list was calibrated against the tree
+  # BEFORE the gate was written (the recorded baseline greps and their
+  # actual zero-hit outputs are in
+  # ledger/phase-07-plugin-sdk/26_27_35_ci_performance.md §3). The bare
+  # word "dylib" is deliberately NOT an .rs token: it legitimately occurs
+  # in a prose comment ("not dylibs ...") and in the kernel manifest
+  # validator's NEGATIVE test (a class "dylib" manifest must be REJECTED —
+  # that validator is part of the ADR-006 defence); the dynamic-library
+  # crate-type shapes are caught via the Cargo.toml crate-type scan.
+  # Test files are NOT scanned: tests never load libraries at runtime and
+  # negative tests legitimately name the tokens — a documented exclusion,
+  # never a silent one.
+  no-dylib-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No-dylib gate (ADR-006 — no arbitrary Rust dynamic-library loading anywhere in the workspace)
+        run: |
+          set -u
+          violations=0
+
+          # ALLOWLIST MECHANISM (no silent entries, ledger P7.35): to
+          # allowlist a path, append its exact relative path to
+          # ALLOWLIST_PATTERNS below WITH a dated review comment naming the
+          # decision and its owner. The list is EMPTY today — the recorded
+          # baseline shows zero hits on the whole tree.
+          ALLOWLIST_PATTERNS=()
+          allowlist() {
+            local filtered="$1"
+            local pattern
+            for pattern in "${ALLOWLIST_PATTERNS[@]}"; do
+              filtered="$(printf '%s\n' "$filtered" | grep -vF "$pattern" || true)"
+            done
+            printf '%s' "$filtered"
+          }
+          report() {
+            local label="$1"
+            local hits
+            hits="$(allowlist "$2")"
+            if [ -n "$hits" ]; then
+              echo "::error::ADR-006 no-dylib gate — $label violations:"
+              printf '%s\n' "$hits"
+              violations=1
+            else
+              echo "OK: no $label hits"
+            fi
+          }
+
+          # .rs loader tokens over every member source tree and the
+          # plugin/example trees (the ledger's named hiding place: a loader
+          # must not hide in an example).
+          rs_hits="$(grep -rE 'libloading|dlopen|#\[link\(name|extern "C"|LoadLibrary|GetProcAddress' --include='*.rs' crates apps plugins 2>/dev/null \
+            | grep '/src/' || true)"
+          report "Rust loader-token" "$rs_hits"
+
+          # Manifest tokens: a loader crate as a dependency, or a
+          # dynamic-library crate-type (the workspace builds lib/bin only).
+          manifest_hits="$(grep -rE 'libloading|dlopen|LoadLibrary|GetProcAddress' --include='Cargo.toml' . 2>/dev/null | grep -v '/target/' || true)"
+          report "manifest loader-dependency" "$manifest_hits"
+
+          crate_type_hits="$(grep -rE 'crate-type' --include='Cargo.toml' . 2>/dev/null | grep -v '/target/' | grep -E 'dylib|cdylib' || true)"
+          report "dynamic-library crate-type" "$crate_type_hits"
+
+          exit "$violations"
+
+  # P8.28 step 1 — the §22.2 Python gates wired to the research workers:
+  # Ruff + type checks + pytest over the research-worker suites
+  # (apps/worker/python: gnn_worker, marl_worker, andes_worker,
+  # portfolio_analytics, reproducibility, drill) and
+  # python/workers/tests. CONFIG ONLY — never executed in the writing
+  # loop; the first human CI run is the verification point.
+  #
+  # FAIL-CLOSED PIN GATE (the recorded P7.27 seam, resolved honestly):
+  # python/workers/requirements.txt carries deliberately un-installable
+  # `==UNPINNED-REVERIFY` pins, and the per-module research-stack files
+  # (requirements-gnn.txt, requirements-marl.txt, requirements-andes.txt)
+  # carry NO pin line at all — each is a recorded DECISION-POINT (P8.03;
+  # D4 OPEN) whose resolution is the human re-verify procedure recorded in
+  # the files themselves. The FIRST step below therefore fails the job
+  # with that procedure named — the job cannot go green by installing
+  # nothing (a silent green would be exactly the "compares against itself"
+  # failure mode the ledger names), and NO version is invented here. When
+  # the human lands verified pins, the steps below run as written.
+  research-python-gates:
+    runs-on: ubuntu-latest
+    env:
+      # The documented-tools floor (AGENTS.md §6); a version bump is a
+      # recorded change, never a float.
+      PYTHON_VERSION: "3.11"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python (documented floor)
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Research-stack pin gate (fail-closed until the human pins verified versions)
+        run: |
+          set -u
+          failed=0
+          # (1) The worker-template transport pins are UNPINNED-REVERIFY:
+          #     an install would fail by construction; the re-verify
+          #     procedure is recorded in the file's honesty header.
+          if grep -n "UNPINNED-REVERIFY" python/workers/requirements.txt >/dev/null 2>&1; then
+            echo "::error::P8.28 research-python-gates — python/workers/requirements.txt still carries UNPINNED-REVERIFY pins. The recorded re-verify procedure (the file's honesty header item 3) is the gate: verify grpcio/protobuf releases on PyPI + the grpc versioning table, record the checked date/versions in the file and 17_18_workers_supervision.md §6, then replace the tokens. NO version is invented by CI."
+            failed=1
+          fi
+          # (2) The DECISION-POINT files must carry NO framework pin line
+          #     (nothing selected, nothing installed — P8.03 §2/§4): a pin
+          #     appearing here WITHOUT the recorded decision is itself a
+          #     finding; an absent pin keeps the job at the fail-closed
+          #     state below.
+          for f in apps/worker/python/gnn_worker/requirements-gnn.txt \
+                   apps/worker/python/marl_worker/requirements-marl.txt \
+                   apps/worker/python/andes_worker/requirements-andes.txt; do
+            if [ ! -f "$f" ]; then
+              echo "::error::P8.28 research-python-gates — $f is missing; the DECISION-POINT record must not be silently dropped"
+              failed=1
+            elif grep -vE '^\s*(#|$)' "$f" | grep -E '==' >/dev/null 2>&1; then
+              echo "::error::P8.28 research-python-gates — $f carries a pin line but the framework DECISION-POINT (P8.03) has no recorded resolution; land the recorded decision (P8.03 §4 update) together with the pin"
+              failed=1
+            else
+              echo "::error::P8.28 research-python-gates — $f has NO pin line (the recorded DECISION-POINT state): the torch/PyG (P8.10 §6) / RLlib (P8.13 §5) / ANDES (P8.16) selection is the human gate; the pytest/Ruff/type gates below cannot run until it resolves"
+              failed=1
+            fi
+          done
+          # (3) pytest itself is unpinned (recorded, never invented): the
+          #     install steps below would pin it at the first human run.
+          if ! grep -nE '^(pytest|ruff|mypy)==' python/workers/requirements.txt apps/worker/python/requirements.txt >/dev/null 2>&1; then
+            echo "::error::P8.28 research-python-gates — no verified pytest/ruff/mypy pin exists anywhere (recorded gap): record the verified tool pins at the first human build/test pass, never floated"
+            failed=1
+          fi
+          exit "$failed"
+      # The steps below run ONLY after the pin gate passes (the human's
+      # recorded pins landed). They are the ledger P8.28 step-1 gates as
+      # written; they have NEVER executed (WRITTEN-UNRUN).
+      - name: Install the recorded research-stack pins (after the human gate lands them)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r python/workers/requirements.txt
+          pip install -r apps/worker/python/requirements.txt
+      - name: Install the recorded test/lint tool pins (recorded at the first human run)
+        run: pip install "pytest==RECORDED-AT-FIRST-HUMAN-RUN" "ruff==RECORDED-AT-FIRST-HUMAN-RUN" "mypy==RECORDED-AT-FIRST-HUMAN-RUN"
+      - name: Ruff (the §22.2 lint gate — a failure blocks the change)
+        run: ruff check apps/worker/python python/workers
+      - name: Type checks (the §22.2 gate over the pure stdlib modules — a failure blocks the change)
+        run: mypy apps/worker/python/reproducibility apps/worker/python/portfolio_analytics apps/worker/python/gnn_worker/gnn_evaluation.py apps/worker/python/marl_worker/evaluation_harness.py apps/worker/python/marl_worker/safety_filter.py apps/worker/python/marl_worker/shadow_log.py apps/worker/python/drill apps/worker/python/andes_worker/evaluation_harness.py
+      - name: Pytest — the research-worker suites (every written-but-unrun suite; a failure blocks the change)
+        run: |
+          PYTHONPATH=apps/worker/python/reproducibility python -m pytest apps/worker/python/reproducibility/tests -v
+          python -m pytest apps/worker/python/gnn_worker/tests apps/worker/python/marl_worker/tests apps/worker/python/andes_worker/tests apps/worker/python/portfolio_analytics/tests apps/worker/python/drill/tests -v
+          python -m pytest python/workers/tests -v
+
+  # P8.28 step 1 — the Rust gates for the P8.05/P8.06 harness. The crate is
+  # a workspace member, so fmt/clippy/workspace tests already cover it
+  # (the P7.27 coverage-note pattern); this job gives the harness its own,
+  # individually inspectable verdict, and adds the STRUCTURAL check of the
+  # frozen research benchmark artifact. CONFIG ONLY — never executed in
+  # the writing loop.
+  research-rust-harness-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Record harness and registry versions (the P7.27 version-record pattern)
+        run: |
+          echo "harness-id=flexcore-research/validation.v1 (P8.05)"
+          echo "baseline-registry-version=flexcore-research/baselines.v1 (P8.06 §3; solver pins HiGHS 1.15.1, Clarabel 0.11.1)"
+      - name: P8.05/P8.06 harness suite (the independent validator + frozen baseline registry; the verdict is per-job)
+        run: cargo test -p flexcore-research
+      - name: P8.19 frozen benchmark artifact STRUCTURAL check (structure only — NEVER a result; no research run exists)
+        run: |
+          python -I -c "
+          import json
+          d = json.load(open('benchmarks/research-set-v1.json'))
+          version = d.get('version_id')
+          assert version == 'flexcore-research-benchmark-set-v1', version
+          cases = [c['case_id'] for g in d['base_cases'] for c in g.get('cases', []) if isinstance(c, dict) and 'case_id' in c]
+          assert len(cases) > 0, 'the frozen set must not be silently emptied'
+          n = json.load(open('benchmarks/research-set-v1-not-tested.json'))
+          assert n['list_id'] == 'flexcore-research-benchmark-set-v1-not-tested', n['list_id']
+          assert n['set_version'] == version  # the not-tested list's set_version cites the set's version_id
+          assert len(n['items']) == 11, 'the frozen not-tested list must not silently grow or shrink'
+          print('frozen artifact structure OK:', len(cases), 'in-set case rows,', len(n['items']), 'not-tested items — no result is asserted or checked here')
+          "
+
+  # P8.28 step 3 — the research-worker conformance suite (P7.21 extended to
+  # the research contracts, 04_worker_contracts.md §6): the closed payload
+  # vocabularies, the sealed/boundary structures, and the
+  # "no authorization token in a worker response" refusal, pinned from
+  # both sides — this job runs the Python leg; the Rust-side twins in
+  # crates/flexcore-research/src/validation.rs run in the
+  # research-rust-harness-gates job. Behind the same fail-closed pin gate
+  # (pytest is a recorded gap until the human pins it). CONFIG ONLY —
+  # never executed in the writing loop.
+  research-worker-conformance:
+    runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: "3.11"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python (documented floor)
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Research-stack pin gate (the same fail-closed rule — pytest is unpinned until the human records it)
+        run: |
+          set -u
+          failed=0
+          if grep -n "UNPINNED-REVERIFY" python/workers/requirements.txt >/dev/null 2>&1; then
+            echo "::error::P8.28 research-worker-conformance — python/workers/requirements.txt still carries UNPINNED-REVERIFY pins (the file's honesty header item 3 is the re-verify procedure)"
+            failed=1
+          fi
+          if ! grep -nE '^pytest==' python/workers/requirements.txt apps/worker/python/requirements.txt >/dev/null 2>&1; then
+            echo "::error::P8.28 research-worker-conformance — no verified pytest pin exists (recorded gap): record it at the first human build/test pass"
+            failed=1
+          fi
+          exit "$failed"
+      - name: Record the conformance suite id (the P7.21 seam, extended)
+        run: |
+          echo "suite-id=flexcore-plugin-sdk-conformance-suite-v1 (extended: the research contracts, 04_worker_contracts.md §6)"
+          echo "python-leg=python/workers/tests/test_research_contracts.py"
+          echo "rust-leg=crates/flexcore-research/src/validation.rs (cfg(test) suites; research-rust-harness-gates job)"
+      - name: Install the recorded research-stack pins (after the human gate lands them)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r python/workers/requirements.txt
+      - name: Research-worker conformance suite (the Python leg; a failure blocks the change)
+        run: python -m pytest python/workers/tests/test_research_contracts.py -v
+
+  # P8.28 step 2 — the CI reproducibility check STUB, referencing
+  # 20_reproducibility.md's rerun standard (§5: a SECOND engineer, from the
+  # record alone, clean environment, identity check first, PRE-REGISTERED
+  # tolerance injected from the P8.38 record — X-8). THE CHECK ITSELF IS
+  # UNRUN UNTIL THE ARTIFACTS EXIST: no frozen P8.06 baseline RESULTS
+  # artifact exists, no P8.38 tolerance is pre-registered, and no P8.20
+  # reproducibility record exists (20_reproducibility.md §7 — every cell
+  # EMPTY). The gate step below FAILS with that statement — the stub can
+  # never go green by comparing against its own output (the ledger's named
+  # risk), and no tolerance value is invented by CI. When the artifacts
+  # exist, the human wires the recorded command into this job and the
+  # green run is recorded in 28_ci_gates.md (a HUMAN GATE INPUT, never
+  # claimed from config alone).
+  research-reproducibility-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reproducibility-check readiness gate (fail-closed until the artifacts exist)
+        run: |
+          set -u
+          # The frozen P8.06 baseline RESULTS artifact (the comparison
+          # target — produced by the first human/lab run via the
+          # registry's freeze path, 05_06_harness_baselines.md §3) and the
+          # P8.38 pre-registration (the injected tolerances) MUST both
+          # exist before any comparison is legal. Their recorded location
+          # is the freeze path itself; until it lands, this job fails
+          # with the honest UNRUN statement.
+          echo "::error::P8.28 research-reproducibility-check — UNRUN by recorded state: no frozen P8.06 baseline results artifact exists (05_06_harness_baselines.md §3), no P8.38 tolerance is pre-registered (X-8 — the comparator refuses without the injected pre-registration), and no P8.20 reproducibility record exists (20_reproducibility.md §7, every cell EMPTY). The check compares against the FROZEN artifact, never against its own output; wire the recorded rerun command (20_reproducibility.md §8 (f)) when the artifacts exist."
+          exit 1
+      # The recorded check, for the human gate (WRITTEN-UNRUN; enabled by
+      # replacing the fail-closed gate above once the artifacts exist):
+      #
+      #   1. select the recorded result (the P8.20 §7.1 record) and the
+      #      matching frozen baseline row (the P8.06 results artifact);
+      #   2. rerun from the record ALONE (second engineer, clean
+      #      environment — component_versions must EQUAL the record's);
+      #   3. identity first: rerun_check.identity_findings(primary,
+      #      rerun) — any mismatch is INVALID_RERUN_IDENTITY, never a
+      #      verdict;
+      #   4. rerun_check.rerun_verdict(primary, rerun, <the P8.38
+      #      pre-registered tolerance>) — the tolerance is injected from
+      #      the pre-registration, NEVER derived here;
+      #   5. a NOT_REPRODUCED_MARKED_FOR_EXCLUSION outcome FAILS this job
+      #      (the exclusion marking is standing — P8.26 must not cite the
+      #      result).
+
+  # P10.18 — the release-candidate build job (ADDITIVE; every existing job
+  # above is unchanged; the only other edit is the `workflow_dispatch:`
+  # trigger line in the `on:` block). Dispatch-ONLY (`if:` guard): this job
+  # never runs on push/PR — the explicit dispatch IS the human gate that
+  # ledger P10.18 records as UNRUN. RUN-RECORD HONESTY: this job is
+  # WRITTEN-UNRUN — no build, no dispatch, no artifact exists in the
+  # writing loop; its first execution is the verification point.
+  #
+  # What it produces (the P10.18 candidate-identity procedure, recorded in
+  # ledger/phase-10-v1-release-hardening/18_ci_gate_run_record.md §4): the
+  # gated-commit check, the release build, the repository verification
+  # commands (AGENTS.md §6), and the sha256 artifact hashes — the four
+  # identity inputs that fill the `<PENDING P10.18>` cells of the P10.01
+  # §6.1 scope freeze. It does NOT create the tag (P10.28 is
+  # prepared-NOT-EXECUTED) and does NOT close D4 (P10.19's determination).
+  release-candidate-build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Candidate-commit check (a dirty tree is not a candidate — P10.18 §3 step 0)
+        run: |
+          echo "candidate-commit=$(git rev-parse HEAD)"
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::the checkout is dirty — a release candidate is built from a clean gated commit"
+            exit 1
+          fi
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Release build (cargo build --release --workspace — P10.18 §3 step 7)
+        run: cargo build --release --workspace
+      - name: Repository verification commands (AGENTS.md §6 — P10.18 §3 step 8)
+        run: |
+          python tools/verify_docs.py
+          python tools/validate_agent.py
+          python -I tools/check_dependency_rule.py
+      - name: Artifact hashes (sha256 over the release binaries — P10.18 §3 step 9)
+        run: |
+          find target/release -maxdepth 1 -type f -perm -u+x ! -name '*.d' ! -name '*.so' \
+            -exec sha256sum {} \; | tee release-candidate-hashes.txt
+      - name: Upload the candidate-identity artifact (the §4 identity inputs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-identity
+          path: release-candidate-hashes.txt
+          if-no-files-found: error

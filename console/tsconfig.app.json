@@ -1,0 +1,33 @@
+// P5.01 — the console application config. Strict mode throughout (the
+// §22.2 frontend quality gates type-check with strict; the lint/test/build
+// scripts exist but were NEVER run in the Phase 5 loop — no install, no
+// tsc, recorded in the decision record 01_25_scaffold_live.md).
+{
+  "compilerOptions": {
+    // TypeScript ~7.0.0 (SECONDARY-SOURCE pin, re-verify at first install —
+    // package.json x-pin-policy; RESEARCH.md open task 1). The Go-native
+    // compiler features are NOT relied on anywhere; the config sticks to
+    // the version-stable option set so a re-verified 5.x/7.x toolchain
+    // both type-check this tree.
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    // Strict mode (P5.01: strict toolchain, §22.2 gates).
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true
+  },
+  "include": ["src"]
+}

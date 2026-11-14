@@ -1,0 +1,6 @@
+# P5.01 — console-local ignores. The Phase 5 loop bans installs/builds;
+# these entries exist so the first real install cannot commit artifacts.
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo

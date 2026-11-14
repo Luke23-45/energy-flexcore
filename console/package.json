@@ -1,0 +1,29 @@
+{
+  "name": "@neryva/flexcore-console",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Neryva FlexCore operator console (P5.01 scaffold). Simulation-only view of the 0.x platform; never a field-control tool.",
+  "x-pin-policy": "SECONDARY-SOURCE PINS; RE-VERIFY AT FIRST INSTALL (RESEARCH.md open task 1). react/react-dom 19.3.1, typescript ~7.0.0, vite ^8.2.1, @vitejs/plugin-react ^5.0.0 come from dated third-party round-ups recorded in ledger/phase-05-operator-console-simulator/RESEARCH.md (checked 2026-11-07) and MUST be re-verified against the official release pages (react.dev/versions, typescriptlang.org, vite.dev) before the first npm install. Dependencies marked UNPINNED in the comments below (vitest, eslint, typescript-eslint, @types/react, @types/react-dom) were NOT named by RESEARCH.md: they carry caret ranges and are resolved at the first install, then recorded. Known tooling risk from RESEARCH.md: typescript-eslint peer-dependency caps may lag a TypeScript major — verify the lint toolchain combination at scaffold time rather than assuming it works. NOTHING was installed, built, or run in the Phase 5 loop: there is no lockfile and no node_modules.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "~7.0.0",
+    "typescript-eslint": "^8.0.0",
+    "vite": "^8.2.1",
+    "vitest": "^3.0.0"
+  }
+}

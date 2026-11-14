@@ -1,0 +1,48 @@
+# P8.11 — GNN inference-worker framework pin (DECISION-POINT: NOTHING
+#         SELECTED, NOTHING INSTALLED).
+#
+# The Phase 8 loop bans installation: nothing in this file was ever
+# `pip install`ed into any environment in this repository's history, and
+# NO framework version is selected or pinned — the torch/PyG pair is a
+# recorded DECISION-POINT (P8.03 §4; D4 OPEN; R8-C3 version skew). This
+# file therefore contains NO pin line, deliberately: an uncommented pin
+# here would be an unverified selection, which the loop forbids.
+#
+# WHAT THE HUMAN BUILD/TEST PASS MUST DO (the gate order, per P8.03 §4
+# and 10_gnn_warmstart.md §6):
+#
+#   1. Re-check PyG releases supporting the current PyTorch (RESEARCH.md
+#      §7 task 2): as of the 2026-11-07 cut-off, PyG 2.8.0 (5 Jun 2026)
+#      supports PyTorch 2.9-2.12 only, while PyTorch 2.15 (28 Oct 2026)
+#      is current. Pin "latest + latest" on assumption is PROHIBITED.
+#   2. Select and record the verified-compatible pair (the P8.10
+#      RECOMMENDATION is PyTorch 2.12 + PyG 2.8.0 IF that pair is
+#      verified at implementation time) as a RECORDED DECISION — the
+#      agent loop never closes it.
+#   3. Confirm licenses from the projects' primary sources (PyTorch
+#      BSD-style family / PyG MIT family, both UNVERIFIED until
+#      confirmed) and run the P8.36 at-pin-time advisory check,
+#      recorded per version with a date.
+#   4. ONLY THEN an install, into an ISOLATED research environment —
+#      never into a system environment and never into the platform's
+#      runtime. torch/PyG must NEVER appear in the cargo tree or any
+#      core dependency set (the ANDES/HELICS/torch exclusion posture of
+#      03_research_license_audit.md §2 applies verbatim).
+#
+# The selected lines then go here, e.g. (ILLUSTRATIVE, NOT A PIN):
+#   torch==<verified-compatible-version-selected-by-the-human-gate>
+#   torch_geometric==<verified-compatible-version-selected-by-the-human-gate>
+#
+# Deliberately NOT dependencies of this worker:
+# - jax: the recorded alternative framework (P8.03 §4); selecting it
+#   would be its own pinned, licensed, CVE-checked decision.
+# - ray/rllib, gymnasium: the MARL stack (P8.13's pins), never this
+#   worker's.
+# - andes, pandapower, helics: simulation/co-sim tools owned by other
+#   workers (andes_worker, grid_worker, helics_federates); the GNN
+#   worker imports no simulator and no transport.
+# - No solver of any kind: this worker produces warm-start CANDIDATES
+#   and screening RANKINGS as proposals (ADR-010); the exact solver
+#   (HiGHS LP/QP/MIP for the declared class) still solves on the
+#   platform side. The GNN does not replace the solver, and a warm
+#   start affects SPEED of an exact solve, never its optimality.

@@ -1,0 +1,244 @@
+{
+  "scenario-id": "sdk-02-profile-switch-with-drain",
+  "scenario-version": "1.0.0",
+  "suite": "flexcore-plugin-sdk-scenario-regression-v1",
+  "description": "The lifecycle scenario through the P7.15/P7.16 seam: two profile versions resolve into two plans, the deterministic diff names exactly one contract replacement and one plugin upgrade, the incumbent drains to Stopped through the §5.6 drain-before-replace machine and its version change is recorded, a drain deadline abuse is refused fail-closed with the incumbent restored to Ready, and the explicit profile switch executes with the exact prepared/drained/replaced step count — while the four switch refusals (no confirmation, no-op switch, control-authority mode change, confirmation mismatch) land on their recorded names.",
+  "pins": {
+    "seeds": "none — this scenario exercises pure structural kernel functions and the scripted drain/executor ports; no seeded generation runs on this path",
+    "versions": {
+      "manifest-schema": "flexcore-plugin-manifest-v1",
+      "profile-schema": "flexcore-profile-v1",
+      "platform-api-version": "0.5.0",
+      "drain-deadline": "DEFAULT_DRAIN_DEADLINE_MS (30 000 ms of injected-clock time)"
+    },
+    "tolerance": "exact — every expected outcome is a named refusal, an exact state name, or an exact applied-step count; no numeric tolerance exists on this path"
+  },
+  "inputs": {
+    "manifests": [
+      {
+        "manifest-schema": "flexcore-plugin-manifest-v1",
+        "plugin-id": "neryva.sdk02-optimizer",
+        "name": "SDK Scenario 02 Optimizer v0.1.0 (incumbent)",
+        "version": "0.1.0",
+        "api-version": ">=0.5.0, <0.6.0",
+        "class": "builtin-rust",
+        "entry-point": { "registered-type": "neryva.builtin/sdk02-optimizer" },
+        "provider-of": ["optimization.lp"],
+        "consumes": ["portfolio.read"],
+        "permissions": ["schedule.propose"],
+        "configuration-schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "secrets": [],
+        "resources": { "max-memory-mb": 64, "timeout-ms": 15000 },
+        "metadata": { "license": "Apache-2.0", "description": "Incumbent optimizer (v0.1.0)." }
+      },
+      {
+        "manifest-schema": "flexcore-plugin-manifest-v1",
+        "plugin-id": "neryva.sdk02-optimizer",
+        "name": "SDK Scenario 02 Optimizer v0.2.0 (replacement)",
+        "version": "0.2.0",
+        "api-version": ">=0.5.0, <0.6.0",
+        "class": "builtin-rust",
+        "entry-point": { "registered-type": "neryva.builtin/sdk02-optimizer" },
+        "provider-of": ["optimization.lp"],
+        "consumes": ["portfolio.read"],
+        "permissions": ["schedule.propose"],
+        "configuration-schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "secrets": [],
+        "resources": { "max-memory-mb": 64, "timeout-ms": 15000 },
+        "metadata": { "license": "Apache-2.0", "description": "Replacement optimizer (v0.2.0)." }
+      },
+      {
+        "manifest-schema": "flexcore-plugin-manifest-v1",
+        "plugin-id": "neryva.sdk02-portfolio",
+        "name": "SDK Scenario 02 Portfolio Provider",
+        "version": "0.1.0",
+        "api-version": ">=0.5.0, <0.6.0",
+        "class": "builtin-rust",
+        "entry-point": { "registered-type": "neryva.builtin/sdk02-portfolio" },
+        "provider-of": ["portfolio.read"],
+        "consumes": [],
+        "permissions": ["asset.read"],
+        "configuration-schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "secrets": [],
+        "resources": { "max-memory-mb": 64, "timeout-ms": 15000 },
+        "metadata": { "license": "Apache-2.0", "description": "Portfolio provider (unchanged by the switch)." }
+      }
+    ],
+    "profiles": [
+      {
+        "profile-schema": "flexcore-profile-v1",
+        "profile-id": "sdk02-current",
+        "name": "SDK Scenario 02 Current Profile",
+        "version": "1.0.0",
+        "description": "The current composition: optimizer v0.1.0 + portfolio provider.",
+        "control-authority": "simulation-shadow",
+        "permission-ceiling": ["schedule.propose", "asset.read"],
+        "selections": [
+          { "manifest-id": "neryva.sdk02-optimizer", "version-constraint": ">=0.1.0, <0.2.0" },
+          { "manifest-id": "neryva.sdk02-portfolio", "version-constraint": ">=0.1.0, <0.2.0" }
+        ]
+      },
+      {
+        "profile-schema": "flexcore-profile-v1",
+        "profile-id": "sdk02-target",
+        "name": "SDK Scenario 02 Target Profile",
+        "version": "1.1.0",
+        "description": "The target composition: optimizer upgraded to v0.2.0, portfolio provider unchanged.",
+        "control-authority": "simulation-shadow",
+        "permission-ceiling": ["schedule.propose", "asset.read"],
+        "selections": [
+          { "manifest-id": "neryva.sdk02-optimizer", "version-constraint": ">=0.2.0, <0.3.0" },
+          { "manifest-id": "neryva.sdk02-portfolio", "version-constraint": ">=0.1.0, <0.2.0" }
+        ]
+      }
+    ],
+    "configs": []
+  },
+  "steps": [
+    { "step": "parse-manifest", "index": 0, "expect": { "outcome": "ok" } },
+    { "step": "parse-manifest", "index": 1, "expect": { "outcome": "ok" } },
+    { "step": "parse-manifest", "index": 2, "expect": { "outcome": "ok" } },
+    { "step": "parse-profile", "index": 0, "expect": { "outcome": "ok" } },
+    { "step": "parse-profile", "index": 1, "expect": { "outcome": "ok" } },
+    {
+      "step": "validate-profile",
+      "profile": 0,
+      "manifests": [0, 2],
+      "as": "plan-current",
+      "expect": {
+        "outcome": "ok",
+        "registrations": ["neryva.sdk02-portfolio", "neryva.sdk02-optimizer"]
+      }
+    },
+    {
+      "step": "validate-profile",
+      "profile": 1,
+      "manifests": [1, 2],
+      "as": "plan-target",
+      "expect": { "outcome": "ok" }
+    },
+    {
+      "step": "diff-plans",
+      "current": "plan-current",
+      "target": "plan-target",
+      "expect": {
+        "outcome": "ok",
+        "counts": {
+          "added": 0,
+          "removed": 0,
+          "replaced": 1,
+          "departing": 0,
+          "arriving": 0,
+          "upgraded": 1
+        }
+      }
+    },
+    { "step": "lifecycle-register", "plugin-id": "neryva.sdk02-optimizer", "version": "0.1.0", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-gate", "transition": "verify", "gate": "passed", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-gate", "transition": "mark-compatible", "gate": "passed", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-gate", "transition": "configure", "gate": "passed", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-gate", "transition": "start", "gate": "passed", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-gate", "transition": "mark-ready", "gate": "passed", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-state", "state": "READY" },
+    { "step": "set-drain-script", "quiesce": true, "outstanding": 0, "cancelled": 1 },
+    { "step": "lifecycle-begin-drain", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-complete-drain", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-state", "state": "STOPPED" },
+    { "step": "lifecycle-record-version-change", "new-version": "0.2.0", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-register", "plugin-id": "neryva.sdk02-optimizer", "version": "0.1.0", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-gate", "transition": "verify", "gate": "passed", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-gate", "transition": "mark-compatible", "gate": "passed", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-gate", "transition": "configure", "gate": "passed", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-gate", "transition": "start", "gate": "passed", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-gate", "transition": "mark-ready", "gate": "passed", "expect": { "outcome": "ok" } },
+    { "step": "set-drain-script", "quiesce": false, "outstanding": 2, "cancelled": 0 },
+    { "step": "lifecycle-begin-drain", "expect": { "outcome": "ok" } },
+    { "step": "lifecycle-complete-drain", "expect": { "outcome": "refused", "name": "DRAIN_DEADLINE_EXCEEDED" } },
+    { "step": "lifecycle-state", "state": "READY" },
+    {
+      "step": "execute-switch",
+      "from": "sdk02-current",
+      "to": "sdk02-target",
+      "current-plan": "plan-current",
+      "target-plan": "plan-target",
+      "confirmation": {
+        "actor": "sdk-operator",
+        "from-profile": "sdk02-current",
+        "to-profile": "sdk02-target",
+        "timestamp-millis": 1700000000000,
+        "reason": "upgrade the optimizer plugin through drain-before-replace"
+      },
+      "expect": { "outcome": "ok", "applied-steps": 3 }
+    },
+    {
+      "step": "execute-switch",
+      "from": "sdk02-current",
+      "to": "sdk02-target",
+      "current-plan": "plan-current",
+      "target-plan": "plan-target",
+      "confirmation": null,
+      "expect": { "outcome": "refused", "name": "SWITCH_CONFIRMATION_MISSING" }
+    },
+    {
+      "step": "execute-switch",
+      "from": "sdk02-current",
+      "to": "sdk02-current",
+      "current-plan": "plan-current",
+      "target-plan": "plan-current",
+      "confirmation": {
+        "actor": "sdk-operator",
+        "from-profile": "sdk02-current",
+        "to-profile": "sdk02-current",
+        "timestamp-millis": 1700000000000,
+        "reason": "no-op attempt"
+      },
+      "expect": { "outcome": "refused", "name": "SWITCH_NO_OP_REFUSED" }
+    },
+    {
+      "step": "execute-switch",
+      "from": "sdk02-current",
+      "to": "sdk02-target",
+      "current-plan": "plan-current",
+      "target-plan": "plan-target",
+      "to-posture": "read-only-shadow",
+      "confirmation": {
+        "actor": "sdk-operator",
+        "from-profile": "sdk02-current",
+        "to-profile": "sdk02-target",
+        "timestamp-millis": 1700000000000,
+        "reason": "mode-change attempt (refused; the mode is a deployment setting)"
+      },
+      "expect": { "outcome": "refused", "name": "CONTROL_AUTHORITY_MODE_CHANGE_REFUSED" }
+    },
+    {
+      "step": "execute-switch",
+      "from": "sdk02-current",
+      "to": "sdk02-target",
+      "current-plan": "plan-current",
+      "target-plan": "plan-target",
+      "confirmation": {
+        "actor": "sdk-operator",
+        "from-profile": "sdk02-other",
+        "to-profile": "sdk02-other-2",
+        "timestamp-millis": 1700000000000,
+        "reason": "mismatched confirmation attempt"
+      },
+      "expect": { "outcome": "refused", "name": "SWITCH_CONFIRMATION_MISMATCH" }
+    }
+  ]
+}

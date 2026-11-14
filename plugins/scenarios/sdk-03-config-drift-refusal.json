@@ -1,0 +1,133 @@
+{
+  "scenario-id": "sdk-03-config-drift-refusal",
+  "scenario-version": "1.0.0",
+  "suite": "flexcore-plugin-sdk-scenario-regression-v1",
+  "description": "The configuration scenario through the P7.19 seam: a manifest declaring a typed configuration schema and one secret reference resolves operator values into the deterministic resolved view (plain values and a secret REFERENCE handle), then every named refusal is pinned — the version-anchored CONFIG_DRIFT (a manifest updated while an instance runs), a wrong value type, a missing required property, an unknown property, an inline credential in a secret-shaped declared field, and a config property smuggling a manifest secret by name.",
+  "pins": {
+    "seeds": "none — this scenario exercises pure structural kernel functions; no seeded generation runs on this path",
+    "versions": {
+      "manifest-schema": "flexcore-plugin-manifest-v1",
+      "instantiated-version": "0.3.0 (the drift step deliberately resolves against 0.2.9)"
+    },
+    "tolerance": "exact — every expected outcome is a named refusal or an exact resolved-view JSON equality; no numeric tolerance exists on this path"
+  },
+  "inputs": {
+    "manifests": [
+      {
+        "manifest-schema": "flexcore-plugin-manifest-v1",
+        "plugin-id": "neryva.sdk03-meter",
+        "name": "SDK Scenario 03 Meter Plugin",
+        "version": "0.3.0",
+        "api-version": ">=0.5.0, <0.6.0",
+        "class": "builtin-rust",
+        "entry-point": { "registered-type": "neryva.builtin/sdk03-meter" },
+        "provider-of": ["metering.read"],
+        "consumes": [],
+        "permissions": ["telemetry.read"],
+        "configuration-schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rated-power-mw": { "type": "number", "description": "Rated power in MW." },
+            "endpoint": { "type": "string", "description": "Meter endpoint." },
+            "client-secret": { "type": "string", "description": "Secret-shaped declared property: references only, never a plain value." },
+            "api-token": { "type": "string", "description": "Declared property deliberately named like the manifest secret (the smuggling probe)." }
+          },
+          "required": ["rated-power-mw"]
+        },
+        "secrets": [
+          { "name": "api-token", "reference": "env:FLEXCORE_SDK03_TOKEN" }
+        ],
+        "resources": { "max-memory-mb": 64, "timeout-ms": 15000 },
+        "metadata": { "license": "Apache-2.0", "description": "Configuration-drift scenario fixture." }
+      }
+    ],
+    "profiles": [],
+    "configs": [
+      { "rated-power-mw": 2.5, "endpoint": "https://meter.internal" },
+      { "rated-power-mw": 2.5, "endpoint": "env:METER_ENDPOINT" },
+      { "rated-power-mw": "2.5" },
+      { "endpoint": "https://meter.internal" },
+      { "rated-power-mw": 2.5, "unknown-prop": 1 },
+      { "rated-power-mw": 2.5, "client-secret": "hunter2" },
+      { "rated-power-mw": 2.5, "api-token": "smuggled-value" }
+    ]
+  },
+  "steps": [
+    { "step": "parse-manifest", "index": 0, "expect": { "outcome": "ok" } },
+    {
+      "step": "resolve-config",
+      "manifest": 0,
+      "instantiated-version": "0.3.0",
+      "config": 0,
+      "as": "good",
+      "expect": {
+        "outcome": "ok",
+        "resolved-json": {
+          "endpoint": "https://meter.internal",
+          "rated-power-mw": 2.5
+        }
+      }
+    },
+    {
+      "step": "resolve-config",
+      "manifest": 0,
+      "instantiated-version": "0.3.0",
+      "config": 1,
+      "as": "with-reference",
+      "expect": {
+        "outcome": "ok",
+        "resolved-json": {
+          "endpoint": {
+            "reference": "env:METER_ENDPOINT",
+            "scheme": "ENV",
+            "location": "METER_ENDPOINT"
+          },
+          "rated-power-mw": 2.5
+        }
+      }
+    },
+    {
+      "step": "resolve-config",
+      "manifest": 0,
+      "instantiated-version": "0.2.9",
+      "config": 0,
+      "expect": { "outcome": "refused", "name": "CONFIG_DRIFT" }
+    },
+    {
+      "step": "resolve-config",
+      "manifest": 0,
+      "instantiated-version": "0.3.0",
+      "config": 2,
+      "expect": { "outcome": "refused", "name": "CONFIG_WRONG_TYPE" }
+    },
+    {
+      "step": "resolve-config",
+      "manifest": 0,
+      "instantiated-version": "0.3.0",
+      "config": 3,
+      "expect": { "outcome": "refused", "name": "MISSING_REQUIRED" }
+    },
+    {
+      "step": "resolve-config",
+      "manifest": 0,
+      "instantiated-version": "0.3.0",
+      "config": 4,
+      "expect": { "outcome": "refused", "name": "UNKNOWN_PROPERTY" }
+    },
+    {
+      "step": "resolve-config",
+      "manifest": 0,
+      "instantiated-version": "0.3.0",
+      "config": 5,
+      "expect": { "outcome": "refused", "name": "SECRET_VALUE_IN_CONFIG" }
+    },
+    {
+      "step": "resolve-config",
+      "manifest": 0,
+      "instantiated-version": "0.3.0",
+      "config": 6,
+      "expect": { "outcome": "refused", "name": "SECRET_FIELD_COLLISION" }
+    }
+  ]
+}

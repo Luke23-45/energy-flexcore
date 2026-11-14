@@ -1,0 +1,38 @@
+# P7.05/P7.06 — flexcore-kernel manifest: the plugin kernel crate (report
+# §8.1 `crates/flexcore-kernel/`, §8.2; ledger PLAN.md component breakdown).
+#
+# Ownership (PLAN.md §3): composition, registry, lifecycle, permissions,
+# dependency resolution. This wave delivers exactly two of those:
+# - P7.05 — the versioned plugin manifest (`flexcore-plugin-manifest-v1`),
+#   its strict validator, and the published schema document
+#   (`plugins/manifests/manifest-schema-v1.md`).
+# - P7.06 — the deterministic dependency resolver (missing / incompatible /
+#   cyclic / conflicting providers, explicit selections, protected-kernel
+#   guard) producing the `CompositionPlan` that P7.08 (registry) and P7.16
+#   (re-composition) will consume. The registry, lifecycle, and permission
+#   enforcement are later subtasks and are deliberately NOT stubbed here
+#   (P1.03 rule: only crates with real code; no empty scaffolding).
+#
+# Classification (tools/check_dependency_rule.py): COMPOSITION crate, like
+# `apps/worker` — flexcore-kernel manages composition (report §8.2:
+# "`flexcore-kernel` manages plugin composition and lifecycle; it must not
+# become a second domain layer"). Nothing depends ON it yet; P7.08's
+# registry and future apps/* composition roots will.
+#
+# Dependency minimisation: exactly ONE external dependency, serde_json,
+# taken through the existing workspace pin (`serde_json = "1.0"` in the
+# root `[workspace.dependencies]`; already used by flexcore-contracts and
+# flexcore-simulator) — NO new external dependency is introduced by this
+# wave. Manifest parsing uses `serde_json::Value` with STRICT manual field
+# extraction (closed key sets everywhere) — never derive-on-untrusted-
+# input — so unknown fields are a named rejection, not a silent skip.
+# No tokio, no tracing, no flexcore-* dependency: the kernel is upstream of
+# everything it will later compose, and P7.05/P7.06 need nothing from it.
+[package]
+name = "flexcore-kernel"
+description = "FlexCore plugin kernel: versioned plugin manifest validation and deterministic dependency resolution (P7.05/P7.06)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde_json = { workspace = true }

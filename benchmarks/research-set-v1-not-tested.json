@@ -1,0 +1,100 @@
+{
+  "schema_note": "Field order is NORMATIVE. This list is part of the frozen set flexcore-research-benchmark-set-v1 and changes only with a NEW set version.",
+  "list_id": "flexcore-research-benchmark-set-v1-not-tested",
+  "set_version": "flexcore-research-benchmark-set-v1",
+  "frozen_date": "2026-11-14",
+  "ledger_subtask": "P8.19 (step 3: the not-tested list — important cases that were NOT run, with the reason)",
+  "decision_record": "ledger/phase-08-advanced-coordination/19_benchmark_cases.md",
+  "prohibition": "Do not claim that the first distribution feeder tests establish capability for a 10,000-bus utility network (report §19.3, closing sentence; P8.02 X-7). Every item below is a case the phase must NOT be read as having covered.",
+  "items": [
+    {
+      "item_id": "NT-1",
+      "case": "a 10,000-bus utility-scale network (any transmission-scale network study)",
+      "section_trace": "report §19.3 closing sentence; §19.1 transmission/planning track; §19.2(8)",
+      "status": "NOT RUN — and a scale claim from the tested range is PROHIBITED",
+      "reason": "no transmission-scale model, solver run, or result exists anywhere in this repository; the tested range is fixture-scale synthetic feeders (lib-01…lib-08, three-bus and two-feeder fixtures) and the ×2/×4 in-memory portfolio copies; §19.3 forbids claiming feeder tests establish capability for a 10,000-bus network; enforced as P8.02 X-7 and restated in the P8.21 scaling protocol",
+      "prohibition_refs": ["P8.02 X-7", "report §19.3"]
+    },
+    {
+      "item_id": "NT-2",
+      "case": "IEEE 39-bus transmission test system",
+      "section_trace": "report §19.3 bullet 2",
+      "status": "NOT RUN",
+      "reason": "named explicitly because §19.3 names it; the per-case IEEE exclusion record (carried in every scenarios/library/lib-*.json) records that no model is available in this repository and neither licensing nor model availability is confirmed; NO transmission case has been RUN here",
+      "prohibition_refs": ["per-case IEEE exclusion record", "P8.02 X-7"]
+    },
+    {
+      "item_id": "NT-3",
+      "case": "IEEE 118-bus transmission test system",
+      "section_trace": "report §19.3 bullet 2",
+      "status": "NOT RUN",
+      "reason": "same exclusion and same honest statement as NT-2 — no transmission case has been RUN in this repository",
+      "prohibition_refs": ["per-case IEEE exclusion record", "P8.02 X-7"]
+    },
+    {
+      "item_id": "NT-4",
+      "case": "IEEE 13-bus, 34-bus, and 123-bus distribution test feeders",
+      "section_trace": "report §19.3 bullet 1",
+      "status": "NOT RUN",
+      "reason": "the §19.3 precondition ('where licensing and model availability are confirmed') is unconfirmed — the per-case IEEE exclusion record is the honest entry; a future inclusion requires the confirmed licensing AND a model source, recorded per case, and freezes a new benchmark-set version",
+      "prohibition_refs": ["per-case IEEE exclusion record"]
+    },
+    {
+      "item_id": "NT-5",
+      "case": "unbalanced distribution networks (per-phase models, unbalanced power flow)",
+      "section_trace": "report §19.1 distribution track; D3 (network class/model fidelity), OPEN",
+      "status": "NOT RUN — out of the declared scope",
+      "reason": "D3 is OPEN and the declared network class is balanced distribution (radial default RECOMMENDATION plus one balanced meshed fixture, lib-03); unbalanced topologies are out of scope unless an explicitly scoped design decision adds them (never assumed, never slipped in — the P8.10 §4 D3 obligation)",
+      "prohibition_refs": ["D3 OPEN (.agent/DECISIONS.md)", "P8.02 §4 D3 obligation"]
+    },
+    {
+      "item_id": "NT-6",
+      "case": "runtime topology-change event (feeder switching / line trip mid-horizon in the quasi-static grid model)",
+      "section_trace": "report §19.3 bullet 5 ('topology change')",
+      "status": "NOT RUN — no such case exists",
+      "reason": "the repository covers topology-CLASS variation only (radial fixtures vs the balanced meshed two-feeder fixture, lib-03) — the lib-08 record states this honestly as 'a fixture-level topology class, not a runtime switching model'; no switching model, no mid-horizon topology event, and no case exercising one exists; a runtime topology-change case is a recorded candidate for benchmark-set v2",
+      "prohibition_refs": ["lib-08 record statement"]
+    },
+    {
+      "item_id": "NT-7",
+      "case": "sustained communication loss (dedicated benchmark case)",
+      "section_trace": "report §19.3 bullet 5 ('communication loss'); §19.2(6) fault set",
+      "status": "NOT RUN as a dedicated case — only analogues exist",
+      "reason": "the recorded analogues are the lib-07 telemetry dropout window (no frames 12:00-13:00 UTC), the lib-04 worker-timeout fail-closed path, and the P5.21 fault-injection suite (dropped/reordered/duplicated messages) — and the P5.21 suite is WRITTEN-UNRUN; no sustained-loss benchmark case has been executed, and the worker_process backend itself is an UNVERIFIED pandapower API",
+      "prohibition_refs": ["P8.01 §4 item 4 (UNVERIFIED worker backend)", "P5.21 records"]
+    },
+    {
+      "item_id": "NT-8",
+      "case": "probabilistic forecast-error ensembles (distributional forecast scenarios)",
+      "section_trace": "report §19.3 bullet 5 ('forecast error'); §19.4 flexibility metrics (uncertainty calibration)",
+      "status": "NOT RUN — only a single deterministic error fixture exists",
+      "reason": "the only forecast-error artefact in the repository is the deterministic v1-error-pv-ramp fixture (PV down 80 percent of clear-sky inside 12:00-13:00 UTC); no ensemble, no distributional forecast case, and therefore no uncertainty-calibration measurement case exists",
+      "prohibition_refs": []
+    },
+    {
+      "item_id": "NT-9",
+      "case": "transmission/planning studies (the PyPSA track, §19.1)",
+      "section_trace": "report §19.1 transmission/planning track",
+      "status": "NOT RUN — no integration exists",
+      "reason": "no PyPSA integration, dependency, or case exists in this repository; the §19.1 track table names the tool, and naming a tool is not an integration",
+      "prohibition_refs": ["AGENTS.md rule 1 (no hallucinated facts)"]
+    },
+    {
+      "item_id": "NT-10",
+      "case": "dynamic-stability cases (Kundur two-area, IEEE 14-bus with dynamic data) and any transient/frequency result",
+      "section_trace": "report §19.1 dynamic track; ledger P8.16/P8.17",
+      "status": "NOT RUN — out of this set's scope",
+      "reason": "the dynamic track is the P8.16/P8.17 scope (ANDES, GPLv3-isolated), not this benchmark set; no dynamic simulation has been executed, and a steady-state power-flow tool must never be presented as transient-stability evidence (§19.1; P8.02 X-5)",
+      "prohibition_refs": ["P8.02 X-5", "P8.03 ANDES isolation"]
+    },
+    {
+      "item_id": "NT-11",
+      "case": "hardware-in-the-loop commissioning",
+      "section_trace": "report §19.1 HIL track; §19.2(10)",
+      "status": "NOT RUN — out of phase scope",
+      "reason": "HIL requires a vendor/partner platform and is gated behind simulation, integration, and cyber reviews (§19.2(10)); nothing in this phase approaches that gate",
+      "prohibition_refs": ["report §19.2(10)"]
+    }
+  ],
+  "scale_claim_rule": "No capability, performance, or scale claim may be stated beyond the tested range declared in research-set-v1.json. The tested range is: synthetic fixture-scale distribution cases (three-bus radial; balanced two-feeder meshed) and the ×2/×4 in-memory portfolio-copy probe — raw numbers only, no scaling law derived from two or three points (benchmarks/README.md no-targets rule 3)."
+}

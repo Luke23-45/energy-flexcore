@@ -108,9 +108,13 @@ struct AssetRaw {
     behaviour_profile: BehaviourProfileRaw,
 }
 
+/// The scenario asset types (the P2.13 §5 vocabulary). Public since the
+/// P5.14 adapter integration: the validated `AssetSpec` public field
+/// already exposes the type, and the P5.14 run record names the per-asset
+/// model identity — a public interface may not carry a private type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum AssetType {
+pub enum AssetType {
     Bess,
     Pv,
     FlexibleLoad,
@@ -170,10 +174,14 @@ struct FaultInjectionRaw {
 }
 
 /// The seven fault kinds (P2.15 step 1). Serialized snake_case so the
-/// scenario file reads naturally.
+/// scenario file reads naturally. Public since the P5.14 adapter
+/// integration: the validated `FaultSpec` public field already exposes
+/// the kind, and the dispatch-transport composition (the D-P4.16-4
+/// mapping) matches on it — a public interface may not carry a private
+/// type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum FaultKind {
+pub enum FaultKind {
     /// Omit the frame for the interval (→ absence; the pipeline's gap
     /// detector turns that into `MISSING` — a provider itself can never
     /// emit `MISSING`, P2.04 D-T6).

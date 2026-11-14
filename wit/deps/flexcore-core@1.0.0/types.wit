@@ -1,0 +1,209 @@
+// P7.09 — flexcore:core@1.0.0 — the shared FlexCore data vocabulary package
+// (ledger P7.09 step 2). Every world in this tree uses this package for
+// identifiers, timestamps, canonical units, sign conventions, quality
+// states, and the canonical telemetry record, so no world can carry a bare
+// float without units or context (the recorded P7.09 failure mode).
+//
+// Mirrors: flexcore-contracts/src/ids.rs::FlexUuid;
+//   flexcore-contracts/src/time_model.rs::{ClockQuality, EventTime,
+//   IngestTime}; flexcore-contracts/src/units.rs::{ReactiveSignConvention,
+//   ActivePowerMW, ReactivePowerMVAr, ApparentPowerMVA, EnergyMWh,
+//   StateOfCharge}; flexcore-contracts/src/quality.rs::TelemetryQuality;
+//   flexcore-ports/src/telemetry_source.rs::{TelemetryQuantity, QuantityValue,
+//   NormalizedTelemetry} — verified 2026-11-13; WIT translation, not
+//   redefinition.
+//
+// Units and signs (report §10.2, frozen): MW, MVAr, MVA, MWh; `P > 0` means
+// EXPORT at the point of connection, `P < 0` means import; the
+// reactive-power sign is interpreted ONLY under the convention declared per
+// grid model and device profile and carried WITH the value — never assumed.
+// SOC is a fraction in [0,1] at the API boundary; percent is never canonical.
+//
+// Time (report §10.3, frozen): `event_time` and `ingest_time` are distinct
+// and both mandatory on a record; UTC-only; carried as Unix-epoch
+// milliseconds. `ingest_time >= event_time` always (a value cannot be
+// received before it occurred).
+//
+// Quality (report §10.4, frozen): exactly the six canonical states in the
+// `telemetry-quality` enum below. There is no seventh state; a richer
+// source-side code travels as `source-quality-code` metadata and never
+// becomes a canonical state (P0.08 §3).
+//
+// WASI 0.2 baseline (RESEARCH.md R7-C1; report §5.4): this package declares
+// NO `wasi:` imports — least privilege, report §5.4 "no ambient access".
+// If a world later needs a WASI interface, it is pinned at wasi:*@0.2.x
+// (e.g. wasi:cli/imports@0.2.x); WASI 0.3 syntax must not appear anywhere
+// in this tree. WASI 0.3 is tracked, not required (02_scope_freeze.md P-3);
+// re-evaluation trigger: Rust 1.100 stable + host compatibility confirmed
+// (ledger P7.32).
+
+package flexcore:core@1.0.0;
+
+interface types {
+
+    // --- Identifiers --------------------------------------------------------
+
+    // Mirrors flexcore-contracts::ids::FlexUuid: a 16-byte UUID, carried as
+    // two 64-bit halves (most significant first). The all-zero value is the
+    // FlexUuid::NIL sentinel; a candidate ID of nil fails the §12.6
+    // completeness rule (flexcore-optimization-api/src/result.rs).
+    record flex-uuid {
+        most-significant: u64,
+        least-significant: u64,
+    }
+
+    // --- Time -----------------------------------------------------------------
+
+    // Mirrors flexcore-contracts::time_model::{EventTime, IngestTime}: a UTC
+    // instant as Unix-epoch milliseconds (s64). EventTime and IngestTime are
+    // DISTINCT newtypes in Rust; WIT has no newtype, so the distinction is
+    // carried by the field names on the records that use this type
+    // (`event-time` vs `ingest-time`) — recorded in the wit/README.md
+    // mapping tables as a first-validation checklist item.
+    record utc-timestamp {
+        unix-millis: s64,
+    }
+
+    // Mirrors flexcore-contracts::time_model::ClockQuality (P0.09 §4; P2.04
+    // D-T5): recorded, never assumed — `unknown` is a real recorded state,
+    // never silently upgraded to `synchronized`.
+    enum clock-quality {
+        synchronized,
+        unsynchronized,
+        unknown,
+    }
+
+    // --- Canonical units --------------------------------------------------------
+
+    // Mirrors flexcore-optimization-api/src/problem.rs::VariableUnit (report
+    // §10.2; its `canonical_unit()` strings are "MW" / "MVAr" / "MVA" /
+    // "MWh" / "pu" / "fraction" / "dimensionless"). Per-unit and fraction
+    // values are solver-representation concerns; at the API boundary the
+    // canonical units are MW, MVAr, MVA, MWh and SOC fractions.
+    enum canonical-unit {
+        active-power-mw,
+        reactive-power-mvar,
+        apparent-power-mva,
+        energy-mwh,
+        per-unit,
+        soc-fraction,
+        dimensionless,
+    }
+
+    // Mirrors flexcore-contracts::units.rs::ReactiveSignConvention (report
+    // §10.2; foundations §6.2): each grid model and each device profile
+    // declares exactly one of these; there is NO default — the convention
+    // travels with every reactive-power value, never inferred from sign
+    // alone.
+    enum reactive-sign-convention {
+        injection-positive,
+        consumption-positive,
+    }
+
+    // --- Quality ----------------------------------------------------------------
+
+    // Mirrors flexcore-contracts/src/quality.rs::TelemetryQuality (report
+    // §10.4; P0.08): the canonical quality vocabulary is CLOSED — exactly
+    // these six states. (The Rust type serialises SCREAMING_SNAKE_CASE,
+    // e.g. "GOOD"; the WIT kebab-case names map 1:1 — see the mapping
+    // table in wit/README.md §3.)
+    enum telemetry-quality {
+        good,
+        suspect,
+        bad,
+        missing,
+        estimated,
+        stale,
+    }
+
+    // --- Quantities and values ---------------------------------------------------
+
+    // Mirrors flexcore-ports/src/telemetry_source.rs::TelemetryQuantity (the
+    // frozen Phase 2 quantity vocabulary, P2.04 §4; extension is an
+    // explicit migration, never a silent widening).
+    enum telemetry-quantity {
+        active-power,
+        reactive-power,
+        soc,
+        energy,
+        availability,
+        operating-mode,
+        health,
+        connection-state,
+        baseline-reference,
+    }
+
+    // Mirrors flexcore-ports/src/telemetry_source.rs::QuantityValue::Reactive:
+    // a reactive-power value in MVAr is uninterpretable without its declared
+    // sign convention, so the value and the convention travel together
+    // (P0.07 §3; P2.04 D-T4).
+    record reactive-power-value {
+        power-mvar: f64,
+        convention: reactive-sign-convention,
+    }
+
+    // Mirrors flexcore-ports/src/telemetry_source.rs::QuantityValue: a bare
+    // number or bare string never appears — the unit (and, for reactive
+    // power, the declared sign convention) travels with the value (P0.07).
+    //
+    // Case/unit mapping: `power` = MW with P > 0 = export at the point of
+    // connection (P0.07 §2; used by active-power and baseline-reference);
+    // `fraction` = SOC in [0,1] (P0.07 §4); `energy` = MWh; `flag` =
+    // boolean, dimensionless (availability, EVSE connection state);
+    // `state` = source-declared text, carried verbatim and non-empty
+    // (P2.04 §3 field 12).
+    variant quantity-value {
+        power(f64),
+        reactive(reactive-power-value),
+        fraction(f64),
+        energy(f64),
+        flag(bool),
+        state(string),
+    }
+
+    // --- The canonical telemetry record --------------------------------------------
+
+    // Mirrors flexcore-ports/src/telemetry_source.rs::NormalizedTelemetry
+    // (P2.04 §3; P2.11): one record = one quantity of one asset at one
+    // event_time (P2.04 D-T2); a multi-quantity sample is a set of records
+    // sharing source-id, source-sequence, and event-time. In Rust the
+    // record is constructed only through a validating constructor — no
+    // partial record is ever emitted (P2.11 step 3); this WIT record is the
+    // wire image of a record that has already passed that validation.
+    //
+    // Source-identity namespaces (P2.04 D-T6): the `flexcore:` prefix is
+    // reserved for platform-derived records (`flexcore:derived:<detector>`);
+    // a measured source must never use it. A `missing` record carries no
+    // value (`value` = none) and comes only from the derived namespace.
+    record normalized-telemetry {
+        tenant-id: flex-uuid,
+        asset-id: flex-uuid,
+        quantity: telemetry-quantity,
+        value: option<quantity-value>,
+        event-time: utc-timestamp,
+        ingest-time: utc-timestamp,
+        source-sequence: u64,
+        source-id: string,
+        quality: telemetry-quality,
+        source-quality-code: option<string>,
+        clock-quality: clock-quality,
+    }
+
+    // --- §9.2 result provenance (shared vocabulary item) -----------------------------
+
+    // The reproducibility metadata every plugin result must be able to carry
+    // (report §9.2, recorded in PLAN.md §4 "Plugin result (§9.2)":
+    // seed/config/artifact ref). Contract-specific provenance fields
+    // (solver/provider versions, input snapshot ID, horizon, problem class,
+    // termination status, diagnostics) live on the result records of the
+    // worlds that require them; this record is the shared §9.2 vocabulary
+    // item those records instantiate. NOTE: no single Rust struct carries
+    // exactly this shape today — the grounding is report §9.2 via
+    // PLAN.md §4, and the optimizer world instantiates it through
+    // `determinism-record` (flexcore-optimization-api/src/result.rs).
+    record reproducibility-metadata {
+        seed: option<u64>,
+        config-digest: option<string>,
+        artifact-ref: option<string>,
+    }
+}

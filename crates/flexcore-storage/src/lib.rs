@@ -19,6 +19,8 @@
 //! | [`schedule_revision`] | P3.22 — [`schedule_revision::ScheduleRevisionChainStore`] + row/record/receipt/error types: the schedule identity/revision chain and the §14.2 SUPERSEDED transition (append-only revisions, bidirectional supersede links, the `is_revision_superseded` check the Phase 4 P4.12 gate will call; the recorded identity scheme is D-P3.22-1) |
 //! | [`command_store`] | P4.10 — [`command_store::CommandRecordStore`] + row/record/receipt/error types: the protected command-lifecycle persistence contract (append-only command records + immutable state-change journal, frozen-edge validation through the P0.11 domain table, bidirectional supersede links, the `ensure_schedule_revision_usable` P4.12 pre-wiring check; same recorded home deviation as `schedule_store`) |
 //! | [`envelope_store`] | P3.28 — [`envelope_store::EnvelopeRecordStore`] + row/receipt/error types: the portfolio flexibility-envelope record persistence contract (immutable, append-oriented; same recorded home deviation as `schedule_store`, same adapter obligations) |
+//! | [`feasibility_check`] | P4.30 — [`feasibility_check::FeasibilityCheckStore`] + row/filter/error types: the §12.5 feasibility-check evidence record contract (one immutable row per completed check; migration 0017; same recorded home deviation as `schedule_store`) |
+//! | [`audit_read`] | P4.36 — [`audit_read::AuditEventReader`] + row/filter/error types: the §15.2 `/api/v1/audit-events` READ contract over the append-only `audit_records` table (migration 0008; SELECT-only, tenant-scoped, references preserved for P5.09; the read-side half of the P1.10 `AuditSink` write valve — NOT in flexcore-audit by the same recorded home deviation) |
 //!
 //! # The atomicity rule this crate can only describe
 //!
@@ -48,8 +50,30 @@
 // command records + an immutable state-change journal; the frozen §14.1
 // edge table (P0.11) is the single source of truth, validated through the
 // domain's `try_transition`, never re-encoded here.
+// P4.36 — the audit-events READ contract (`AuditEventReader` trait +
+// row/filter/error types): the SELECT-only, tenant-scoped read half of the
+// append-only `audit_records` table (migration 0008), serving the §15.2
+// `/api/v1/audit-events` resource with every §10.1 reference preserved
+// (P5.09's consumption contract). Same recorded home deviation as
+// `schedule_store` (D-P3.21-4); the write valve stays the P1.10 `AuditSink`.
+pub mod audit_read;
 pub mod command_store;
+// P6.06 — the edge device-identity registry + enrollment-journal
+// persistence contract (`EdgeEnrollmentStore` trait + row/error types):
+// the tenant-scoped control-plane side of the enrollment seam (migration
+// 0018); the registry is append-only per identity TERM (rotation = new
+// row at the next enrollment_seq) and NO key/certificate material is ever
+// stored (§17.3; the decision record `06_07_identity_channel.md` §3).
+pub mod edge_enrollment;
 pub mod envelope_store;
+// P4.30 — the feasibility-check evidence record persistence contract
+// (`FeasibilityCheckStore` trait + row/filter/error types): ONE immutable
+// row per completed §12.5 check — the evidence behind the §15.2
+// `/api/v1/feasibility-checks` read resource and the frozen §15.3
+// `FeasibilityCheckCompleted` event. Same recorded home deviation as
+// `schedule_store` (D-P3.21-4); append-only rows; migration 0017 is the
+// database image.
+pub mod feasibility_check;
 pub mod outbox_write;
 pub mod retention;
 // P3.21 — the schedule-record persistence contract (`ScheduleRecordStore`

@@ -1,0 +1,31 @@
+{
+  "manifest-schema": "flexcore-plugin-manifest-v1",
+  "plugin-id": "bad.ambitious-plugin",
+  "name": "The Deliberately Bad Plugin",
+  "version": "1.0.0",
+  "api-version": "^0.4.0",
+  "class": "grpc-worker",
+  "entry-point": { "target": "https://bad-plugin.internal:8443" },
+  "provider-of": ["kernel.dispatch-validation", "forecast.day-ahead"],
+  "consumes": ["telemetry.history"],
+  "permissions": ["telemetry.read", "forecast.publish", "dispatch.authorize"],
+  "configuration-schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "api-key": {
+        "type": "string",
+        "description": "Deliberate: a secret-shaped property the author intends to fill with a cleartext credential."
+      }
+    },
+    "required": []
+  },
+  "secrets": [
+    { "name": "worker-credentials", "reference": "hunter2-is-not-a-scheme-prefix" }
+  ],
+  "resources": {},
+  "metadata": {
+    "license": "Apache-2.0",
+    "description": "Deliberately non-conformant SDK example: every field below is a named teaching rejection. See README.md."
+  }
+}

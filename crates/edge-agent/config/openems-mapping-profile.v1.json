@@ -1,0 +1,98 @@
+{
+  "profile": "openems-mapping-profile",
+  "version": 1,
+  "reactive_source_convention": "injection-positive",
+  "cadence_millis": 5000,
+  "stale_after_millis": 15000,
+  "assumptions": [
+    "UNVERIFIED-ASSUMPTION: every OpenEMS component id, channel id, channel unit and sign meaning declared in this profile was written from the OpenEMS documentation shape recorded in RESEARCH.md section 1 and the report section 27 OpenEMS references — the OpenEMS REST API was NEVER executed when this profile was written. Every entry must be diffed against a real lab EdgeConfig during the P6.11 lab run before this profile is trusted for any non-lab use.",
+    "UNVERIFIED-ASSUMPTION: OpenEMS SymmetricEss ActivePower sign meaning is declared here as export-positive (positive = export at the point of connection, already canonical). If the lab Edge shows the opposite sign (charge-positive/discharge-negative is common for ESS inverter channels), the correction is a PROFILE EDIT (native_sign: import-positive), never a code change.",
+    "UNVERIFIED-ASSUMPTION: OpenEMS ReactivePower sign meaning is declared here as injection-positive (Q > 0 = injection into the grid). The convention travels on every reactive record (P0.07 section 3); a lab finding of consumption-positive is a PROFILE EDIT.",
+    "UNVERIFIED-ASSUMPTION: the grid meter (meter0) native sign is declared import-positive (positive = consumption from the grid, the common meter convention). The adapter negates explicitly under the FlexCore canonical rule P > 0 = export. A lab finding of export-positive is a PROFILE EDIT.",
+    "UNVERIFIED-ASSUMPTION: OpenEMS REST channel values carry no quality code. Each mapping entry declares the quality code the adapter attaches to a FRESH reading of that channel (declared_good below). This is an explicit, versioned, reviewed declaration — not an implicit default; the adapter refuses (no quality) any channel entry that omits it, and flags genuinely degraded feeds through the freshness limit (STALE).",
+    "The Getting Started defaults (admin/admin, Metadata.Dummy, ws://) documented in RESEARCH.md section 1 are NEVER acceptable here: this profile carries no credentials and the adapter authenticates by nothing but what the deployment composes (P6.06 identity; lab transport composition)."
+  ],
+  "mappings": [
+    {
+      "component_id": "ess0",
+      "channel_id": "ActivePower",
+      "asset_key": "ess-01",
+      "quantity": "ActivePower",
+      "native_unit": "W",
+      "native_sign": "export-positive",
+      "declared_quality_code": "GOOD"
+    },
+    {
+      "component_id": "ess0",
+      "channel_id": "ReactivePower",
+      "asset_key": "ess-01",
+      "quantity": "ReactivePower",
+      "native_unit": "var",
+      "declared_quality_code": "GOOD"
+    },
+    {
+      "component_id": "ess0",
+      "channel_id": "Soc",
+      "asset_key": "ess-01",
+      "quantity": "Soc",
+      "native_unit": "%",
+      "declared_quality_code": "GOOD"
+    },
+    {
+      "component_id": "pvInverter",
+      "channel_id": "ActivePower",
+      "asset_key": "pv-01",
+      "quantity": "ActivePower",
+      "native_unit": "W",
+      "native_sign": "export-positive",
+      "declared_quality_code": "GOOD"
+    },
+    {
+      "component_id": "pvInverter",
+      "channel_id": "ReactivePower",
+      "asset_key": "pv-01",
+      "quantity": "ReactivePower",
+      "native_unit": "var",
+      "declared_quality_code": "GOOD"
+    },
+    {
+      "component_id": "meter0",
+      "channel_id": "ActivePower",
+      "asset_key": "grid-meter-01",
+      "quantity": "ActivePower",
+      "native_unit": "W",
+      "native_sign": "import-positive",
+      "declared_quality_code": "GOOD"
+    },
+    {
+      "component_id": "meter0",
+      "channel_id": "ReactivePower",
+      "asset_key": "grid-meter-01",
+      "quantity": "ReactivePower",
+      "native_unit": "var",
+      "declared_quality_code": "GOOD"
+    }
+  ],
+  "declared_unmapped": [
+    {
+      "component_id": "_meta",
+      "channel_id": "ComponentState",
+      "reason": "OpenEMS metadata component state (run-level status of the Edge itself) — infrastructure diagnostics, not DER telemetry; no FlexCore canonical quantity applies."
+    },
+    {
+      "component_id": "ess0",
+      "channel_id": "AllowedChargePower",
+      "reason": "An ESS LIMIT channel (the charge power the inverter currently allows) — a control-side constraint input, not a measured telemetry point; FlexCore reads it only when a capability/envelope wave maps it to a declared canonical quantity. v1 declares no such quantity."
+    },
+    {
+      "component_id": "ess0",
+      "channel_id": "AllowedDischargePower",
+      "reason": "An ESS LIMIT channel (the discharge power the inverter currently allows) — same rule as AllowedChargePower."
+    },
+    {
+      "component_id": "ess0",
+      "channel_id": "MaxApparentPower",
+      "reason": "A STATIC device rating, not a time series; the rating belongs to the asset capability profile, not telemetry."
+    }
+  ]
+}

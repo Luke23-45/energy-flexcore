@@ -1,0 +1,75 @@
+# P6.05 — flexcore-edge-agent manifest: the edge agent crate and composition
+# root (report §18.1, §8.2; ledger P6.05).
+#
+# Placement decision (recorded in
+# `ledger/phase-06-edge-protocol/05_12_20_edge_foundation.md` §2): the report
+# §8.1 target tree names `apps/edge-agent`; this wave places the crate at
+# `crates/edge-agent` (package `flexcore-edge-agent`), classified as a
+# COMPOSITION crate in `tools/check_dependency_rule.py` like `apps/worker`.
+# The deviation is recorded, not silently absorbed; moving the directory is a
+# mechanical rename that P6.30 (or a later wave) may execute once §8.1 tree
+# placement is revisited with D5/D6 closed.
+#
+# Classification: composition crate (hexagonal composition root for the edge
+# deployment). It MAY use infrastructure (tokio now; rustls/P6.07, disk
+# buffer/P6.09, HTTP client/P6.10 in later waves — each new dependency goes
+# through the P6.02 dependency audit note). Nothing depends ON it except
+# future `crates/adapters/<protocol>` adapter crates, which will implement
+# its `EmsAdapter` port (P6.12) — the §8.2 rule "adapters depend on ports"
+# with the edge-agent as the port holder until a dedicated edge-ports crate
+# is justified.
+#
+# Dependency minimisation (P6.05 step 3: only crates with real code):
+# - tokio: the supervision runner is an async loop with graceful shutdown.
+# - time: ACL timestamp parsing (RFC 3339 native timestamps, UTC-only rule).
+# - tracing: edge-local structured logging.
+# - flexcore-contracts: canonical units (P0.07), quality vocabulary (P0.08),
+#   time model (P0.09).
+# - flexcore-ports: the frozen quantity/value vocabulary (`TelemetryQuantity`,
+#   `QuantityValue`) and the `Clock` port — reused, not forked, so an edge
+#   sample and a control-plane canonical record speak the same vocabulary.
+# No serde/serde_json yet: the P6.09 disk buffer owns wire serialization and
+# adds it there.
+#
+# P6.07 ADDS THE FIRST DIRECT TLS DEPENDENCIES (D4 note REQUIRED — see
+# `ledger/phase-06-edge-protocol/06_07_identity_channel.md` §5 and the
+# recorded ENTRY_NOTE boundary 3):
+# - rustls: the client-side TLS stack for the outbound mTLS channel. Version
+#   "0.23" is a CARET RANGE — UNPINNED-REVERIFY: RESEARCH.md records no rustls
+#   version pin, so the first human `Cargo.lock` resolves the exact version
+#   and the P6.02 license audit must re-verify it (rustls is MIT/Apache-2.0/
+#   ISC per crates.io metadata, but no IN-REPO source records it — the P6.02
+#   audit table flags rustls as an open D4 verification item). The `ring`
+#   crypto provider is chosen (DEFAULT; avoids the aws-lc-rs C build
+#   toolchain on the edge targets); `default-features = false` guarantees
+#   exactly one provider feature is enabled (enabling both is a documented
+#   rustls runtime panic hazard).
+# - rustls-pemfile: PEM → DER parsing for the pinned root CA, the device
+#   certificate, and the device key (the standard rustls pairing; MIT/
+#   Apache-2.0 family per crates.io metadata — same UNPINNED-REVERIFY/D4
+#   re-verify rule, caret range "2").
+# NO key-generation crate exists here (no rcgen, no openssl): key generation
+# and certificate issuance are DEPLOYMENT REQUIREMENTS (decision record §3).
+[package]
+name = "flexcore-edge-agent"
+description = "FlexCore edge agent: site-EMS telemetry ingestion, offline-first buffering, and outbound-only uplink (P6.05)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Composition-root infrastructure (allowed here; core crates may not).
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+time = { workspace = true }
+# P6.07 — outbound mTLS channel (see the D4 note above; UNPINNED-REVERIFY).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pemfile = { version = "2", default-features = false, features = ["std"] }
+
+# Internal crates.
+flexcore-contracts = { workspace = true }
+flexcore-ports = { workspace = true }
+
+[[bin]]
+name = "edge-agent"
+path = "src/main.rs"

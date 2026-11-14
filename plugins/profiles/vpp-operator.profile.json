@@ -1,0 +1,43 @@
+{
+  "profile-schema": "flexcore-profile-v1",
+  "profile-id": "vpp-operator",
+  "name": "VPP Operator Composition",
+  "version": "0.5.0",
+  "description": "Registry, telemetry, flexibility, scheduler, audit, console, and selected site connectors (report section 5.8; PLAN.md section 1). Still simulation/shadow in v0.5.0: dispatch.authorize and dispatch.issue are never grantable, and the control-authority mode stays a deployment setting the profile cannot touch.",
+  "control-authority": "simulation-shadow",
+  "permission-ceiling": [
+    "telemetry.read",
+    "asset.read",
+    "forecast.publish",
+    "schedule.propose",
+    "dispatch.propose",
+    "dispatch.validate.request"
+  ],
+  "selections": [
+    {
+      "manifest-id": "builtin.simulator-telemetry",
+      "version-constraint": ">=0.5.0"
+    },
+    {
+      "manifest-id": "builtin.highs-optimizer",
+      "version-constraint": ">=0.5.0"
+    },
+    {
+      "manifest-id": "builtin.pandapower-grid",
+      "version-constraint": ">=0.5.0"
+    }
+    // Deferred selections (documented commented-out pattern — README.md):
+    // { "manifest-id": "acme.forecast-worker", "version-constraint": ">=0.3.0" },
+    //   ^ the illustrative third-party Class C example; it consumes
+    //   `telemetry.history`, which no v0.5.0 manifest provides, and it is
+    //   an example, not a shipped plugin.
+    // { "manifest-id": "neryva.optimizer-wasm-lp", "version-constraint": ">=0.2.0" },
+    //   ^ the Class B example; it consumes `portfolio.read`, which no
+    //   v0.5.0 manifest provides yet.
+    // { "manifest-id": "builtin.console-bridge", "version-constraint": ">=0.5.0" },
+    // { "manifest-id": "builtin.flexibility-scheduler", "version-constraint": ">=0.5.0" },
+    // { "manifest-id": "builtin.site-connector-openems", "version-constraint": ">=0.5.0" }
+    //   ^ no plugin manifests exist for these yet; the OpenEMS integration
+    //   remains the Phase 6 built-in (02_scope_freeze section 3).
+  ]
+}

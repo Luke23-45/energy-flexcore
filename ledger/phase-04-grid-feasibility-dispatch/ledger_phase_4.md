@@ -254,7 +254,7 @@
 
 ### P4.14 — Command invariants implementation (§14.3)
 
-- [ ] **Objective:** Enforce every §14.3 command invariant in code, so a command missing a required field cannot be created or issued.
+- [x] **Objective:** Enforce every §14.3 command invariant in code, so a command missing a required field cannot be created or issued. — implemented, awaiting human build/test (decision record: `14_16_lifecycle_completion.md`)
 - **Report trace:** §14.3, §10.2, §17.5.
 - **Inputs/prerequisites:** P4.10–P4.13.
 - **Steps:**
@@ -271,7 +271,7 @@
 
 ### P4.15 — Expiry, cancellation, supersede (§14.1–§14.2)
 
-- [ ] **Objective:** Implement EXPIRED, CANCELLED, and SUPERSEDED transitions exactly, keeping SUPERSEDED distinct from CANCELLED.
+- [x] **Objective:** Implement EXPIRED, CANCELLED, and SUPERSEDED transitions exactly, keeping SUPERSEDED distinct from CANCELLED. — implemented, awaiting human build/test (decision record: `14_16_lifecycle_completion.md`)
 - **Report trace:** §14.1, §14.2, §14.3 (supersedes reference).
 - **Inputs/prerequisites:** P4.10, P4.14.
 - **Steps:**
@@ -288,7 +288,7 @@
 
 ### P4.16 — Simulation-only dispatch adapter: issue, acknowledgement, tracking (§14.1, §23 Stage 4)
 
-- [ ] **Objective:** Build the simulation-only dispatch adapter that issues APPROVED commands to the simulator, observes acknowledgement and tracking, and completes or fails them — without any device write path.
+- [x] **Objective:** Build the simulation-only dispatch adapter that issues APPROVED commands to the simulator, observes acknowledgement and tracking, and completes or fails them — without any device write path. — implemented, awaiting human build/test (decision record: `14_16_lifecycle_completion.md`)
 - **Report trace:** §23 Stage 4, §14.1–§14.2, §19.1 (simulation strategy), §24 steps 6–8.
 - **Inputs/prerequisites:** P4.13–P4.15; Phase 2 simulator (asset simulator).
 - **Steps:**
@@ -306,7 +306,7 @@
 
 ### P4.17 — Asset-specific fallback policies (§14.4)
 
-- [ ] **Objective:** Implement per-asset/site fallback policies with no universal "set power to zero" fallback.
+- [x] **Objective:** Implement per-asset/site fallback policies with no universal "set power to zero" fallback. — implemented, awaiting human build/test
 - **Report trace:** §14.4, §14.1 (FAILED/EXPIRED → FALLBACK), §15.3 (`DispatchFallbackActivated`).
 - **Inputs/prerequisites:** P4.16; asset/site configuration from Phase 2.
 - **Steps:**
@@ -323,7 +323,7 @@
 
 ### P4.18 — Fallback activation, bounded hold, and recovery (§14.4, §17.5)
 
-- [ ] **Objective:** Prove fallback activation is bounded and recoverable: a held setpoint expires, and recovery requires a fresh validation/feasibility/authorization cycle.
+- [x] **Objective:** Prove fallback activation is bounded and recoverable: a held setpoint expires, and recovery requires a fresh validation/feasibility/authorization cycle. — implemented, awaiting human build/test
 - **Report trace:** §14.4, §14.1, §17.5.
 - **Inputs/prerequisites:** P4.17.
 - **Steps:**
@@ -340,7 +340,7 @@
 
 ### P4.19 — Dispatch timing honesty: not hard real-time (§14.5)
 
-- [ ] **Objective:** State and enforce the timing boundary: supervisory setpoint delivery only; no hard-real-time, frequency, inertia, relay, or sub-cycle claims.
+- [x] **Objective:** State and enforce the timing boundary: supervisory setpoint delivery only; no hard-real-time, frequency, inertia, relay, or sub-cycle claims. — implemented, awaiting human build/test
 - **Report trace:** §14.5, §0.3, §17.5.
 - **Inputs/prerequisites:** P4.16.
 - **Steps:**
@@ -357,7 +357,7 @@
 
 ### P4.20 — Deterministic rejection test: invalid commands (§23 Stage 4 exit gate)
 
-- [ ] **Objective:** Prove invalid candidate commands are rejected deterministically.
+- [x] **Objective:** Prove invalid candidate commands are rejected deterministically. — implemented, awaiting human build/test (decision record: `20_22_rejection_suites_a.md`)
 - **Report trace:** §23 Stage 4 exit gate, §14.3, §12.5 step 1.
 - **Inputs/prerequisites:** P4.04, P4.11, P4.14.
 - **Steps:**
@@ -374,7 +374,7 @@
 
 ### P4.21 — Deterministic rejection test: stale commands (§23 Stage 4 exit gate)
 
-- [ ] **Objective:** Prove stale candidate commands are rejected deterministically.
+- [x] **Objective:** Prove stale candidate commands are rejected deterministically. — implemented, awaiting human build/test (decision record: `20_22_rejection_suites_a.md`)
 - **Report trace:** §23 Stage 4 exit gate, §14.3, §17.5 invariant 5, §10.4.
 - **Inputs/prerequisites:** P4.11, P4.14–P4.15.
 - **Steps:**
@@ -391,7 +391,7 @@
 
 ### P4.22 — Deterministic rejection test: infeasible commands (§23 Stage 4 exit gate)
 
-- [ ] **Objective:** Prove infeasible candidate commands are rejected deterministically.
+- [x] **Objective:** Prove infeasible candidate commands are rejected deterministically. — implemented, awaiting human build/test (decision record: `20_22_rejection_suites_a.md`)
 - **Report trace:** §23 Stage 4 exit gate, §12.5, §14.1.
 - **Inputs/prerequisites:** P4.06–P4.07, P4.12.
 - **Steps:**
@@ -408,7 +408,7 @@
 
 ### P4.23 — Deterministic rejection test: unauthorized commands (§23 Stage 4 exit gate)
 
-- [ ] **Objective:** Prove unauthorized candidate commands are rejected deterministically.
+- [x] **Objective:** Prove unauthorized candidate commands are rejected deterministically. — implemented, awaiting human build/test (decision record: `23_25_rejection_suites_b.md`)
 - **Report trace:** §23 Stage 4 exit gate, §14.1, §17.3–§17.5 (invariants 4, 8).
 - **Inputs/prerequisites:** P4.13, P4.28.
 - **Steps:**
@@ -425,7 +425,7 @@
 
 ### P4.24 — Deterministic rejection test: duplicate commands (§23 Stage 4 exit gate)
 
-- [ ] **Objective:** Prove duplicate candidate commands are handled deterministically: identical replays are deduplicated, conflicting duplicates are rejected.
+- [x] **Objective:** Prove duplicate candidate commands are handled deterministically: identical replays are deduplicated, conflicting duplicates are rejected. — implemented, awaiting human build/test (decision record: `23_25_rejection_suites_b.md`)
 - **Report trace:** §23 Stage 4 exit gate, §14.3 (idempotency key; duplicated with conflicting payloads), §15.4–§15.5.
 - **Inputs/prerequisites:** P4.14, P4.30 (outbox/inbox).
 - **Steps:**
@@ -441,7 +441,7 @@
 
 ### P4.25 — Deterministic rejection test: expired commands (§23 Stage 4 exit gate)
 
-- [ ] **Objective:** Prove expired candidate commands are rejected (or moved to EXPIRED) deterministically at every lifecycle stage.
+- [x] **Objective:** Prove expired candidate commands are rejected (or moved to EXPIRED) deterministically at every lifecycle stage. — implemented, awaiting human build/test (decision record: `23_25_rejection_suites_b.md`)
 - **Report trace:** §23 Stage 4 exit gate, §14.1–§14.2, §14.3.
 - **Inputs/prerequisites:** P4.15, P4.16.
 - **Steps:**
@@ -458,7 +458,7 @@
 
 ### P4.26 — Deterministic rejection test: combined and adversarial cases (§23 Stage 4 exit gate)
 
-- [ ] **Objective:** Prove the rejection logic holds when faults combine, so a single-fault pass does not hide a multi-fault hole.
+- [x] **Objective:** Prove the rejection logic holds when faults combine, so a single-fault pass does not hide a multi-fault hole. — implemented, awaiting human build/test (decision record: `26_33_combined_matrix.md`)
 - **Report trace:** §23 Stage 4 exit gate, §19.2 layer 6 (fault injection), §17.4.
 - **Inputs/prerequisites:** P4.20–P4.25.
 - **Steps:**
@@ -475,7 +475,7 @@
 
 ### P4.27 — Exit-gate evidence pack for the rejection suites (§23 Stage 4)
 
-- [ ] **Objective:** Assemble the §23 Stage 4 exit-gate evidence: invalid, stale, infeasible, unauthorized, duplicate, and expired commands rejected in deterministic tests — as a single reviewable pack.
+- [x] **Objective:** Assemble the §23 Stage 4 exit-gate evidence: invalid, stale, infeasible, unauthorized, duplicate, and expired commands rejected in deterministic tests — as a single reviewable pack. — implemented, awaiting human build/test; pack UNRUN, sign-offs NOT HELD (decision record: `27_evidence_pack.md`)
 - **Report trace:** §23 Stage 4 exit gate, §22.2, §19.2.
 - **Inputs/prerequisites:** P4.20–P4.26.
 - **Steps:**
@@ -492,7 +492,7 @@
 
 ### P4.28 — Security controls for dispatch (§17.3–§17.4)
 
-- [ ] **Objective:** Implement and test the dispatch-relevant security controls: signed commands, sequence, expiry, replay protection, mTLS/transport identity, and tenant isolation.
+- [x] **Objective:** Implement and test the dispatch-relevant security controls: signed commands, sequence, expiry, replay protection, mTLS/transport identity, and tenant isolation. — implemented, awaiting human build/test (decision record: `28_security_controls.md`)
 - **Report trace:** §17.3, §17.4, §17.5, §16.2.
 - **Inputs/prerequisites:** P4.13–P4.16, P4.23–P4.24.
 - **Steps:**
@@ -509,7 +509,7 @@
 
 ### P4.29 — Safety invariants enforcement (§17.5)
 
-- [ ] **Objective:** Prove the ten §17.5 safety invariants are enforced by protected platform code and cannot be bypassed by plugins.
+- [x] **Objective:** Prove the ten §17.5 safety invariants are enforced by protected platform code and cannot be bypassed by plugins. — implemented, awaiting human build/test (decision record: `29_safety_invariant_matrix.md`)
 - **Report trace:** §17.5, §5.7 (plugin authority model), §13.4 (research boundary).
 - **Inputs/prerequisites:** P4.10–P4.16, P4.28.
 - **Steps:**
@@ -526,7 +526,7 @@
 
 ### P4.30 — Audit, events, persistence, observability (§15, §16, §21.3)
 
-- [ ] **Objective:** Wire Phase 4 into audit, events, storage, and observability so every decision is reconstructable.
+- [x] **Objective:** Wire Phase 4 into audit, events, storage, and observability so every decision is reconstructable. — implemented, awaiting human build/test (decision record: `30_persistence_wiring.md`)
 - **Report trace:** §15.2–§15.5, §16.1–§16.3, §21.3, §14.3 (evidence references).
 - **Inputs/prerequisites:** P4.10–P4.16, P4.27.
 - **Steps:**
@@ -544,7 +544,7 @@
 
 ### P4.31 — Fault injection, shadow evaluation, and integration tests (§19.2 layers 4, 6, 9)
 
-- [ ] **Objective:** Prove the Phase 4 paths survive faults and behave correctly in shadow comparison, without issuing anything to a real device.
+- [x] **Objective:** Prove the Phase 4 paths survive faults and behave correctly in shadow comparison, without issuing anything to a real device. — implemented, awaiting human build/test (decision record: `31_fault_shadow.md`)
 - **Report trace:** §19.2 layers 4, 6, 9; §19.1 (simulation strategy); §21.4 (read-only/shadow mode).
 - **Inputs/prerequisites:** P4.16, P4.30.
 - **Steps:**
@@ -561,7 +561,7 @@
 
 ### P4.32 — Documentation and handover to Phase 5 (§23 Stage 4 exit gate)
 
-- [ ] **Objective:** Hand Phase 5 a complete, honest package: the feasibility and dispatch contracts, the exit-gate evidence, and what is still open.
+- [x] **Objective:** Hand Phase 5 a complete, honest package: the feasibility and dispatch contracts, the exit-gate evidence, and what is still open. — implemented, awaiting human build/test; Stage 4 gate NOT HELD (decision record: `32_handover_phase5.md`)
 - **Report trace:** §23 Stage 4 exit gate, §24 steps 5–8, §22.2–§22.3.
 - **Inputs/prerequisites:** P4.01–P4.37.
 - **Steps:**
@@ -578,7 +578,7 @@
 
 ### P4.33 — Exhaustive command-transition matrix test (§22.3, §14.1)
 
-- [ ] **Objective:** Prove every command-state transition — legal and illegal — is tested, closing the gap between P4.10's "representative set of illegal transitions" and the §22.3 release gate ("all command-state transitions are tested").
+- [x] **Objective:** Prove every command-state transition — legal and illegal — is tested, closing the gap between P4.10's "representative set of illegal transitions" and the §22.3 release gate ("all command-state transitions are tested"). — implemented, awaiting human build/test (decision record: `26_33_combined_matrix.md`)
 - **Report trace:** §22.3 (release gate), §14.1, §14.2.
 - **Inputs/prerequisites:** P4.10 (transition table is the single source of truth).
 - **Steps:**
@@ -595,7 +595,7 @@
 
 ### P4.34 — Unbalanced three-phase power-flow deferral and trigger record (§12.5 step 4, §25.2 D3)
 
-- [ ] **Objective:** Record, as a decision, that Phase 4 uses the balanced radial model only, and name the trigger cases that force an unbalanced three-phase model — so §12.5 step 4's "or three-phase unbalanced" alternative is a governed choice, not an unexamined default.
+- [x] **Objective:** Record, as a decision, that Phase 4 uses the balanced radial model only, and name the trigger cases that force an unbalanced three-phase model — so §12.5 step 4's "or three-phase unbalanced" alternative is a governed choice, not an unexamined default. — implemented, awaiting human build/test (decision record: `34_unbalanced_deferral.md`)
 - **Report trace:** §12.5 step 4, §12.4, §25.2 (D3, balanced radial default).
 - **Inputs/prerequisites:** P4.01 (provider-selection rule), P4.05; D3 status (OPEN).
 - **Steps:**
@@ -612,7 +612,7 @@
 
 ### P4.35 — Feasibility-gate runtime and diagnostics measurement (§21.3, §19.4)
 
-- [ ] **Objective:** Measure and record the feasibility gate's runtime (power-flow solve + limit checks) per model size, so §21.3's "solver duration/status" measurement covers the feasibility solver, not only the scheduler.
+- [x] **Objective:** Measure and record the feasibility gate's runtime (power-flow solve + limit checks) per model size, so §21.3's "solver duration/status" measurement covers the feasibility solver, not only the scheduler. — implemented, awaiting human build/test (decision record: `35_gate_benchmark_report.md`)
 - **Report trace:** §21.3, §19.4 (grid feasibility metrics), §12.5.
 - **Inputs/prerequisites:** P4.05–P4.07; P3.27 (scheduling runtime method — reuse, do not re-measure differently).
 - **Steps:**
@@ -629,7 +629,7 @@
 
 ### P4.36 — Audit-events read API (§15.2, §15.3)
 
-- [ ] **Objective:** Give the audit trail a specified read API (`/api/v1/audit-events`), so the Phase 5 Audit workspace (P5.09) reads from a contract instead of an unspecified source.
+- [x] **Objective:** Give the audit trail a specified read API (`/api/v1/audit-events`), so the Phase 5 Audit workspace (P5.09) reads from a contract instead of an unspecified source. — implemented, awaiting human build/test (decision record: `36_audit_read_api.md`)
 - **Report trace:** §15.2 (`/api/v1/audit-events`), §15.3, §16.2, §10.5.
 - **Inputs/prerequisites:** P4.30 (audit persistence + outbox); P1.10 (audit crate/port — verify first whether a read API already exists there).
 - **Steps:**
@@ -646,7 +646,7 @@
 
 ### P4.37 — Constrain/return consumption contract (§12.5 step 8)
 
-- [ ] **Objective:** Close the open loop in §12.5 step 8: define how a CONSTRAIN or RETURN outcome from the feasibility gate is consumed by scheduling, so a returned candidate is re-optimized with its violated constraints as inputs instead of silently degrading to a rejection.
+- [x] **Objective:** Close the open loop in §12.5 step 8: define how a CONSTRAIN or RETURN outcome from the feasibility gate is consumed by scheduling, so a returned candidate is re-optimized with its violated constraints as inputs instead of silently degrading to a rejection. — implemented, awaiting human build/test (decision record: `feasibility_return.rs`)
 - **Report trace:** §12.5 step 8, §12.6, §23 Stage 4.
 - **Inputs/prerequisites:** P4.07 (CONSTRAIN/RETURN outcomes with violated constraints attached); P3.24 (rolling-horizon re-scheduling — the consumer, owned by Phase 3).
 - **Steps:**
@@ -666,4 +666,3 @@
 - Consumes from Phase 3: schedule ID + revision (P3.22), envelope version (P3.13), §12.6 result records (P3.21). See `ledger_phase_3.md` P3.21–P3.22.
 - Consumed by Phase 5: dispatch lifecycle states and audit trail (P5.06, P5.09, P5.13), feasibility evidence display (P5.04), simulator integration (P5.14–P5.15 adapters; P5.18–P5.20 replay/library). See `ledger_phase_5.md`.
 - NOT built here: operator console UI (Phase 5), edge/protocol adapters (Stage 6), plugin SDK (Stage 7), research modules (Stage 8).
- — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test — implemented, awaiting human build/test

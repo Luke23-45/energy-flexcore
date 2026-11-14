@@ -1,0 +1,32 @@
+{
+  "profile-schema": "flexcore-profile-v1",
+  "profile-id": "sim-lab",
+  "name": "Simulation Lab Composition",
+  "version": "0.5.0",
+  "description": "Synthetic DERs, feeder simulator, mock market, deterministic optimizer, and replay tooling; no device writes (report section 5.8; PLAN.md section 1). Control-authority posture is simulation/shadow only; the profile can never select a control-capable mode.",
+  "control-authority": "simulation-shadow",
+  "permission-ceiling": [
+    "telemetry.read",
+    "asset.read",
+    "schedule.propose"
+  ],
+  "selections": [
+    {
+      "manifest-id": "builtin.simulator-telemetry",
+      "version-constraint": ">=0.5.0"
+    },
+    {
+      "manifest-id": "builtin.highs-optimizer",
+      "version-constraint": ">=0.5.0"
+    },
+    {
+      "manifest-id": "builtin.pandapower-grid",
+      "version-constraint": ">=0.5.0"
+    },
+    { "manifest-id": "neryva.sim-builtin-ess", "version-constraint": ">=0.5.0" }
+    // Deferred selections (no resolvable manifest exists in v0.5.0; the
+    // documented commented-out pattern — see README.md):
+    // { "manifest-id": "builtin.mock-market", "version-constraint": ">=0.5.0" },
+    // { "manifest-id": "builtin.replay-tools", "version-constraint": ">=0.5.0" }
+  ]
+}

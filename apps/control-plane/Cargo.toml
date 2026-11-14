@@ -48,6 +48,14 @@ time = { workspace = true }
 # directly. The NATS adapter crate hosts the publisher/consumer (P1.15,
 # P1.16), not a client wrapper, so there is no adapter type to reuse.
 async-nats = { workspace = true }
+# P5.25 — the SSE live stream: `BroadcastStream` (the "sync" feature) turns
+# the live bus's broadcast receivers into the axum SSE stream, and
+# `tokio_stream::StreamExt` drives the composition root's NATS forwarder.
+# UNPINNED major-line pin ("0.1", the recorded serde/serde_json/time
+# precedent — RESEARCH.md does not name a version): the exact version is
+# resolved in the first lockfile and re-verified there. Decision record:
+# ledger/phase-05-operator-console-simulator/01_25_scaffold_live.md.
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Integration tests compose the Test-variant backend with the ports fakes
 # (flexcore-ports is already a runtime dependency; no test-only edge).

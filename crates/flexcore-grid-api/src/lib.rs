@@ -91,6 +91,12 @@ pub mod scope;
 pub mod socp_boundary;
 pub mod translation;
 pub mod verdict;
+// P5.15 — the worker-process backend: the REAL `GridModelBackend` over the
+// Python numerical worker leg (`apps/worker/python/grid_worker.py`,
+// WRITTEN, never executed in this loop — UNVERIFIED pandapower API until
+// the human build/test pass). Additive; the port/verdict/fail-closed
+// surfaces above are unchanged.
+pub mod worker_backend;
 
 pub use adapter::{PandapowerGridProvider, PROVIDER_ADDITION_RULE, PROVIDER_BOUNDARY_STATEMENT, PROVIDER_ID, PROVIDER_PINNED_VERSION};
 pub use port::{

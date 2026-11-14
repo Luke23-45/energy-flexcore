@@ -83,6 +83,18 @@
 // in §15.3 and none may be invented (P0.14): the VALIDATED and FEASIBLE
 // facts live in the transition journal, which is the evidence of record.
 //
+// P4.30: the §15.3 grid-validation event `FeasibilityCheckCompleted` is
+// emitted here for EVERY check the §12.5 runner completes with a verdict
+// (pass, limit violation, fail-closed — D-P4.30-1). The pre-verdict
+// rejection path (the source-revision usability check) emits NO
+// `FeasibilityCheckCompleted`: no check ran there — the fact of record is
+// `DispatchRejected` alone. The event's `correlation_id` is the command id
+// (the deterministic, replay-safe convention of the rejection events); the
+// frozen payload carries no command/attempt field (recorded payload-fit
+// gap), so the attempt identity travels in the journal's feasibility
+// evidence reference and the persisted feasibility-check record (P4.30,
+// migration 0017).
+//
 // ## Control status
 //
 // Validation, feasibility, and authorization are distinct gates (§14.1);
@@ -114,6 +126,7 @@ use flexcore_domain::ids::{AssetId, CommandId, ScheduleId, SiteId, TenantId};
 use flexcore_domain::tenant_context::TenantContext;
 use flexcore_events::events::{
     DispatchApprovedPayload, DispatchProposedPayload, DispatchRejectedPayload, DomainEvent,
+    FeasibilityCheckCompletedPayload,
 };
 use flexcore_ports::event_outbox::EventOutbox;
 use flexcore_ports::id_generator::IdGenerator;
@@ -1348,6 +1361,11 @@ impl<'a> CommandGates<'a> {
                 actor,
                 &check,
                 reference,
+                // The usability pre-check is NOT a completed §12.5 check:
+                // no check ran, so no `FeasibilityCheckCompleted` is
+                // emitted (D-P4.30-1) — `DispatchRejected` is the fact of
+                // record.
+                None,
             );
         }
 
@@ -1383,9 +1401,15 @@ impl<'a> CommandGates<'a> {
                 let transition = lifecycle
                     .record_feasibility(GateOutcome::pass(evidence), actor.clone(), self.clock)
                     .map_err(CommandGateError::from)?;
-                // The FEASIBLE fact has no §15.3 event (recorded gap); the
-                // transition receipt is explicitly dropped.
-                let _ = self.persist(ctx, &transition)?;
+                // The FEASIBLE fact has no §15.3 event (recorded gap), but
+                // the COMPLETED CHECK does (P4.30, D-P4.30-1):
+                // `FeasibilityCheckCompleted` is emitted through the
+                // transactional outbox, paired with the same transition
+                // receipt (the one-receipt-per-event reading recorded in
+                // the P3.28 routes — one receipt descriptor may carry more
+                // than one paired event of the SAME state change).
+                let receipt = self.persist(ctx, &transition)?;
+                self.emit_feasibility_check_completed(ctx, command, receipt, correlation_of(&transition))?;
                 Ok(FeasibilityGateResult {
                     result: GateResult {
                         passed: true,
@@ -1419,6 +1443,9 @@ impl<'a> CommandGates<'a> {
                     actor,
                     &check,
                     reference,
+                    // The check RAN and completed with a verdict: the
+                    // completion fact is emitted (D-P4.30-1).
+                    Some(attempt_id),
                 )
             }
             FeasibilityGateVerdict::FailClosed {
@@ -1445,6 +1472,9 @@ impl<'a> CommandGates<'a> {
                     actor,
                     &check,
                     reference,
+                    // The check RAN and completed (fail-closed is a verdict,
+                    // never a pass): the completion fact is emitted.
+                    Some(attempt_id),
                 )
             }
         }
@@ -1814,7 +1844,13 @@ impl<'a> CommandGates<'a> {
     }
 
     /// Records a feasibility-gate REJECTION, persists the transition, and
-    /// emits `DispatchRejected`.
+    /// emits `DispatchRejected` — plus `FeasibilityCheckCompleted` when a
+    /// §12.5 check actually ran and completed with the verdict (`check_id`
+    /// is `Some(attempt_id)`); the usability pre-check passes `None` and
+    /// emits only `DispatchRejected` (D-P4.30-1). Both events pair with
+    /// the SAME transition receipt (the recorded one-receipt-per-event
+    /// reading of the P3.28 routes).
+    #[allow(clippy::too_many_arguments)]
     fn reject_through_feasibility_gate(
         &self,
         ctx: &TenantContext,
@@ -1823,6 +1859,7 @@ impl<'a> CommandGates<'a> {
         actor: &Actor,
         check: &str,
         evidence_reference: String,
+        check_id: Option<String>,
     ) -> Result<FeasibilityGateResult, CommandGateError> {
         let evidence = EvidenceReference::new(evidence_reference.clone()).map_err(|_| {
             CommandGateError::InconsistentJournal {
@@ -1834,7 +1871,14 @@ impl<'a> CommandGates<'a> {
             .record_feasibility(GateOutcome::fail(evidence, check.to_string())?, actor.clone(), self.clock)
             .map_err(CommandGateError::from)?;
         let receipt = self.persist(ctx, &transition)?;
-        self.emit_rejected(ctx, command, receipt, correlation_of(&transition))?;
+        let correlation = correlation_of(&transition);
+        // Both events of the SAME state change pair with the SAME receipt
+        // descriptor (the recorded one-receipt-per-event reading of the
+        // P3.28 routes; the receipt is Clone for exactly this pairing).
+        self.emit_rejected(ctx, command, receipt.clone(), correlation)?;
+        if check_id.is_some() {
+            self.emit_feasibility_check_completed(ctx, command, receipt, correlation)?;
+        }
         Ok(FeasibilityGateResult {
             result: GateResult {
                 passed: false,
@@ -1901,6 +1945,36 @@ impl<'a> CommandGates<'a> {
         .map_err(|error| CommandGateError::Event {
             detail: error.to_string(),
         })
+    }
+
+    /// Emits `FeasibilityCheckCompleted` (the §15.3 grid-validation event;
+    /// P4.30 step 2), paired with the feasibility transition's store
+    /// receipt. The correlation is the command id — the deterministic,
+    /// replay-safe convention of this module's events (the outbox key is
+    /// `feasibility_check_completed:<command uuid>`; the gate admits at
+    /// most ONE runner-verdict check per command, so the key is unique per
+    /// event instance). The frozen payload carries identity + time only —
+    /// the verdict detail travels in the journal evidence and the
+    /// persisted feasibility-check record (migration 0017).
+    fn emit_feasibility_check_completed(
+        &self,
+        ctx: &TenantContext,
+        command: &DispatchCommand,
+        state_change: StateChangeReceipt,
+        correlation: FlexUuid,
+    ) -> Result<(), CommandGateError> {
+        self.emit_dispatch_event(
+            state_change,
+            DomainEvent::FeasibilityCheckCompleted(FeasibilityCheckCompletedPayload {
+                correlation_id: correlation,
+                tenant_id: ctx.tenant_id(),
+                portfolio_id: command.scope().portfolio_id,
+                site_id: command.scope().site_id,
+                asset_id: command.scope().asset_id,
+                event_time: self.event_time()?,
+            }),
+            correlation,
+        )
     }
 
     /// The controlled clock's current instant as an `EventTime`.

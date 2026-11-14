@@ -32,6 +32,7 @@
 // | [`ingestion`] | The telemetry ingestion task (P2.10): the 7-stage pipeline, quarantine, bounded backpressure |
 // | [`maintenance`] | The partition-maintenance job (P2.20): scheduled monthly pre-creation ahead of the ingest frontier + the approved-operation retention path (detach; drop is a second step) |
 // | [`probes`] | `/health` (liveness) and `/ready` (readiness) probe server, liveness vs readiness distinguished |
+// | [`supervision`] | The Class C worker supervisor (P7.18): per-call timeouts (injected clock), bounded deterministic retries, crash isolation, backpressure, and the in-module audit port — over the P7.17 `flexcore.worker.v1` worker contract |
 //
 // `src/main.rs` (binary `flexcore-worker`) wires everything: config →
 // store → broker → topology provisioning → spawned loops → signal-driven
@@ -73,3 +74,8 @@ pub mod ingestion;
 pub mod maintenance;
 pub mod probes;
 pub mod runner;
+// P7.18 — the Class C worker supervisor (timeouts, bounded deterministic
+// retries, crash isolation, backpressure) over the P7.17 worker
+// contract; see the module header for the placement and lifecycle-seam
+// records.
+pub mod supervision;

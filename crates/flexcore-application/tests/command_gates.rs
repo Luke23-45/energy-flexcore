@@ -562,6 +562,9 @@ fn event_name_of(debug_payload: &str) -> &'static str {
         "DispatchProposed",
         "DispatchRejected",
         "DispatchApproved",
+        // P4.30: the §15.3 grid-validation event the feasibility gate
+        // emits for every completed §12.5 check (D-P4.30-1).
+        "FeasibilityCheckCompleted",
     ] {
         if debug_payload.starts_with(candidate) {
             return candidate;
@@ -1044,7 +1047,12 @@ fn a_transformer_limit_violation_rejects_with_the_constraint_named() {
     );
     assert_eq!(
         emitted_events(&h),
-        vec!["DispatchProposed", "DispatchRejected"]
+        vec![
+            "DispatchProposed",
+            // P4.30: the completed §12.5 check is emitted (D-P4.30-1).
+            "FeasibilityCheckCompleted",
+            "DispatchRejected",
+        ]
     );
 }
 
@@ -1276,10 +1284,15 @@ fn approval_by_a_distinct_authorized_actor_records_the_full_decision() {
         record.decision_reference
     );
     assert_eq!(approved.actor.identity(), APPROVER);
-    // DispatchApproved was emitted.
+    // DispatchApproved was emitted (after the P4.30 completed-check event
+    // the feasibility gate emitted on the way to FEASIBLE, D-P4.30-1).
     assert_eq!(
         emitted_events(&h),
-        vec!["DispatchProposed", "DispatchApproved"]
+        vec![
+            "DispatchProposed",
+            "FeasibilityCheckCompleted",
+            "DispatchApproved",
+        ]
     );
 }
 
@@ -1316,7 +1329,12 @@ fn self_approval_is_rejected_where_separation_of_duties_is_enforced() {
     assert!(entry.reason.as_deref().unwrap().starts_with("self-approval prohibited"));
     assert_eq!(
         emitted_events(&h),
-        vec!["DispatchProposed", "DispatchRejected"]
+        vec![
+            "DispatchProposed",
+            // P4.30: the completed §12.5 check is emitted (D-P4.30-1).
+            "FeasibilityCheckCompleted",
+            "DispatchRejected",
+        ]
     );
 }
 

@@ -1,0 +1,32 @@
+{
+  "profile-schema": "flexcore-profile-v1",
+  "profile-id": "research-gnn",
+  "name": "GNN Research Composition",
+  "version": "0.5.0",
+  "description": "Grid model provider, research worker, benchmark suite, and shadow logger for the GNN research line (report section 5.8; PLAN.md section 1). NO DISPATCH AUTHORITY: the ceiling withholds schedule.propose and every dispatch.* id (DEFAULT decision — even proposal permissions are withheld in the research shells; Phase 8 handover P7.31 may revisit under ADR-010). The research worker itself is Phase 8 (PLAN.md section 9).",
+  "control-authority": "simulation-shadow",
+  "permission-ceiling": [
+    "telemetry.read",
+    "asset.read"
+  ],
+  "selections": [
+    {
+      "manifest-id": "builtin.pandapower-grid",
+      "version-constraint": ">=0.5.0"
+    },
+    {
+      "manifest-id": "builtin.simulator-telemetry",
+      "version-constraint": ">=0.5.0"
+    }
+    // Deferred selections (documented commented-out pattern — README.md):
+    // { "manifest-id": "research.gnn-worker", "version-constraint": ">=0.5.0" },
+    //   ^ Phase 8 builds the research providers on this SDK (P5 in
+    //   02_scope_freeze); none exists in v0.5.0.
+    // { "manifest-id": "research.benchmark-suite", "version-constraint": ">=0.5.0" },
+    // { "manifest-id": "research.shadow-logger", "version-constraint": ">=0.5.0" }
+    //   ^ no manifests exist yet. When they do, they inherit this
+    //   ceiling: telemetry/asset reads only — no schedule or dispatch
+    //   permission, and the ceiling can never be raised by a profile edit
+    //   without a reviewed, audited change (P7.38 staged rollout).
+  ]
+}

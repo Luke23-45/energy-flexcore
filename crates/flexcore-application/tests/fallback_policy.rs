@@ -44,7 +44,7 @@ use flexcore_application::fallback_policy::{
 };
 use flexcore_application::payload_encoding::EventPayloadEncoder;
 use flexcore_contracts::ids::FlexUuid;
-use flexcore_contracts::time_model::{ValidFrom, ValidUntil};
+use flexcore_contracts::time_model::ValidUntil;
 use flexcore_domain::command_lifecycle::{
     Actor, AuthorizationOutcome, CommandLifecycle, CommandTransition, EvidenceReference,
     ExpiryMilestone, FailureReason, GateOutcome, LifecycleClock,

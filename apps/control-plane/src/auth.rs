@@ -181,6 +181,26 @@ impl axum::extract::FromRequestParts<crate::state::AppState> for CallerExtractor
     }
 }
 
+/// P5.25 — the live-stream authorization gate (`GET /api/v1/live`).
+///
+/// RECORDED DRIFT (see the decision record
+/// `ledger/phase-05-operator-console-simulator/01_25_scaffold_live.md`):
+/// the ledger's action id for this surface is `live.stream.read`
+/// (tenant-scoped, all roles), but the `Action` vocabulary is a **closed
+/// enum** owned by `crates/flexcore-authz`, which is outside the P5.01/
+/// P5.25 wave's file ownership. The route therefore evaluates
+/// `telemetry.read` — already tenant-scoped and granted to ALL FOUR roles
+/// by `phase2_default_policies` — as the interim deny-by-default gate.
+/// When `Action::LiveStreamRead` is added to the closed enum (one variant
+/// + its `id`/`parse` arms + the four role grants, the recorded
+/// closed-enum extension rule), THIS function is the single swap point.
+pub fn authorize_live_stream(
+    policies: &PolicySet,
+    caller: &Caller,
+) -> Result<(), crate::error::ApiError> {
+    authorize_tenant_scoped(policies, caller, Action::TelemetryRead)
+}
+
 /// Builds the Phase 1 default policy set.
 ///
 /// Deny-by-default with EXPLICIT grants (no role bypasses the tenant
@@ -388,6 +408,105 @@ pub fn phase3_default_policies() -> flexcore_authz::policy::PolicySet {
         (A::OptimizationRunRead, K::Tenant),
     ] {
         grant(R::Viewer, action, kind, "p3-default/viewer", &mut p);
+    }
+    p
+}
+
+/// Builds the Phase 4 default policy set (P4.30): the Phase 3 grants plus
+/// the Phase 4 READ surface, all still deny-by-default with EXPLICIT
+/// grants and no role bypassing the tenant match. Evaluated at tenant
+/// scope (the Phase 4 records are tenant-owned; the routes and stores
+/// enforce the tenant boundary — and RLS is the outer gate on the
+/// Postgres backend — so scope granularity stays tenant-level for the
+/// read surface, recorded).
+///
+/// Recorded grants (rule references `p4-default/<role>`; the set is the
+/// `phase3_default_policies` set extended — the phase policy set is
+/// cumulative by construction):
+///
+/// - **Command reads** (`command.read`): every role — the dispatch-command
+///   records and journals are tenant-scoped evidence every authenticated
+///   role may read (cross-tenant reads are 404 by the route/store scoping
+///   regardless).
+/// - **Feasibility-check reads** (`feasibility.read`): every role — the
+///   persisted §12.5 check evidence is tenant-scoped diagnostic/audit
+///   data (P4.30, migration 0017).
+/// - **Audit-event reads** (`audit.event.read`, P4.36): every role — the
+///   §10.1 audit trail is tenant-scoped evidence every authenticated role
+///   may read (cross-tenant reads are 404 by the route/store scoping
+///   regardless, §16.2; platform-level NULL-tenant records are invisible
+///   to the tenant-scoped port, P1.12 §5.2). The grant is READ-only:
+///   there is no audit update/delete/export action on the surface at all —
+///   the trail is append-only (writes stay the P1.10 `AuditSink`'s
+///   append alone).
+/// - Deliberately ABSENT here: `command.create` / `command.validate` /
+///   `command.approve` (the gate actions are evaluated through the
+///   recorded `flexcore_authz::phase4_policies` grants at the GATES, not
+///   through this REST read set — and there is NO REST write path to the
+///   command surface at all: no execute-command endpoint exists, §15.2).
+///   `dispatch.authorize` / `dispatch.issue` do not exist on the action
+///   surface (§5.7). No `audit.event.write` / `audit.event.delete` /
+///   `audit.event.export` action exists (append-only, P4.36).
+pub fn phase4_default_policies() -> flexcore_authz::policy::PolicySet {
+    use flexcore_authz::action::Action as A;
+    use flexcore_authz::decision::EvidenceRef;
+    use flexcore_authz::policy::Role as R;
+    use flexcore_authz::scope::ScopeKind as K;
+
+    let mut p = phase3_default_policies();
+    let mut grant = |role: R, action: A, kind: K, id: &str, p: &mut PolicySet| {
+        p.grant(role, action, kind, EvidenceRef::new(id.to_string()));
+    };
+
+    // The Phase 4 read surface: every authenticated role, tenant scope.
+    // P4.36 appended `audit.event.read` additively (same role set, same
+    // scope discipline — the audit trail is tenant-scoped evidence).
+    for action in [A::CommandRead, A::FeasibilityRead, A::AuditEventRead] {
+        grant(R::PlatformAdmin, action, K::Tenant, "p4-default/platform-admin", &mut p);
+        grant(R::TenantAdmin, action, K::Tenant, "p4-default/tenant-admin", &mut p);
+        grant(R::Operator, action, K::Tenant, "p4-default/operator", &mut p);
+        grant(R::Viewer, action, K::Tenant, "p4-default/viewer", &mut p);
+    }
+    p
+}
+
+/// Builds the Phase 5 default policy set (P5.31): the Phase 4 grants plus
+/// the alarm READ surface, still deny-by-default with EXPLICIT grants and
+/// no role bypassing the tenant match. Evaluated at tenant scope (alarms
+/// are derived-on-read from tenant-owned records — the derivation cannot
+/// cross the tenant boundary, §16.2).
+///
+/// Recorded grants (rule references `p5-default/<role>`; the set is the
+/// `phase4_default_policies` set extended — the phase policy set is
+/// cumulative by construction):
+///
+/// - **Alarm reads** (`alarm.read`, P5.31): every role — the derived
+///   alarm records are tenant-scoped operator-attention evidence every
+///   authenticated role may read (the same discipline as the Phase 4 read
+///   surface; cross-tenant derivation is impossible by construction — the
+///   source records are tenant-scoped reads).
+/// - Deliberately ABSENT: any alarm write/acknowledge/clear action — the
+///   derived-on-read contract has no alarm mutation path at all (the
+///   acknowledgement lifecycle belongs to a later persistence phase, and
+///   no such action exists on the closed `Action` enum).
+pub fn phase5_default_policies() -> flexcore_authz::policy::PolicySet {
+    use flexcore_authz::action::Action as A;
+    use flexcore_authz::decision::EvidenceRef;
+    use flexcore_authz::policy::Role as R;
+    use flexcore_authz::scope::ScopeKind as K;
+
+    let mut p = phase4_default_policies();
+    let mut grant = |role: R, action: A, kind: K, id: &str, p: &mut PolicySet| {
+        p.grant(role, action, kind, EvidenceRef::new(id.to_string()));
+    };
+
+    for (role, rule) in [
+        (R::PlatformAdmin, "p5-default/platform-admin"),
+        (R::TenantAdmin, "p5-default/tenant-admin"),
+        (R::Operator, "p5-default/operator"),
+        (R::Viewer, "p5-default/viewer"),
+    ] {
+        grant(role, A::AlarmRead, K::Tenant, rule, &mut p);
     }
     p
 }

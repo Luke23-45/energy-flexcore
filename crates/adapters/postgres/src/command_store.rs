@@ -603,6 +603,61 @@ impl CommandRecordStore for PgUnitOfWork {
         })
     }
 
+    fn list_commands(
+        &self,
+        ctx: &TenantContext,
+        filter: &flexcore_storage::command_store::CommandListFilter,
+        limit: u32,
+    ) -> Result<Vec<CommandRecord>, CommandStoreError> {
+        // The state filter is validated against the closed vocabulary
+        // BEFORE the query (a value outside it can never match a row —
+        // rejecting here keeps the failure named, not silent).
+        if let Some(state) = filter.state.as_deref() {
+            if !flexcore_storage::command_store::COMMAND_STATES.contains(&state) {
+                return Err(CommandStoreError::InvalidRecord { field: "state" });
+            }
+        }
+        if let Some(after) = filter.after_command_id.as_deref() {
+            require_uuid_text(after, "after_command_id")?;
+        }
+        let limit = i64::from(limit);
+        self.runtime.block_on(async {
+            let mut guard = self.tx.lock().await;
+            let tx = tx_ref(&mut guard)
+                .await
+                .map_err(|err| CommandStoreError::Backend {
+                    code: err.code().to_string(),
+                    message: err.message().to_string(),
+                })?;
+            // Newest first (command_id DESC — the primary keys are UUIDv7s,
+            // so id order is a stable time order), keyset cursor on the
+            // filter, explicit tenant filter on top of RLS (P0.16 rule 5).
+            // The limit is ALWAYS applied (no unbounded query). Every
+            // filter value is a bound parameter (never interpolated).
+            let mut statement = format!("{COMMAND_SELECT} WHERE tenant_id = $1::uuid");
+            let mut binds: Vec<String> = Vec::new();
+            if let Some(state) = filter.state.as_deref() {
+                binds.push(state.to_string());
+                statement.push_str(&format!(" AND state = ${}", binds.len() + 1));
+            }
+            if let Some(after) = filter.after_command_id.as_deref() {
+                binds.push(after.to_string());
+                statement.push_str(&format!(" AND command_id < ${}::uuid", binds.len() + 1));
+            }
+            statement.push_str(&format!(" ORDER BY command_id DESC LIMIT ${}", binds.len() + 2));
+            let mut query = sqlx::query(&statement).bind(uuid_text(ctx.tenant_id().uuid()));
+            for bind in &binds {
+                query = query.bind(bind);
+            }
+            let rows = query
+                .bind(limit)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|err| map_command_store_error(err, "listing"))?;
+            rows.iter().map(decode_command_record_row).collect()
+        })
+    }
+
     fn ensure_schedule_revision_usable(
         &self,
         ctx: &TenantContext,

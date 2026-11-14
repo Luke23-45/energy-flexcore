@@ -120,3 +120,18 @@ Relative effort (no calendar dates): the 12 workspaces are the largest share, th
 ## 10. How the §24 vertical slice lands here
 
 §24 steps 9–10 land in this phase: "display the complete decision/audit trail in the web console" (P5.09, P5.30 demonstration) and "replay the same scenario with the same versions and verify reproducibility" (P5.18–P5.19). Steps 1–2 are Phase 2, steps 3–4 Phase 3, steps 5–8 Phase 4. The vertical slice is complete only when this phase's demonstration (P5.30) runs it end-to-end with an operator at the console.
+
+## 11. §19.1 simulator-track scoping (P5.17)
+
+The full decision record — reasons, deferral triggers, D-gate pendings, and the plugin-kernel note — is `17_scoping_decision.md`. The table, as filed there (ledger P5.17 step 4):
+
+| §19.1 track | Decision (DEFAULT) | Phase / trigger |
+|---|---|---|
+| Portfolio scheduling | INTEGRATED (P5.14) | Phase 5; new asset classes re-open |
+| Distribution quasi-static | INTEGRATED, pandapower only, under the D3 default (balanced radial) (P5.15) | Unbalanced three-phase: pending D3, T0–T5 triggers (`34_unbalanced_deferral.md`); GridLAB-D/OpenDSS: a named case only (§12.4) |
+| Transmission/planning (PyPSA) | DEFERRED — optional comparison only, pending D3 | Re-open when D3 admits transmission studies AND a named §19.3 case requires it |
+| Dynamic stability (ANDES) | DEFERRED — explicit | Stage 8, with a named research controller + declared dynamic model |
+| Multi-domain co-simulation (HELICS) | INTEGRATED, minimal three federates (P5.16); market/communication legs PENDING D1 / deferred | Market federate: pending D1; communication federate: Stage 6 |
+| Hardware-in-the-loop | DEFERRED — explicit | Stage 9, after §19.2 layers 1–9 + the cyber review (D6) |
+
+Constraint carried with the table (§19.1): a steady-state power-flow tool is not evidence for transient frequency stability; a completed co-simulation is not a power-system validation by itself; HELICS coordinates — it does not replace the federates' physics models.

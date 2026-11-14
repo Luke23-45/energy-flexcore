@@ -1,0 +1,48 @@
+# P8.05/P8.06 — flexcore-research manifest: the independent validation
+# harness (the validator that does not trust the researcher) and the strong
+# deterministic baseline registry (the comparison every research module must
+# beat). Ledger: `ledger/phase-08-advanced-coordination/ledger_phase_8.md`
+# §P8.05/§P8.06; decision record:
+# `ledger/phase-08-advanced-coordination/05_06_harness_baselines.md`.
+#
+# Placement decision (recorded): COMPOSITION crate, like flexcore-kernel and
+# flexcore-simulator (tools/check_dependency_rule.py). Rationale: the crate
+# composes the platform's existing seams (the §12.5/§14.1 feasibility gate
+# surface of `crates/flexcore-application/src/command_gates.rs`, the §12.6
+# result vocabulary of flexcore-optimization-api, the §13.4 proposal
+# vocabulary) rather than defining a new core contract; nothing depends ON
+# it except future composition roots. The core-crate edge policy does not
+# apply to it, and no core crate may depend on it.
+#
+# Dependency policy: NO NEW EXTERNAL DEPENDENCIES. serde/serde_json are
+# existing workspace deps (record serialization, the repo-wide contract
+# pattern). No solver crate, no transport, no async runtime: the harness
+# consumes the feasibility gate as an INJECTED PORT (never re-implements
+# physics), and the baselines declare the platform providers (HiGHS /
+# Clarabel) by CITATION plus composition seams — the provider types are
+# mirrored locally with recorded alignment seams, keeping this crate
+# dependency-minimal (see `src/baselines.rs` and the decision record).
+#
+# REGISTRATION CORRECTION (2026-11-13, continuation agent): an earlier note
+# here claimed the root `Cargo.toml` member entry and the
+# tools/check_dependency_rule.py registration were already edited in the
+# same wave — that claim was FALSE at the time it was written (the prior
+# agent was killed before performing either edit). The registration was
+# completed by the continuation agent: member "crates/flexcore-research"
+# added additively to the root `Cargo.toml` members list (the 20th member,
+# with the recorded composition-crate comment), and package
+# "flexcore-research" added to COMPOSITION_CRATES + its directory
+# "crates/flexcore-research" to MEMBER_DIRS in tools/check_dependency_rule.py
+# (mirroring how flexcore-kernel and flexcore-plugin-host are registered).
+# `python -I tools/check_dependency_rule.py` was run AFTER those edits and
+# reported: "OK — dependency rule holds for 20 workspace members." (exit 0).
+
+[package]
+name = "flexcore-research"
+description = "Phase 8 research crate: the independent validation harness for research proposals (P8.05) and the frozen deterministic baseline registry (P8.06). Proposals only (ADR-010)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

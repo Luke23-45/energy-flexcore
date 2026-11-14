@@ -366,6 +366,22 @@ impl<'a> CommandExpiryService<'a> {
         })
     }
 
+    /// Persists one transition through the store seam (the compare-and-swap
+    /// state change plus the immutable journal row, in the adapter's one
+    /// transaction), returning the receipt the event write pairs with. A
+    /// lost race is [`CommandExpiryError::Store`] — the sweep decision is
+    /// re-checked against the store, so a stale candidate can never fire a
+    /// wrong transition.
+    fn persist(
+        &self,
+        ctx: &TenantContext,
+        transition: &CommandTransition,
+    ) -> Result<StateChangeReceipt, CommandExpiryError> {
+        self.store
+            .journal_transition(ctx, transition)
+            .map_err(CommandExpiryError::Store)
+    }
+
     /// Emits one frozen dispatch-lifecycle event through the transactional
     /// outbox (state change first, then the outbox write — §6.3 step 1).
     fn emit_event(

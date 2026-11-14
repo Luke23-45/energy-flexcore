@@ -1,0 +1,21 @@
+# P5.15 — Python grid-worker dependency pins (RECORDED, NEVER INSTALLED).
+#
+# The Phase 5 loop bans installation: nothing in this file was ever
+# `pip install`ed into any environment in this repository's history. This
+# file records the pins the human's build/test pass must honour when the
+# worker is first executed. It is a D4 (license/dependency audit) input,
+# not a lockfile.
+#
+# Grid provider pin (D-P4.01-1, ledger/phase-04-grid-feasibility-dispatch
+# §3; verified against https://pypi.org/project/pandapower/ on 2026-11-07,
+# see that phase's RESEARCH.md §: pandapower 3.5.6 released 7 October 2026):
+pandapower==3.5.6
+
+# CVXPY is deliberately NOT a dependency of this worker: this worker runs
+# an AC POWER FLOW evaluation of specified injections (pandapower `runpp`),
+# never an optimization — there is no AC-OPF, no MILP, and no CVXPY modelling
+# path here (solver-class discipline, AGENTS.md rule 4). The CVXPY pin, if a
+# later Phase 3/8 modelling path needs it, is its own recorded decision —
+# the Phase 3 RESEARCH.md records CVXPY 1.9.x as the then-current line with
+# the per-problem-class default-solver matrix still an open verification
+# task; no version is pinned here from an unverified source.

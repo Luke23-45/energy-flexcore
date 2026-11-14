@@ -91,6 +91,36 @@ COMPOSITION_CRATES = {
     "flexcore-sim-runner",
     "flexcore-control-plane",
     "flexcore-worker",
+    # P6.05 — edge agent (composition root for the edge deployment; allowed
+    # to use infrastructure like apps/*; nothing depends ON it except future
+    # crates/adapters/<protocol> crates implementing its EmsAdapter port).
+    "flexcore-edge-agent",
+    # P7.05/P7.06 — plugin kernel (manifest validation + dependency
+    # resolution; report §8.1/§8.2: flexcore-kernel manages plugin
+    # composition and lifecycle). Composition side, like apps/worker: the
+    # core-crate edge policy does not apply to it, and nothing depends ON it
+    # except future composition roots (P7.08 registry, apps/*).
+    "flexcore-kernel",
+    # P7.10/P7.11 — WASM plugin host (apps/plugin-host): the constrained
+    # component-model host prototype as a SEPARATE process (report §8.3:
+    # extracted for security isolation) plus the P7.11 capability broker.
+    # Composition side (apps/* rules): it may use infrastructure — wasmtime
+    # is exactly the infrastructure identifier this classification exists to
+    # allow — and nothing depends ON it except future composition (P7.20
+    # gRPC template, P7.34 mTLS trust boundary).
+    "flexcore-plugin-host",
+    # P8.04–P8.06 — flexcore-research (the Phase 8 independent validation
+    # harness + the frozen deterministic baseline registry). Composition
+    # side, like flexcore-kernel/plugin-host: the crate composes the
+    # platform's EXISTING seams (the §12.5 feasibility gate surface of
+    # flexcore-application as an INJECTED port, the §12.6 result
+    # vocabulary, the §13.4 proposal vocabulary) rather than defining a new
+    # core contract; the core-crate edge policy does not apply to it, and
+    # no core crate may depend on it — nothing depends ON it except future
+    # composition roots (see
+    # ledger/phase-08-advanced-coordination/05_06_harness_baselines.md §3
+    # for the recorded placement rationale).
+    "flexcore-research",
 }
 
 MEMBER_DIRS = [
@@ -107,9 +137,13 @@ MEMBER_DIRS = [
     "crates/adapters/postgres",
     "crates/adapters/nats",
     "crates/flexcore-simulator",
+    "crates/edge-agent",
+    "crates/flexcore-kernel",
+    "crates/flexcore-research",
     "apps/control-plane",
     "apps/sim-runner",
     "apps/worker",
+    "apps/plugin-host",
 ]
 
 

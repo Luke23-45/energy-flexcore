@@ -1,0 +1,301 @@
+{
+  "schema_note": "Field order in this artifact is NORMATIVE (deterministic field order; reviewers diff artifacts textually). A change to ANY field — an added, removed, or re-parameterised case, a new fixture version, a changed solver pin — is a NEW version id (flexcore-research-benchmark-set-v2, ...), frozen as a NEW file. This file is never edited in place after freeze.",
+  "set_id": "flexcore-research-benchmark-set",
+  "version_id": "flexcore-research-benchmark-set-v1",
+  "frozen_date": "2026-11-14",
+  "status": "WRITTEN-UNRUN",
+  "ledger_subtask": "P8.19",
+  "ledger": "ledger/phase-08-advanced-coordination/ledger_phase_8.md §P8.19",
+  "decision_record": "ledger/phase-08-advanced-coordination/19_benchmark_cases.md",
+  "not_tested_list": "benchmarks/research-set-v1-not-tested.json",
+  "report_trace": {
+    "section_19_3": "docs/plan/Neryva_FlexCore_Product_and_Architecture_Report_v1.1.md §19.3 (the base-case list; nothing here is invented — every case traces to a §19.3 bullet and to a recorded repository artifact)",
+    "section_19_4": "docs/plan/Neryva_FlexCore_Product_and_Architecture_Report_v1.1.md §19.4 (the metric vocabulary; NO numeric success threshold is recorded here — X-8, §19.4 preconditions still missing)"
+  },
+  "anti_silent_growth_rule": "A benchmark change is a NEW version. This mirrors the P8.06 frozen-baseline discipline (a baseline change is a new baseline version, never a silent edit) and the P8.05 HARNESS_VERSION discipline. Every Phase 8 evaluation (P8.06 baseline runs, P8.09, P8.12, P8.15, P8.21, P8.23) cites exactly ONE version id — this one for the v1 freezes. An evaluation whose cited version differs from the artifact it claims to use is a named finding, never absorbed.",
+  "run_status_note": "NOTHING in this set has been RUN. The workspace has never been built or executed (P8.01 G-1: the deterministic baseline's benchmark numbers do not exist; the P3.27/P5 benchmark tables carry not_measured/EMPTY cells). Every run_status below is NOT_RUN and every pre-registered expected outcome is UNRUN. The human/lab build-and-run gate produces run evidence in the evaluation records that cite this version id — a filled run never edits this artifact.",
+  "network_class_declaration": {
+    "d3_status": "OPEN (.agent/DECISIONS.md; the balanced-radial default is a RECOMMENDATION, not a decision)",
+    "declared_class": "balanced distribution feeders: radial default, plus one balanced meshed fixture case (lib-03) under the adapter's declared TopologyScope::RadialAndMeshed (P4.34)",
+    "note": "Each evaluation record restates the network class of its experiments (the D3 obligation, P8.02 §4). Unbalanced topologies and transmission-class studies are OUT of the declared scope; see the not-tested list."
+  },
+  "units": "MW, MVAr, MVA, MWh (report §10.2 canonical). P > 0 means export at the point of connection. Reactive-power sign is declared per grid model and device profile. SOC is a fraction in [0,1] at the API boundary. Voltage kV at nominal base, per-unit in solver representation.",
+  "base_cases": [
+    {
+      "section_19_3_bullet": "IEEE 13-bus, 34-bus, and 123-bus distribution test feeders where licensing and model availability are confirmed",
+      "case_ids": ["ieee-13-bus-distribution", "ieee-34-bus-distribution", "ieee-123-bus-distribution"],
+      "included": false,
+      "source": {
+        "record": "per-case IEEE exclusion record carried in every scenarios/library/lib-*.json (ieee_case_record.included=false)",
+        "exclusion_reason_verbatim_prefix": "excluded: no IEEE 13/34/123-bus distribution or 39/118-bus transmission model is available in this repository, and neither licensing nor model availability is confirmed (19.3)",
+        "confirmation_precondition": "a future inclusion requires the confirmed licensing AND a model source, recorded per case"
+      },
+      "run_status": "NOT_RUN",
+      "run_evidence": "none — no IEEE feeder model exists in the repository"
+    },
+    {
+      "section_19_3_bullet": "IEEE 39-bus and 118-bus transmission test systems for selected grid studies",
+      "case_ids": ["ieee-39-bus-transmission", "ieee-118-bus-transmission"],
+      "included": false,
+      "transmission_statement": "The IEEE 39-bus and IEEE 118-bus transmission test systems are NAMED here explicitly because §19.3 bullet 2 names them, and the honest record is: NO transmission case has been RUN in this repository — no transmission model, no transmission study, no transmission-class result exists. Transmission/planning (the PyPSA track, §19.1) has no integration in this repository. Any transmission claim sourced from this phase is a finding against it (X-7 discipline).",
+      "source": {
+        "record": "per-case IEEE exclusion record carried in every scenarios/library/lib-*.json (ieee_case_record.included=false)",
+        "exclusion_reason_verbatim_prefix": "excluded: no IEEE 13/34/123-bus distribution or 39/118-bus transmission model is available in this repository, and neither licensing nor model availability is confirmed (19.3)"
+      },
+      "run_status": "NOT_RUN",
+      "run_evidence": "none — no IEEE 39-bus or 118-bus model exists in the repository; nothing transmission-class has ever been executed here"
+    },
+    {
+      "section_19_3_bullet": "synthetic portfolios with BESS, PV, flexible load, and EVSE",
+      "case_ids": ["lib-01-minimal-single-asset", "lib-02-small-portfolio"],
+      "included": true,
+      "cases": [
+        {
+          "case_id": "lib-01-minimal-single-asset",
+          "record": "scenarios/library/lib-01-minimal-single-asset.json",
+          "record_version": "v1",
+          "purpose": "minimal replayable case: one tenant, one site, ONE BESS over a 24 h horizon at 15-minute cadence; the base case every other case extends",
+          "inputs": {
+            "scenario": "scenarios/library/fixtures/scenario-minimal-single-asset.json (v1)",
+            "grid_model_fixture": "three_bus_radial (model_id feeder-a, version 1; SYNTHETIC — no IEEE feeder is used or claimed)"
+          },
+          "clock": {
+            "start_utc": "2026-06-01T00:00:00Z",
+            "cadence_seconds": 900,
+            "scheduling_interval_seconds": 900,
+            "horizon_hours": 24
+          },
+          "dispatch_parameters": {
+            "asset_key": "lib-min-bess-1",
+            "target_p_mw": 0.0,
+            "target_q_mvar": 0.0,
+            "tracking_tolerance_mw": 0.5
+          },
+          "seeds": {
+            "master_seed": 20260601,
+            "derivation": "seed(asset_key) = master_seed XOR splitmix64(FNV-1a-64(asset_key))"
+          },
+          "solver_pins": ["HiGHS 1.15.1 (LP/QP/MIP — never SOCP; not exercised by the sim-runner composition)", "Clarabel.rs 0.11.1 (continuous conic; no integer variables; not exercised by the sim-runner composition)", "pandapower 3.5.6 (provider pin; API usage UNVERIFIED until the human build/test pass)"],
+          "backend": "scripted",
+          "network_class": "balanced radial (three-bus synthetic fixture)",
+          "expected_outcomes": "pre-registered, UNRUN (in the record file)",
+          "run_status": "NOT_RUN"
+        },
+        {
+          "case_id": "lib-02-small-portfolio",
+          "record": "scenarios/library/lib-02-small-portfolio.json",
+          "record_version": "v1",
+          "purpose": "the full synthetic-portfolio fixture (Phase 2 exit-gate artefact v2): two sites, per site BESS + PV + flexible load + EVSE + site meter, 24 h at 1-minute cadence; the replay-identity workhorse and negative-control base",
+          "inputs": {
+            "scenario": "scenarios/synthetic-portfolio/scenario-v2.json (v2)",
+            "forecast_fixture": "scenarios/synthetic-portfolio/forecast-fixture-v1.json (v1)",
+            "grid_model_fixture": "three_bus_radial (model_id feeder-a, version 1; SYNTHETIC)"
+          },
+          "clock": {
+            "start_utc": "2026-06-01T00:00:00Z",
+            "cadence_seconds": 60,
+            "scheduling_interval_seconds": 900,
+            "horizon_hours": 24
+          },
+          "dispatch_parameters": {
+            "asset_key": "site-north-bess-1",
+            "target_p_mw": 0.0,
+            "target_q_mvar": 0.0,
+            "tracking_tolerance_mw": 0.5
+          },
+          "seeds": {
+            "master_seed": 20260601,
+            "derivation": "seed(asset_key) = master_seed XOR splitmix64(FNV-1a-64(asset_key))"
+          },
+          "solver_pins": ["HiGHS 1.15.1", "Clarabel.rs 0.11.1", "pandapower 3.5.6 (UNVERIFIED API)"],
+          "backend": "scripted",
+          "network_class": "balanced radial (three-bus synthetic fixture)",
+          "expected_outcomes": "pre-registered, UNRUN (in the record file)",
+          "run_status": "NOT_RUN"
+        },
+        {
+          "case_id": "phase3-scenario-artefacts",
+          "record": "scenarios/synthetic-portfolio/scenarios-phase3/ (scenario-a-normal-day.json v1, scenario-b-pv-ramp.json v1, scenario-c-dropout.json v1)",
+          "record_version": "v1",
+          "purpose": "the P3.26 pinned scenario artefacts the benchmark harness (P3.27) measures; the input side of lib-06 and lib-07; the only artefacts the --scaling probe currently copies",
+          "run_status": "NOT_RUN"
+        }
+      ],
+      "run_status": "NOT_RUN"
+    },
+    {
+      "section_19_3_bullet": "multiple feeders/sites connected through a common substation constraint",
+      "case_ids": ["lib-03-medium-multi-site-meshed"],
+      "included": true,
+      "cases": [
+        {
+          "case_id": "lib-03-medium-multi-site-meshed",
+          "record": "scenarios/library/lib-03-medium-multi-site-meshed.json",
+          "record_version": "v1",
+          "purpose": "the two-site portfolio against the MESHED two-feeder synthetic fixture (one substation, two LV feeders behind their own transformers, two mesh ties) — the common-substation constraint at fixture scale, balanced only, under TopologyScope::RadialAndMeshed (P4.34); site-north assets at bus_3 (feeder-a), site-south assets at bus_5 (feeder-b)",
+          "inputs": {
+            "scenario": "scenarios/synthetic-portfolio/scenario-v2.json (v2)",
+            "forecast_fixture": "scenarios/synthetic-portfolio/forecast-fixture-v1.json (v1)",
+            "grid_model_fixture": "meshed_two_feeder (model_id synthetic-meshed-two-feeder, version 1; SYNTHETIC, BALANCED only)"
+          },
+          "clock": {
+            "start_utc": "2026-06-01T00:00:00Z",
+            "cadence_seconds": 60,
+            "scheduling_interval_seconds": 900,
+            "horizon_hours": 24
+          },
+          "dispatch_parameters": {
+            "asset_key": "site-north-bess-1",
+            "target_p_mw": 0.0,
+            "target_q_mvar": 0.0,
+            "tracking_tolerance_mw": 0.5
+          },
+          "seeds": {
+            "master_seed": 20260601,
+            "derivation": "seed(asset_key) = master_seed XOR splitmix64(FNV-1a-64(asset_key))"
+          },
+          "solver_pins": ["HiGHS 1.15.1", "Clarabel.rs 0.11.1", "pandapower 3.5.6 (UNVERIFIED API)"],
+          "backend": "scripted",
+          "network_class": "balanced meshed (two-feeder fixture with mesh ties)",
+          "expected_outcomes": "pre-registered, UNRUN (in the record file)",
+          "run_status": "NOT_RUN"
+        }
+      ],
+      "run_status": "NOT_RUN"
+    },
+    {
+      "section_19_3_bullet": "stressed scenarios such as PV ramps, forecast error, communication loss, asset dropout, reverse power flow, and topology change",
+      "case_ids": ["lib-06-stress-pv-ramp", "lib-07-stress-asset-dropout", "lib-08-stress-reverse-power-flow", "lib-04-stress-worker-timeout", "lib-05-stress-nonconvergence"],
+      "included": true,
+      "note": "The six §19.3-named stressors map to library cases as recorded in research_case_additions below — including the PARTIAL mappings (communication loss, topology change) stated honestly rather than silently claimed.",
+      "run_status": "NOT_RUN"
+    }
+  ],
+  "research_case_additions": [
+    {
+      "addition_id": "ra-pv-ramps",
+      "stressor": "PV ramps (§19.3 bullet 5)",
+      "case_id": "lib-06-stress-pv-ramp",
+      "record": "scenarios/library/lib-06-stress-pv-ramp.json",
+      "record_version": "v1",
+      "source": "scenarios/synthetic-portfolio/scenarios-phase3/scenario-b-pv-ramp.json (v1) — the P3.26 scenario (b) pairing",
+      "parameters": {
+        "pv_ramp": "PV down 80 percent of clear-sky inside 12:00-13:00 UTC",
+        "stressor_location": "the FORECAST, not the telemetry — telemetry stays all-GOOD and byte-identical to scenario (a)'s"
+      },
+      "backend": "scripted",
+      "run_status": "NOT_RUN"
+    },
+    {
+      "addition_id": "ra-forecast-error",
+      "stressor": "forecast error (§19.3 bullet 5)",
+      "case_id": "lib-06-stress-pv-ramp",
+      "record": "scenarios/library/lib-06-stress-pv-ramp.json",
+      "record_version": "v1",
+      "source": "scenarios/synthetic-portfolio/forecast-fixture-v1-error-pv-ramp.json (version v1-error-pv-ramp) — the P3.26 error variant",
+      "parameters": {
+        "forecast_error": "PV down 80 percent of clear-sky inside 12:00-13:00 UTC (the error fixture differs from forecast-fixture-v1.json only in the error plan)"
+      },
+      "backend": "scripted",
+      "run_status": "NOT_RUN"
+    },
+    {
+      "addition_id": "ra-communication-loss",
+      "stressor": "communication loss (§19.3 bullet 5) — PARTIAL MAPPING, stated honestly",
+      "case_id": "lib-07-stress-asset-dropout",
+      "record": "scenarios/library/lib-07-stress-asset-dropout.json",
+      "record_version": "v1",
+      "source": "scenarios/synthetic-portfolio/scenarios-phase3/scenario-c-dropout.json (v1) + the P5.21 fault-injection suite (apps/sim-runner/src/fault_injection.rs — dropped/reordered/duplicated messages, §19.2(6)) + lib-04 (worker-timeout analogue at the worker boundary)",
+      "parameters": {
+        "telemetry_dropout_window_utc": "12:00-13:00 (no frames reach the platform for the window — the recorded communication-loss analogue at the telemetry layer, per the lib-07 record)",
+        "full_fault_set": "owned by the P5.21 injection suite, not by a dedicated benchmark case"
+      },
+      "honest_limit": "there is NO dedicated sustained-communication-loss benchmark case in this set; the dropout window and the fault-injection suite are the recorded analogues — see not-tested item NT-7",
+      "backend": "scripted (lib-07) / worker_process (lib-04, UNVERIFIED pandapower API)",
+      "run_status": "NOT_RUN"
+    },
+    {
+      "addition_id": "ra-asset-dropout",
+      "stressor": "asset dropout (§19.3 bullet 5)",
+      "case_id": "lib-07-stress-asset-dropout",
+      "record": "scenarios/library/lib-07-stress-asset-dropout.json",
+      "record_version": "v1",
+      "source": "scenarios/synthetic-portfolio/scenarios-phase3/scenario-c-dropout.json (v1) — the P3.26 scenario (c) pairing",
+      "parameters": {
+        "drop_window_utc": "12:00-13:00",
+        "dropped_asset": "site-north-bess-1",
+        "expected_gap": "the gap is an EXPECTED gap (the P2.25 expected-quality plan pre-registers MISSING / expected_gap)",
+        "roll": "the prior-schedule roll pin is enabled so the REAL P3.24 rolling roll fires in the run record"
+      },
+      "backend": "scripted",
+      "run_status": "NOT_RUN"
+    },
+    {
+      "addition_id": "ra-reverse-power-flow",
+      "stressor": "reverse power flow (§19.3 bullet 5)",
+      "case_id": "lib-08-stress-reverse-power-flow",
+      "record": "scenarios/library/lib-08-stress-reverse-power-flow.json",
+      "record_version": "v1",
+      "source": "scenarios/library/fixtures/scenario-minimal-single-asset.json (v1)",
+      "parameters": {
+        "dispatch_target": "+1.5 MW EXPORT at the connection point (P > 0 = export, §10.2/P0.07)",
+        "target_q_mvar": 0.0
+      },
+      "honest_limit": "on the scripted backend the grid check is the recorded FIXTURE outcome and passes — the scripted backend CANNOT produce a reverse-power-flow violation (recorded honestly in the lib-08 record); the violation expectation is pre-registered for the worker_process leg, UNRUN",
+      "backend": "scripted (limitation recorded) / worker_process leg (UNVERIFIED pandapower API)",
+      "run_status": "NOT_RUN"
+    },
+    {
+      "addition_id": "ra-topology-change",
+      "stressor": "topology change (§19.3 bullet 5) — PARTIAL MAPPING, stated honestly",
+      "case_id": "lib-03-medium-multi-site-meshed",
+      "record": "scenarios/library/lib-03-medium-multi-site-meshed.json",
+      "record_version": "v1",
+      "source": "the meshed two-feeder synthetic fixture (model_id synthetic-meshed-two-feeder, version 1)",
+      "parameters": {
+        "coverage": "topology-CLASS variation (radial lib-01/lib-02 vs balanced meshed lib-03) at fixture scale — per the lib-08 record's own statement: 'a fixture-level topology class, not a runtime switching model'"
+      },
+      "honest_limit": "a RUNTIME topology-change event (feeder switching / line trip mid-horizon in the quasi-static grid model) is NOT implemented in this repository — see not-tested item NT-6",
+      "backend": "scripted",
+      "run_status": "NOT_RUN"
+    },
+    {
+      "addition_id": "ra-worker-timeout",
+      "stressor": "solver/worker timeout analogue (§19.3 bullet 5, per the lib-04 record's benchmark_reference)",
+      "case_id": "lib-04-stress-worker-timeout",
+      "record": "scenarios/library/lib-04-stress-worker-timeout.json",
+      "record_version": "v1",
+      "source": "scenarios/synthetic-portfolio/scenario-v2.json (v2) over the worker_process backend with a deliberately tight bounded timeout",
+      "parameters": {
+        "expected_behaviour": "a hung worker is killed and the gate is FAIL-CLOSED (BackendUnavailable → the P4.08 HOLD classification) — never a pass, never a retry"
+      },
+      "backend": "worker_process (UNVERIFIED pandapower API — the leg was written, never executed)",
+      "run_status": "NOT_RUN"
+    },
+    {
+      "addition_id": "ra-nonconvergence",
+      "stressor": "power-flow non-convergence injection (§19.3 bullet 5, per the lib-05 record's benchmark_reference; AC power-flow convergence is the §19.4 grid-feasibility metric)",
+      "case_id": "lib-05-stress-nonconvergence",
+      "record": "scenarios/library/lib-05-stress-nonconvergence.json",
+      "record_version": "v1",
+      "source": "scenarios/synthetic-portfolio/scenario-v2.json (v2) over the worker_process backend with a converged:false response pre-registered",
+      "parameters": {
+        "expected_behaviour": "an inconclusive/failed evaluation routes FAIL-CLOSED (retry NONE, D-P4.05-2) — never a pass, never a silent re-run; no limit check runs on a non-converged result (P4.06)"
+      },
+      "backend": "worker_process (UNVERIFIED pandapower API)",
+      "run_status": "NOT_RUN"
+    }
+  ],
+  "evaluation_citations": {
+    "rule": "Every Phase 8 evaluation that reports numbers on cases in this set cites version_id flexcore-research-benchmark-set-v1 on every row. An evaluation row without the version id is invalid and must not be entered.",
+    "expected_citing_records": {
+      "P8.06_baseline_runs": "ledger/phase-08-advanced-coordination/05_06_harness_baselines.md §3 — the frozen baseline results artifact (which does not exist until the first human/lab run) cites this version id",
+      "P8.09_admm_evaluation": "ledger/phase-08-advanced-coordination/09_admm_evaluation.md §2.1 — rows carry the benchmark-set version (RECORD-AT-FIRST-RUN; now resolved to flexcore-research-benchmark-set-v1)",
+      "P8.12_gnn_evaluation": "ledger/phase-08-advanced-coordination/12_gnn_evaluation.md §4 — the held-out operating regimes are the P8.19 research-case extensions, now versioned here",
+      "P8.15_marl_evaluation": "ledger/phase-08-advanced-coordination/ (P8.15 record, concurrent owner) — the ledger P8.19 inputs name P8.15's evaluation needs; the expectation is recorded here, the citation check is the ledger's verification method",
+      "P8.21_topology_research": "ledger/phase-08-advanced-coordination/21_topology_research.md — the scaling points and the transfer families cite this version id",
+      "P8.23_cross_module_comparison": "ledger/phase-08-advanced-coordination/ (P8.23 record) — same cases/seeds/metrics across modules means the same version id on every column"
+    }
+  },
+  "growth_path": "A new case (e.g. a structurally unseen feeder family, a sustained communication-loss case, a runtime topology-change case, or any transmission-scale case) enters ONLY as a NEW version (flexcore-research-benchmark-set-v2) frozen as a new artifact, with its own not-tested list — never by editing this file. The candidates already named in the not-tested list are the recorded v2 candidates; none of them is silently promoted."
+}

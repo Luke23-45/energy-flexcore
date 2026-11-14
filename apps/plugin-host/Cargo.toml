@@ -1,0 +1,98 @@
+# P7.10 — flexcore-plugin-host manifest: the constrained WASM component host
+# prototype as a SEPARATE PROCESS (report §5.4 Class B, §8.1 `apps/plugin-host/`,
+# §8.3 "the WASM host is extracted for security isolation", §21.4; ledger
+# `ledger/phase-07-plugin-sdk/ledger_phase_7.md` §P7.10).
+#
+# Classification: COMPOSITION crate (like apps/worker and flexcore-edge-agent):
+# it is a composition root that may use infrastructure, and nothing depends ON
+# it except future composition (the P7.20 gRPC template, P7.34 mTLS trust
+# boundary). Registered in tools/check_dependency_rule.py accordingly.
+#
+# ---------------------------------------------------------------------------
+# D4 NOTE (license + dependency audit — see
+# `ledger/phase-07-plugin-sdk/03_sdk_license_audit.md` §2 and
+# `ledger/phase-07-plugin-sdk/40_toolchain_pinning.md` §2/§3):
+#
+# - wasmtime 50.0.1: license Apache-2.0 WITH LLVM-exception per crates.io
+#   metadata via RESEARCH.md §1 — **UNVERIFIED until a human runs cargo-deny
+#   against the first lockfile** (D4 open; the 03 audit table flags it
+#   RE-VERIFY).
+# - CVE rows (the hard floor is >= 50.0.0; the pin is EXACT =50.0.1 per the
+#   recorded policy — the floor is a minimum, the pin is exact):
+#     * GHSA-897f-g5gm-fmxm / CVE-2026-115889 (Cranelift bit-packing sandbox
+#       escape, CVSS 9.9) — fixed 36.0.19, main line from 43.0.0
+#     * GHSA-mghf-wjfp-p5xm / CVE-2026-115893 (Cranelift aarch64 branch-table
+#       sandbox escape, CVSS 9.9) — fixed 36.0.19 / 48.0.7 / 49.0.4 / 50.0.0
+#     * CVE-2026-115384 (async-callback stack overflow, CVSS 9.9) — fixed
+#       48.0.4 / 49.0.2
+#   50.0.1 carries all three. Advisory pages must be re-checked at P7.13
+#   implementation time and the check date recorded there.
+# - NEVER BUILT HERE: wasmtime 50.0.1 was never installed, compiled, or run in
+#   this loop (the delivery loop is documentation-and-design only; no cargo
+#   command was executed). Every wasmtime call site in this crate carries an
+#   `// UNVERIFIED — wasmtime 50 API, first human build verifies` comment and
+#   the API surface is deliberately kept behind the compile-gated bindings
+#   seam (`src/bindings.rs`) — see the decision record
+#   `ledger/phase-07-plugin-sdk/10_11_plugin_host_broker.md`.
+# - Rust requirement: wasmtime 50.0.0 needs Rust >= 1.97.0 to compile; the
+#   workspace pin (1.99.1, rust-toolchain.toml) is above it (constraint
+#   currently satisfied — `40_toolchain_pinning.md` §4; the first-build
+#   `cargo check` outcome must be recorded there per its policy).
+#
+# Feature choices (each recorded with its UNVERIFIED label in the decision
+# record §3; feature names per wasmtime 50 documentation, never compiled):
+# - default features OFF (fail-closed minimisation: nothing is enabled that
+#   was not chosen),
+# - `cranelift` — the JIT compiler backend; required to instantiate a
+#   component (the alternatives — Winch, interpreter — are not recorded pins
+#   in RESEARCH.md and are NOT enabled),
+# - `runtime` — the runtime/linker machinery the Component Model embedding
+#   API sits on,
+# - `component-model` — the WIT/Component Model embedding API the host uses.
+# - WASI host support is DELIBERATELY NOT ENABLED (DEFAULT decision, decision
+#   record §3): the P7.09 worlds (`wit/`) carry ZERO `wasi:` imports
+#   (`wit/README.md` §5 checklist item 8), and a WASI host implementation
+#   would create exactly the ambient capability surface P7.11 forbids. The
+#   capability broker, not WASI, is the grant mechanism for any
+#   host-provided interface (`wit/README.md` §2 design-for-host note). The
+#   `wasmtime-wasi` row in the 03 audit table therefore stays
+#   UNPINNED-REVERIFY and unconsumed.
+# No other new dependencies: the non-wasmtime code of this crate is
+# std + tracing only.
+#
+# The `=50.0.1` pin is carried HERE rather than in the root
+# `[workspace.dependencies]`: this wave's root-Cargo.toml edit is the
+# additive workspace-member entry ONLY (shared-file rule). Promoting the pin
+# to the root workspace table is the first human build step per
+# `40_toolchain_pinning.md` §2 ("Where it lands").
+[package]
+name = "flexcore-plugin-host"
+description = "FlexCore WASM plugin host: constrained component-model host prototype with the P7.11 capability broker (P7.10/P7.11)."
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+# Compile-gated bindings seam (P7.10). OFF by default; the default build
+# provides the fail-closed `NoBindings` implementation. Enabling this feature
+# is meaningful ONLY together with the generated wit-bindgen modules
+# materialised by the human's `cargo component` / `wit-bindgen` run for the
+# `wit/` worlds — enabling it without that module is a loud compile error
+# (fail-closed: the gate is not a magic switch). See `src/bindings.rs` and
+# the decision record §4.
+generated-bindings = []
+
+[dependencies]
+# See the D4 note above for the exact pin, license status, and CVE rows.
+wasmtime = { version = "=50.0.1", default-features = false, features = [
+    "cranelift",
+    "runtime",
+    "component-model",
+] }
+tracing = { workspace = true }
+# Binary-root structured logging only (apps convention; sim-runner/edge-agent).
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "plugin-host"
+path = "src/main.rs"

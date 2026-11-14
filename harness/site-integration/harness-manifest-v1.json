@@ -1,0 +1,116 @@
+{
+  "harness_id": "flexcore-site-integration-harness-v1",
+  "harness_version": "site-harness-v1",
+  "subtask": "P10.22",
+  "decision_record": "ledger/phase-10-v1-release-hardening/22_site_harness.md",
+  "status": "WRITTEN-UNRUN — packaged as manifest + entry procedure only; never packaged-built; never run; runnable verified by construction only until the first human execution",
+  "control_status": "simulation / read-only + shadow by design; any command reaching an adapter or device is an automatic FAIL of the whole run",
+  "release_candidate_id": "<PENDING P10.18 — EMPTY until the P10.18 candidate identifier exists; no run may start while this cell is unfilled>",
+  "version_mismatch_rule": "REFUSE: any deployed component whose installed version differs from the pinned candidate values (or has no pin at all) refuses the affected legs as REFUSED-VERSION-MISMATCH; enforcement is procedural (README §4/§5 step 0) until a compiled driver adds mechanical enforcement",
+  "pass_semantics": {
+    "PASS": "observed behaviour matches the pre-registered expectation, evidenced by a named artifact (log/capture/audit extract), with the full version record present",
+    "FAIL": "any deviation; automatic run FAIL for (i) any command reaching an adapter/device, (ii) any silent wrong value, (iii) any check closed without a result or a reasoned not-applicable",
+    "NOT_APPLICABLE": "written reason tied to the environment; never 'covered by unit tests'",
+    "BLOCKED": "a recorded prerequisite is missing; a blocked check is unexecuted, never passed"
+  },
+  "legs": [
+    {
+      "leg": "A",
+      "title": "Lab integration checks (read-only end-to-end + command-path-disabled + fault injection)",
+      "content_source": "ledger/phase-09-pilot-qualification/14_lab_integration_test.md",
+      "checks": ["L1-L7 telemetry end-to-end", "L8-L10 command path disabled, refusal audited", "F11-F18 fault-injection subset"],
+      "preconditions": ["staging deployment up", "mTLS material issued", "security witness for L8-L10 and F17"],
+      "entry": "drive the cited L/F cases against the RUNNING staging deployment per 14_lab_integration_test.md §5 (document-driven; no dedicated binary)",
+      "in_repo_suites_exercised": ["crates/edge-agent/tests/ (21-file Phase 6 register, per 37_adapter_conformance_pilot.md §2.2)"],
+      "status": "UNRUN"
+    },
+    {
+      "leg": "B",
+      "title": "Adapter conformance suite",
+      "content_source": "ledger/phase-09-pilot-qualification/37_adapter_conformance_pilot.md",
+      "suite_id": "flexcore-edge-adapter-conformance-suite-v1",
+      "checks": ["11 P6.19 suite cases", "9-case ConformanceCase fault set from crates/edge-agent/src/conformance.rs"],
+      "preconditions": ["built edge-agent at the pinned git SHA", "mapping profile pinned"],
+      "entry": [
+        "cargo test -p flexcore-edge-agent --test conformance_suite_p6_19 -- --nocapture",
+        "cargo test -p flexcore-edge-agent --test conformance_p6_13 -- --nocapture",
+        "cargo test -p flexcore-edge-agent --test openems_p6_10 --test openems_e2e_p6_11 -- --nocapture",
+        "cargo test -p flexcore-edge-agent --test security_p6_23 -- --nocapture"
+      ],
+      "status": "UNRUN"
+    },
+    {
+      "leg": "C",
+      "title": "Scenario-regression legs L-1..L-5 (P9.41 §2 inventory, packaged by reference)",
+      "content_source": "ledger/phase-09-pilot-qualification/41_scenario_regression_pilot.md",
+      "artifacts": [
+        "scenarios/synthetic-portfolio/scenario-v1.json",
+        "scenarios/synthetic-portfolio/scenarios-phase3/scenario-a-normal-day.json",
+        "scenarios/synthetic-portfolio/scenarios-phase3/scenario-b-pv-ramp.json",
+        "scenarios/synthetic-portfolio/scenarios-phase3/scenario-c-dropout.json",
+        "scenarios/library/lib-01..lib-08 (per scenarios/library/INDEX.md)",
+        "plugins/scenarios/sdk-01-manifest-to-plan.json",
+        "plugins/scenarios/sdk-02-profile-switch-with-drain.json",
+        "plugins/scenarios/sdk-03-config-drift-refusal.json",
+        "plugins/scenarios/sdk-04-proposal-envelope-replay-refused.json"
+      ],
+      "seed_rule": "master seed 20260601 travels with the artifacts; NO seed override — an override aborts, never re-rolls",
+      "tolerance_rule": "the artifacts' own pre-registered tolerances AS PINNED; never edited after a result",
+      "entry": [
+        "cargo run -p flexcore-sim-runner -- run --scenario scenarios/synthetic-portfolio/scenario-v1.json --out <run-dir>/reference.json --code-version <git-sha>",
+        "cargo run -p flexcore-sim-runner -- replay --scenario scenarios/synthetic-portfolio/scenario-v1.json --reference <run-dir>/reference.json --report <run-dir>/report.json  # assert verdict == 'pass'",
+        "cargo test -p flexcore-application --test fault_injection -- --nocapture",
+        "cargo test -p flexcore-application --test shadow_evaluation -- --nocapture",
+        "cargo test -p flexcore-sim-runner --test phase3_scenarios -- --nocapture",
+        "cargo run -p flexcore-sim-runner -- replay-run --record scenarios/library/lib-01-minimal-single-asset.json --double-run --code-version <git-sha>  # per-record; lib-04/lib-05 need the Python worker env (pandapower 3.5.6)",
+        "cargo test -p flexcore-edge-agent --test <register-file> -- --nocapture  # per the Phase 6 21-file register (leg L-4)",
+        "cargo test -p flexcore-kernel --test scenario_regression_p7_43 -- --nocapture"
+      ],
+      "preconditions": ["Python worker environment installed by the human executor for lib-04/lib-05"],
+      "status": "UNRUN"
+    },
+    {
+      "leg": "D",
+      "title": "Telemetry quality and clock-sync checks",
+      "content_source": "ledger/phase-09-pilot-qualification/18_telemetry_clock_verification.md",
+      "checks": ["six-state quality mapping per source (GOOD SUSPECT BAD MISSING ESTIMATED STALE, exactly one)", "stale/missing injection per use case", "clock-quality hold-on-drift (crates/edge-agent/src/clock_quality.rs semantics)"],
+      "entry": [
+        "execute 18_telemetry_clock_verification.md §2–§4 procedures against the staging deployment (document-driven)",
+        "cargo test -p flexcore-edge-agent --test clock_quality_p6_31 -- --nocapture"
+      ],
+      "status": "UNRUN"
+    },
+    {
+      "leg": "E",
+      "title": "Command-lifecycle dry run in shadow (hold before issue)",
+      "content_source": "ledger/phase-09-pilot-qualification/19_command_dry_run.md",
+      "checks": ["propose -> validate -> feasibility -> approve -> hold before issue", "evidence shown at each gate", "refusal paths audited"],
+      "preconditions": ["shadow deployment", "grid model version pinned", "named approver + security witness"],
+      "entry": "execute 19_command_dry_run.md procedure against the staging deployment (document-driven); fill its §8 record, not this one",
+      "status": "UNRUN"
+    },
+    {
+      "leg": "F",
+      "title": "Fallback and degraded-mode drills",
+      "content_source": "ledger/phase-09-pilot-qualification/20_fallback_drills.md",
+      "checks": ["link-loss buffering (bounded, audited)", "central outage (site EMS stays authoritative; no new commands while disconnected)", "adapter failure"],
+      "preconditions": ["P9.20 §4 fallback-policy register FILLED with REAL operator review (the code's SIMULATED-OPERATOR reviews are not sign-offs)", "witness present"],
+      "entry": "execute 20_fallback_drills.md drill plan (document-driven); a drill against an EMPTY §4 register is BLOCKED-NO-FALLBACK-POLICY",
+      "status": "UNRUN"
+    },
+    {
+      "leg": "G",
+      "title": "Field acceptance (site leg — never a lab/staging leg)",
+      "content_source": "ledger/phase-09-pilot-qualification/16_field_acceptance_plan.md",
+      "checks": ["FAT catalogue §6 cases, pre-registered; numeric thresholds registered by its X-8 amendment block BEFORE the run"],
+      "preconditions": ["real site", "customer acceptance criteria received", "site owner approval"],
+      "entry": "execute per 16_field_acceptance_plan.md at the site only; in a staging harness run this leg records BLOCKED-NOT-A-LAB-LEG",
+      "status": "UNRUN"
+    }
+  ],
+  "packaging_notes": [
+    "No binary and no script ship in this package; the harness is a manifest + documented entry procedure over suites that already exist in the repository.",
+    "A future compiled driver (mechanical version-mismatch refusal, result aggregation) is a NEW harness version with its own review — never a silent addition.",
+    "The harness version and location are recorded in the release notes by P10.26."
+  ]
+}

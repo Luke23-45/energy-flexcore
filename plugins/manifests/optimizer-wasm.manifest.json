@@ -1,0 +1,35 @@
+{
+  "manifest-schema": "flexcore-plugin-manifest-v1",
+  "plugin-id": "neryva.optimizer-wasm-lp",
+  "name": "WASM LP Optimizer Component",
+  "version": "0.2.0",
+  "api-version": ">=0.5.0, <0.6.0",
+  "class": "wasm-component",
+  "entry-point": {
+    "symbol": "neryva:optimizer/lp-solve@0.5.0"
+  },
+  "provider-of": ["optimization.lp"],
+  "consumes": ["portfolio.read"],
+  "permissions": ["schedule.propose"],
+  "configuration-schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "gap-tolerance": {
+        "type": "number",
+        "description": "Relative optimality gap tolerance for LP solves."
+      }
+    },
+    "required": []
+  },
+  "secrets": [],
+  "resources": {
+    "max-memory-mb": 256,
+    "timeout-ms": 60000,
+    "max-output-mb": 8
+  },
+  "metadata": {
+    "license": "Apache-2.0",
+    "description": "Class B WASM component providing LP optimization (candidate schedules only; never dispatch authority)."
+  }
+}

@@ -175,6 +175,173 @@ impl FakeStore {
             .cloned()
             .unwrap_or_default()
     }
+
+    /// Seeds a record with an EXPLICIT journal — the states the forward
+    /// walk cannot reach (terminal states, FAILED, EXPIRED, CANCELLED,
+    /// SUPERSEDED, FALLBACK). Every journal here replays cleanly through
+    /// `replay_full_lifecycle` (evidence/reason rules honoured).
+    fn seed_journal(
+        &self,
+        command: CommandId,
+        valid_until_millis: i64,
+        journal: Vec<CommandTransition>,
+    ) {
+        self.records
+            .lock()
+            .expect("fake store")
+            .insert(
+                command.to_string(),
+                ProposedCommandRecord {
+                    tenant_id: TenantId::new(uuid(1)),
+                    command_id: command,
+                    portfolio_id: uuid(2).to_string(),
+                    site_id: uuid(3).to_string(),
+                    asset_id: uuid(4).to_string(),
+                    schedule_id: ScheduleId::new(uuid(6)).to_string(),
+                    schedule_revision: 1,
+                    valid_until_millis,
+                    supersedes_command_id: None,
+                    command_payload_json: "{\"command\":\"fixture\"}".to_string(),
+                },
+            );
+        if !journal.is_empty() {
+            self.journals
+                .lock()
+                .expect("fake store")
+                .insert(command.to_string(), journal);
+        }
+    }
+}
+
+/// One journalled entry at the given controlled instant.
+fn entry_at(
+    command: CommandId,
+    from: CommandState,
+    to: CommandState,
+    gate: Option<Gate>,
+    at_unix_millis: i64,
+    reason: Option<String>,
+    evidence: Option<&str>,
+) -> CommandTransition {
+    CommandTransition {
+        command_id: command,
+        from,
+        to,
+        actor: Actor::new("test:gate").unwrap(),
+        at_unix_millis,
+        gate,
+        reason,
+        evidence: evidence.map(|reference| EvidenceReference::new(reference).unwrap()),
+    }
+}
+
+/// PROPOSED → REJECTED at the validation gate (a gate rejection carries the
+/// gate, the failing check, and the evidence).
+fn journal_to_rejected(command: CommandId) -> Vec<CommandTransition> {
+    vec![entry_at(
+        command,
+        CommandState::Proposed,
+        CommandState::Rejected,
+        Some(Gate::Validation),
+        1_000,
+        Some("fixture:validation-check-failed".to_string()),
+        Some("validation:command/x@1:check/fixture"),
+    )]
+}
+
+/// The forward walk to TRACKING plus TRACKING → COMPLETED.
+fn journal_to_completed(command: CommandId) -> Vec<CommandTransition> {
+    let mut journal = forward_journal_to(command, CommandState::Tracking);
+    journal.push(entry_at(
+        command,
+        CommandState::Tracking,
+        CommandState::Completed,
+        None,
+        7_000,
+        None,
+        Some("tracking:command/x@7:criterion-satisfied"),
+    ));
+    journal
+}
+
+/// The forward walk to ISSUED plus ISSUED → FAILED with the frozen NACK
+/// trigger (the reason text is the domain engine's, so the replay maps it).
+fn journal_to_failed(command: CommandId) -> Vec<CommandTransition> {
+    let mut journal = forward_journal_to(command, CommandState::Issued);
+    journal.push(entry_at(
+        command,
+        CommandState::Issued,
+        CommandState::Failed,
+        None,
+        5_000,
+        Some("NACK from gateway/adapter".to_string()),
+        None,
+    ));
+    journal
+}
+
+/// The FAILED journal plus FAILED → FALLBACK (frozen edge 26).
+fn journal_to_fallback(command: CommandId) -> Vec<CommandTransition> {
+    let mut journal = journal_to_failed(command);
+    journal.push(entry_at(
+        command,
+        CommandState::Failed,
+        CommandState::Fallback,
+        None,
+        6_000,
+        Some("asset/site fallback policy activated".to_string()),
+        Some("fallback:policy/fixture-hold"),
+    ));
+    journal
+}
+
+/// The forward walk to APPROVED plus APPROVED → CANCELLED with a reason.
+fn journal_to_cancelled(command: CommandId) -> Vec<CommandTransition> {
+    let mut journal = forward_journal_to(command, CommandState::Approved);
+    journal.push(entry_at(
+        command,
+        CommandState::Approved,
+        CommandState::Cancelled,
+        None,
+        4_000,
+        Some("operator cancelled the window".to_string()),
+        None,
+    ));
+    journal
+}
+
+/// The forward walk to APPROVED plus APPROVED → SUPERSEDED with the
+/// `command:<uuid>` backward link (D-P4.10-3 — the replay parses it).
+fn journal_to_superseded(command: CommandId, replacement: CommandId) -> Vec<CommandTransition> {
+    let mut journal = forward_journal_to(command, CommandState::Approved);
+    journal.push(entry_at(
+        command,
+        CommandState::Approved,
+        CommandState::Superseded,
+        None,
+        4_000,
+        Some("invalidated by a newer approved schedule/command revision".to_string()),
+        Some(&format!("command:{replacement}")),
+    ));
+    journal
+}
+
+/// The forward walk to APPROVED plus APPROVED → EXPIRED. The validity bound
+/// is seeded BELOW the expiry instant so the domain guard replays cleanly.
+fn journal_to_expired(command: CommandId) -> Vec<CommandTransition> {
+    let mut journal = forward_journal_to(command, CommandState::Approved);
+    journal.push(entry_at(
+        command,
+        CommandState::Approved,
+        CommandState::Expired,
+        None,
+        4_000,
+        Some(
+            "validity ended before issue (milestone not reached: ISSUED)".to_string(),
+        ),
+        None,
+    ));
+    journal
 }
 
 impl CommandGateStore for FakeStore {
@@ -183,7 +350,14 @@ impl CommandGateStore for FakeStore {
         _ctx: &TenantContext,
         _record: &ProposedCommandRecord,
     ) -> Result<StateChangeReceipt, CommandGateStoreError> {
-        unimplemented!("the expiry suite seeds records directly")
+        // The expiry suite seeds records directly (`seed`/`seed_journal`);
+        // a creation attempt through this fake is a suite error, reported
+        // as a backend failure — never a stubbed success.
+        Err(CommandGateStoreError::Backend {
+            code: "fixture".to_string(),
+            message: "the expiry suite seeds records directly; insert_proposed is not used"
+                .to_string(),
+        })
     }
 
     fn journal_transition(
@@ -530,48 +704,39 @@ fn expiry_uses_the_milestone_of_each_expirable_state() {
 
 #[test]
 fn expiry_refuses_the_non_expirable_states_with_a_named_error() {
-    for &state in [
-        CommandState::Proposed,
-        CommandState::Validated,
-        CommandState::Feasible,
-        CommandState::Completed,
-        CommandState::Rejected,
-        CommandState::Cancelled,
-        CommandState::Superseded,
-        CommandState::Fallback,
-        CommandState::Expired,
-        CommandState::Failed,
-    ]
-    .iter()
-    {
+    // Every non-expirable state, each seeded with a REAL journal that
+    // replays cleanly (the terminal states via the explicit builders).
+    for (tag, state, journal) in [
+        (30u8, CommandState::Proposed, Vec::new()),
+        (31, CommandState::Validated, forward_journal_to(command_id(31), CommandState::Validated)),
+        (32, CommandState::Feasible, forward_journal_to(command_id(32), CommandState::Feasible)),
+        (33, CommandState::Completed, journal_to_completed(command_id(33))),
+        (34, CommandState::Rejected, journal_to_rejected(command_id(34))),
+        (35, CommandState::Cancelled, journal_to_cancelled(command_id(35))),
+        (36, CommandState::Superseded, journal_to_superseded(command_id(36), command_id(37))),
+        (38, CommandState::Fallback, journal_to_fallback(command_id(38))),
+        // EXPIRED needs a bound below its expiry entry for the replay.
+        (39, CommandState::Expired, journal_to_expired(command_id(39))),
+        (40, CommandState::Failed, journal_to_failed(command_id(40))),
+    ] {
         let harness = harness(50_000);
-        let command = command_id(30);
-        harness.store.seed(command, 9_000, state);
-        // FAILED/EXPIRED have no forward journal to seed — skip seeding
-        // (a FAILED command still reaches the state guard first, which is
-        // the point: a NAMED WrongState error, never a coercion).
-        let seeded = if matches!(state, CommandState::Failed | CommandState::Expired) {
-            // Seed a forward path and append the failure/expiry entry so
-            // the store state is real.
-            harness.store.seed(command, 9_000, CommandState::Issued);
-            let _ = harness
-                .service
-                .cancel(&context(), scope(), command, &actor(), "setup cancellation");
-            false
-        } else {
-            true
-        };
-        if !seeded {
-            // CANCELLED cannot expire either — assert on the cancelled
-            // command.
-        }
+        let command = command_id(tag);
+        let valid_until = if state == CommandState::Expired { 3_500 } else { 9_000 };
+        harness.store.seed_journal(command, valid_until, journal);
+        // Sanity: the seeded view really is in `state`.
+        let view = harness
+            .store
+            .load_command(&context(), command)
+            .expect("load")
+            .expect("seeded");
+        assert_eq!(view.state(), state, "fixture seeding for {}", state.name());
         let error = harness
             .service
             .apply_expiry(&context(), scope(), command, &actor())
             .expect_err("non-expirable states are refused");
         match error {
             CommandExpiryError::WrongState { current, operation } => {
-                assert_eq!(current, if seeded { state } else { CommandState::Cancelled });
+                assert_eq!(current, state);
                 assert_eq!(operation, "apply_expiry");
             }
             other => panic!("{}: unexpected error {other:?}", state.name()),
@@ -692,45 +857,52 @@ fn cancellation_requires_an_actor() {
     let harness = harness(10_000);
     let command = command_id(54);
     harness.store.seed(command, 90_000, CommandState::Approved);
-    // An empty actor identity cannot even be constructed.
-    assert!(Actor::new("  ").is_err());
-    // The service keeps refusing without one (compile-time: actor is a
-    // required parameter; runtime: the identity is validated).
-    let error = harness
+    // An empty actor identity cannot even be constructed (`Actor::new`
+    // rejects empty/whitespace) and `CommandExpiryService::cancel` takes the
+    // actor as a REQUIRED parameter — cancellation without a recorded actor
+    // is unrepresentable at the type level. The runtime validation:
+    assert!(Actor::new("").is_err());
+    assert!(Actor::new("   ").is_err());
+    // With a valid actor, the mandatory-reason rule is the one that fires
+    // on a blank reason (covered above); with both present the cancellation
+    // records the actor (covered in `cancellation_applies_from_approved_
+    // and_issued_with_actor_and_reason`).
+    let outcome = harness
         .service
-        .cancel(&context(), scope(), command, &Actor::new("").unwrap_err().into_actor_guard(), "x");
-    // The line above cannot compile with a real Actor; instead assert the
-    // happy path differs: with a valid actor the empty-reason check fires
-    // first (already covered) — here we assert the type-level fact.
-    let _ = error; // unreachable in practice; see the note below.
+        .cancel(&context(), scope(), command, &actor(), "setup for the actor record")
+        .expect("a valid actor + reason cancels");
+    assert_eq!(outcome.transition.actor.identity(), "test:operator");
 }
 
 #[test]
 fn cancellation_refuses_every_other_state() {
-    for &state in [
-        CommandState::Proposed,
-        CommandState::Validated,
-        CommandState::Feasible,
-        CommandState::Acknowledged,
-        CommandState::Tracking,
-        CommandState::Completed,
-        CommandState::Rejected,
-        CommandState::Failed,
-        CommandState::Expired,
-        CommandState::Cancelled,
-        CommandState::Superseded,
-        CommandState::Fallback,
-    ]
-    .iter()
-    {
+    // Every state except APPROVED and ISSUED, each seeded with a REAL
+    // journal that replays cleanly (terminal states via the explicit
+    // builders). Cancellation applies from APPROVED and ISSUED only.
+    for (tag, state, journal) in [
+        (55u8, CommandState::Proposed, Vec::new()),
+        (56, CommandState::Validated, forward_journal_to(command_id(56), CommandState::Validated)),
+        (57, CommandState::Feasible, forward_journal_to(command_id(57), CommandState::Feasible)),
+        (58, CommandState::Acknowledged, forward_journal_to(command_id(58), CommandState::Acknowledged)),
+        (59, CommandState::Tracking, forward_journal_to(command_id(59), CommandState::Tracking)),
+        (60, CommandState::Completed, journal_to_completed(command_id(60))),
+        (61, CommandState::Rejected, journal_to_rejected(command_id(61))),
+        (62, CommandState::Failed, journal_to_failed(command_id(62))),
+        (63, CommandState::Expired, journal_to_expired(command_id(63))),
+        (64, CommandState::Cancelled, journal_to_cancelled(command_id(64))),
+        (65, CommandState::Superseded, journal_to_superseded(command_id(65), command_id(66))),
+        (67, CommandState::Fallback, journal_to_fallback(command_id(67))),
+    ] {
         let harness = harness(10_000);
-        let command = command_id(55);
-        harness.store.seed(command, 90_000, state);
-        // FAILED/EXPIRED have no forward path; the guard fires on the
-        // state we can reach — the sweep covers the exact seeding
-        // elsewhere. For the terminal states the seeded journal is empty
-        // (PROPOSED) or the forward path; all are refused BEFORE any
-        // transition.
+        let command = command_id(tag);
+        let valid_until = if state == CommandState::Expired { 3_500 } else { 90_000 };
+        harness.store.seed_journal(command, valid_until, journal);
+        let view = harness
+            .store
+            .load_command(&context(), command)
+            .expect("load")
+            .expect("seeded");
+        assert_eq!(view.state(), state, "fixture seeding for {}", state.name());
         let error = harness
             .service
             .cancel(&context(), scope(), command, &actor(), "reason")
@@ -805,10 +977,14 @@ fn supersede_refuses_self_supersede_and_non_supersedeable_states() {
         other => panic!("unexpected error {other:?}"),
     }
 
-    for &state in [CommandState::Proposed, CommandState::Completed, CommandState::Rejected].iter() {
+    for (tag, state, journal) in [
+        (63u8, CommandState::Proposed, Vec::new()),
+        (68, CommandState::Completed, journal_to_completed(command_id(68))),
+        (69, CommandState::Rejected, journal_to_rejected(command_id(69))),
+    ] {
         let harness = harness(10_000);
-        let command = command_id(63);
-        harness.store.seed(command, 90_000, state);
+        let command = command_id(tag);
+        harness.store.seed_journal(command, 90_000, journal);
         let error = harness
             .service
             .supersede(&context(), scope(), command, command_id(64), &actor())

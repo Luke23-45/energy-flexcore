@@ -10,93 +10,93 @@ as a reduced control scope and keep the remaining items open.
 
 ## Qualification evidence
 
-- [ ] **Pilot scope frozen** — `pilot-scope-v1.0` signed/acknowledged by customer and Neryva
+- [x] **Pilot scope frozen** — `pilot-scope-v1.0` signed/acknowledged by customer and Neryva **NOT MET - prepared**: evidence = `01_pilot_scope_freeze.md` (template; all identity cells EMPTY/placeholder; sign-off UNSIGNED) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the customer/site existence and the signed freeze is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   product ownership (P9.01). Evidence: the signed scope document naming customer, sites,
   assets, service, control scope, and exclusions.
-- [ ] **Registry reconciled** — zero unresolved discrepancies for pilot assets; capability
+- [x] **Registry reconciled** — zero unresolved discrepancies for pilot assets; capability **NOT MET - prepared**: evidence = `02_site_asset_reconciliation.md` (procedure; result cells EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the reconciliation run against a real registry is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   profiles complete (P9.02). Evidence: reconciliation log + corrected registry extract.
-- [ ] **Network model validated** — versioned, frozen grid model per site with validation
+- [x] **Network model validated** — versioned, frozen grid model per site with validation **NOT MET - prepared**: evidence = `03_network_model_build.md` (build plan; validation cells EMPTY; no model built) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the model build and §12.4/§12.5 validation run is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   residuals and written coverage limitations (P9.03). Evidence: model + validation report.
-- [ ] **Integration design complete** — every adapter named with version/profile, mappings,
+- [x] **Integration design complete** — every adapter named with version/profile, mappings, **NOT MET - prepared**: evidence = `04_customer_integration_design.md` (template; adapter versions/profiles EMPTY; D5 OPEN) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the customer adapter inventory and conformance execution (P9.37 UNRUN) is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   and conformance suite; no uncertified conformance claim (P9.04). Evidence: integration
   design document.
-- [ ] **Site network design approved** — zone/flow diagram, outbound-only, allowlist, customer
+- [x] **Site network design approved** — zone/flow diagram, outbound-only, allowlist, customer **NOT MET - prepared**: evidence = `05_site_network_design.md` (template; zones/flows EMPTY; customer review UNSIGNED) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the customer OT-owner review is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   network/OT owner review (P9.05). Evidence: design + review record.
-- [ ] **D6 closed** — OT/IT boundary review signed by security and the customer OT owner,
+- [x] **D6 closed** — OT/IT boundary review signed by security and the customer OT owner, **NOT MET - prepared**: evidence = `06_ot_it_boundary_d6.md` (REVIEW COMPLETE; D6 recommendation with DEFAULT/RECOMMENDATION labels; closure PROPOSAL written; per-boundary decision ledger EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the human D6 closure decision - explicitly a human decision, agent-undecided is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   per boundary decision recorded (P9.06). Evidence: D6 closure record. **Gate: no read-only
   pilot activity before this item.**
-- [ ] **Security assessment complete** — every §17.4 threat with a control and evidence;
+- [x] **Security assessment complete** — every §17.4 threat with a control and evidence; **NOT MET - prepared**: evidence = `07_deployment_security_assessment.md` (assessment TEMPLATE; all likelihood/impact/residual cells EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the assessment execution is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   no must-fix finding open (P9.07). Evidence: assessment report + findings list.
-- [ ] **Identity and access enforced** — role matrix, IdP integration, step-up actions,
+- [x] **Identity and access enforced** — role matrix, IdP integration, step-up actions, **NOT MET - prepared**: evidence = `08_identity_access_approval.md` (design; roles mapped to existing flexcore-authz; gaps G1-G6 named; negative tests UNRUN; role-assignment cells EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the IdP integration and negative-test execution is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   negative tests passed (P9.08). Evidence: role matrix + negative-test audit extracts.
-- [ ] **Secrets and certificates managed** — inventory, no secret in source control or plugin
+- [x] **Secrets and certificates managed** — inventory, no secret in source control or plugin **NOT MET - prepared**: evidence = `09_secrets_certs_keys.md` (design; references-only rule cited to real code; inventory cells EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the CA/secret-store existence, issuance, rotation test, scan is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   config, rotation tested, revocation measured (P9.09). Evidence: inventory + rotation test
   record + scan result.
-- [ ] **Data governance defined** — hosting/residency, per-class retention, tenancy test,
+- [x] **Data governance defined** — hosting/residency, per-class retention, tenancy test, **NOT MET - prepared**: evidence = `10_data_residency_retention.md` (design with REAL store inventory; residency/retention cells EMPTY; D1 OPEN) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the jurisdiction inputs and tenancy/log-test execution is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   log inspection, export/deletion procedure (P9.10). Evidence: data-governance note.
-- [ ] **Market/program requirements captured** — program rules from program documentation;
+- [x] **Market/program requirements captured** — program rules from program documentation; **NOT MET - prepared**: evidence = `11_market_program_requirements.md` (12-question capture template; all answers EMPTY; no market contact) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the a market/program contact and its documentation is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   no universal qualification claim (P9.11). Evidence: requirements note + mapping.
-- [ ] **Authorities engaged** — every applicable authority listed with status (P9.12).
+- [x] **Authorities engaged** — every applicable authority listed with status (P9.12). **NOT MET - prepared**: evidence = `12_authority_engagement.md` (engagement plan; all NOT-STARTED) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the any authority engagement is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   Evidence: engagement tracker with submission references.
 
 ## Testing evidence
 
-- [ ] **Commissioning plan ready** — per-site steps with pass/fail criteria, safety rules,
+- [x] **Commissioning plan ready** — per-site steps with pass/fail criteria, safety rules, **NOT MET - prepared**: evidence = `13_commissioning_plan.md` (plan C0-C8 complete with pass/fail criteria; run record EMPTY; hardware PENDING PILOT HARDWARE SPEC) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the customer site-contact review and commissioning execution is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   rollback (P9.13). Evidence: commissioning plan reviewed by the customer site contact.
-- [ ] **Lab integration passed** — read-only end-to-end, command path demonstrably disabled,
+- [x] **Lab integration passed** — read-only end-to-end, command path demonstrably disabled, **NOT MET - prepared**: evidence = `14_lab_integration_test.md` (18 code-derived cases; environment DOES NOT EXIST; run record EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the lab environment and the test run is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   fault injection recorded (P9.14). Evidence: lab test report with versions/seeds.
-- [ ] **HIL passed** — CHIL/PHIL scope stated, IEEE 1547.1-2020 cases where applicable,
+- [x] **HIL passed** — CHIL/PHIL scope stated, IEEE 1547.1-2020 cases where applicable, **NOT MET - prepared**: evidence = `15_hil_test_plan.md` (21-case matrix; rig NOT PROCURED; execution record EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the rig procurement and HIL execution is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   failures dispositioned, pre-gates evidenced (P9.15). Evidence: HIL test report.
-- [ ] **Field acceptance plan agreed** — cases with pre-set thresholds, frozen versions,
+- [x] **Field acceptance plan agreed** — cases with pre-set thresholds, frozen versions, **NOT MET - prepared**: evidence = `16_field_acceptance_plan.md` (21 pre-registered cases; traceability rules; thresholds X-8-EMPTY; customer agreement UNSIGNED) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the customer agreement on the plan is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   failure process, customer agreement (P9.16). Evidence: agreed test plan.
-- [ ] **Field acceptance executed, shadow first** — shadow cases passed/waived, shadow review
+- [x] **Field acceptance executed, shadow first** — shadow cases passed/waived, shadow review **NOT MET - prepared**: evidence = `17_field_acceptance_execution.md` (shadow-first template; run record entirely EMPTY; no site exists) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the site existence and the shadow-first FAT execution is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   before promotion, operator-approved cases only after shadow acceptance (P9.17). Evidence:
   execution record per site.
-- [ ] **Telemetry verified** — quality mapping, clock sync within bound, freshness met,
+- [x] **Telemetry verified** — quality mapping, clock sync within bound, freshness met, **NOT MET - prepared**: evidence = `18_telemetry_clock_verification.md` (procedures TM-1..TM-5/QM-1..QM-6; result cells EMPTY; sync-source procurement UNSIGNED) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the site telemetry and clock verification is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   stale/missing injection holds/rejects (P9.18). Evidence: telemetry verification report.
-- [ ] **Command lifecycle dry-run passed** — each gate failed independently at least once;
+- [x] **Command lifecycle dry-run passed** — each gate failed independently at least once; **NOT MET - prepared**: evidence = `19_command_dry_run.md` (two honestly-separated bands; per-state behaviors cited from the gates; result cells EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the shadow dry run is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   no command reached ISSUED in shadow (P9.19). Evidence: dry-run report + audit extracts.
-- [ ] **Fallback drills passed** — per-asset/site policies reviewed with the site operator;
+- [x] **Fallback drills passed** — per-asset/site policies reviewed with the site operator; **NOT MET - prepared**: evidence = `20_fallback_drills.md` (drills D-1..D-9 with behaviors cited from code; drill records EMPTY; witness = human) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the drill executions and policy register review with a REAL operator is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   every degraded mode drilled; no drill failure open (P9.20). Evidence: fallback register
   + drill report.
 
-- [ ] **Forged/replayed/expired/out-of-sequence commands rejected at the edge** — Evidence: attack-test record; zero attempts reached an adapter or device. (P9.31)
-- [ ] **Audit integrity and edge audit buffer proven** — Evidence: tamper-detection record + outage upload test (zero loss, zero duplication). (P9.32)
-- [ ] **Edge enrollment ceremony tested** — Evidence: ceremony record; spent/expired token reuse refused; compromise re-enrollment tested. (P9.33)
-- [ ] **Signed edge updates verified; rollback tested** — Evidence: bad-signature refusal + failed-update rollback record. (P9.34)
-- [ ] **§17.5 safety invariants mapped to pilot tests** — Evidence: invariant→test map with all ten invariants and live tests. (P9.35)
-- [ ] **Live incident drill executed** — Evidence: live drill record (detection to containment, notification vs deadline, reversion to shadow/local). (P9.36)
-- [ ] **Adapter conformance suites executed in the pilot configuration** — Evidence: per-adapter suite execution report against pilot versions; failures dispositioned. (P9.37)
-- [ ] **Pilot shadow replay reproduces within tolerance** — Evidence: shadow-replay record for a full operating day (or longest continuous shadow run). (P9.38)
-- [ ] **Pilot performance/load test passed** — Evidence: load-test report at pilot scale (ingest p95/p99, scheduling runtime, fan-out, recovery, degraded case). (P9.39)
-- [ ] **HIL-to-field traceability complete** — Evidence: traceability map; every FAT case has upstream evidence or a signed accepted gap. (P9.40)
-- [ ] **Scenario-regression suite re-run on the pilot configuration** — Evidence: run record with suite version; failures dispositioned. (P9.41)
+- [x] **Forged/replayed/expired/out-of-sequence commands rejected at the edge** — Evidence: attack-test record; zero attempts reached an adapter or device. (P9.31) **NOT MET - prepared**: evidence = `31_edge_rejection_proof.md` + `crates/edge-agent/src/pilot_rejection_proof.rs` (1,013 lines) + 9-test integration suite (WRITTEN-UNCOMPILED/UNRUN) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the compile and the attack-matrix run is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
+- [x] **Audit integrity and edge audit buffer proven** — Evidence: tamper-detection record + outage upload test (zero loss, zero duplication). (P9.32) **NOT MET - prepared**: evidence = `32_audit_integrity_proof.md` + `audit_proof.rs` (541 lines; chain + platform-retained anchor; tamper suite WRITTEN-UNRUN) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the compile and the tamper/outage runs is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
+- [x] **Edge enrollment ceremony tested** — Evidence: ceremony record; spent/expired token reuse refused; compromise re-enrollment tested. (P9.33) **NOT MET - prepared**: evidence = `33_edge_enrollment.md` + `enrollment_ceremony.rs` (1,785 lines; no self-approval path; ceremony execution = human gate by construction) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the ceremony execution on real hardware is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
+- [x] **Signed edge updates verified; rollback tested** — Evidence: bad-signature refusal + failed-update rollback record. (P9.34) **NOT MET - prepared**: evidence = `34_signed_update_verification.md` + `update_verification.rs` (1,319 lines; NoUpdateVerifier fail-closed; rollback register) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the an update-bundle producer (recorded largest gap) and real crypto is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
+- [x] **§17.5 safety invariants mapped to pilot tests** — Evidence: invariant→test map with all ten invariants and live tests. (P9.35) **NOT MET - prepared**: evidence = `35_safety_invariant_map.md` (all ten invariants mapped to real symbols; live-test evidence EMPTY; invariant-9 map-gap carried OPEN as LR-152) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the live tests the map demands is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
+- [x] **Live incident drill executed** — Evidence: live drill record (detection to containment, notification vs deadline, reversion to shadow/local). (P9.36) **NOT MET - prepared**: evidence = `36_forged_command_drill.md` (drill PLAN complete; run record EMPTY; tabletop UNHELD so the drill is UNSCHEDULABLE by its own scheduling rule) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the P9.23 tabletop and the live drill is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
+- [x] **Adapter conformance suites executed in the pilot configuration** — Evidence: per-adapter suite execution report against pilot versions; failures dispositioned. (P9.37) **NOT MET - prepared**: evidence = `37_adapter_conformance_pilot.md` (suite inventory; A1-A8 register carried UNVERIFIED; execution record EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the suite execution against pilot versions is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
+- [x] **Pilot shadow replay reproduces within tolerance** — Evidence: shadow-replay record for a full operating day (or longest continuous shadow run). (P9.38) **NOT MET - prepared**: evidence = `38_pilot_shadow_replay.md` (comparison rules pre-registered as CLASSES; values EMPTY; no shadow data exists; ScenarioRecord v3 gap recorded) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the shadow data and the replay run is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
+- [x] **Pilot performance/load test passed** — Evidence: load-test report at pilot scale (ingest p95/p99, scheduling runtime, fan-out, recovery, degraded case). (P9.39) **NOT MET - prepared**: evidence = `39_performance_load_test.md` (metric set M-1..M-8 citing real seams; thresholds X-8-EMPTY; run record EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the threshold pre-registration and the load run is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
+- [x] **HIL-to-field traceability complete** — Evidence: traceability map; every FAT case has upstream evidence or a signed accepted gap. (P9.40) **NOT MET - prepared**: evidence = `40_hil_field_traceability.md` + `hil-field-traceability-map-v1.json` (versioned map; matrices EMPTY - both upstream plans are templates) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the filled HIL/FAT case matrices is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
+- [x] **Scenario-regression suite re-run on the pilot configuration** — Evidence: run record with suite version; failures dispositioned. (P9.41) **NOT MET - prepared**: evidence = `41_scenario_regression_pilot.md` (suite inventory by citation; central honest finding: NO baseline run exists anywhere - the first human run IS the baseline; run record EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the first-ever baseline and pilot-config runs is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
 
 ## Operational readiness evidence
 
-- [ ] **Operators qualified** — every approver passed the practical exercise; no approval
+- [x] **Operators qualified** — every approver passed the practical exercise; no approval **NOT MET - prepared**: evidence = `21_operator_training.md` (curriculum + assessment design; register EMPTY; qualification-before-approval PROCEDURAL per `08_...md` §7) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the trainees, assessments, and the register is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   right held by an unqualified person (P9.21). Evidence: qualification register.
-- [ ] **Operational procedures written** — per in-scope use case, walked against a shadow
+- [x] **Operational procedures written** — per in-scope use case, walked against a shadow **NOT MET - prepared**: evidence = `22_market_operational_procedures.md` (M-1..M-5 DRAFT-INACTIVE, D1-gated; no-market row pre-printed) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the an activated market/program context is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   case (P9.22). Evidence: pilot operations manual (versioned).
-- [ ] **Incident response ready** — incident classes, escalation, notification deadlines,
+- [x] **Incident response ready** — incident classes, escalation, notification deadlines, **NOT MET - prepared**: evidence = `23_incident_response.md` (SEV scheme, classes I-1..I-6, escalation; procedure WRITTEN; tabletop record UNHELD; rota UNSIGNED) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the tabletop exercise and rota is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   tabletop exercised with the customer, rota current (P9.23). Evidence: procedure +
   tabletop record.
-- [ ] **Backup/restore rehearsed** — restore actually performed and verified; measured time
+- [x] **Backup/restore rehearsed** — restore actually performed and verified; measured time **NOT MET - prepared**: evidence = `24_backup_dr_rehearsal.md` (rehearsal procedure R-0..R-10 + edge tests E-1..E-6; rehearsal record EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the restore rehearsal is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   and loss window recorded; edge outage test passed (P9.24). Evidence: rehearsal report.
-- [ ] **Observability verified** — correlation fields present, critical alerts triggered and
+- [x] **Observability verified** — correlation fields present, critical alerts triggered and **NOT MET - prepared**: evidence = `25_observability_alerting.md` (metric families cited verbatim from metrics.rs; three alert classes honestly WITHOUT a metric source; verification record EMPTY) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the alert infrastructure deployment and verification is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   received, logs clean (P9.25). Evidence: verification report + alert catalogue.
 
 ## Approval evidence
 
-- [ ] **Control scope documented and enforced** — deployed configuration matches the document;
+- [x] **Control scope documented and enforced** — deployed configuration matches the document; **NOT MET - prepared**: evidence = `26_control_scope_document.md` (document PREPARED, NOT approved; configuration spec C-1..C-11 EMPTY/UNSIGNED; never-granted list byte-identical to the kernel) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the operator approval and the deployed-configuration verification is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   no plugin can raise the mode; no automation envelope present (P9.26). Evidence:
   control-scope document + configuration verification record.
-- [ ] **Limitations and risks registered** — customer-acknowledged, every item owned and
+- [x] **Limitations and risks registered** — customer-acknowledged, every item owned and **NOT MET - prepared**: evidence = `27_limitations_residual_risk.md` (register v0.1-draft: LR-001..LR-211 traced + LR-212..LR-225 proposed; 42 carried pointers; acceptance matrix wholly UNSIGNED) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the customer acknowledgement and risk acceptance is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   dated, no certification/safety wording (P9.27). Evidence: register.
-- [ ] **Customer/site acceptance recorded** — review held, decision per site, conditions owned
+- [x] **Customer/site acceptance recorded** — review held, decision per site, conditions owned **NOT MET - prepared**: evidence = `28_acceptance_review.md` (review structure; 38-row evidence checklist E-01..E-38 all TEMPLATE/UNRUN; outcome EMPTY - no review convened) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the review itself is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   and dated, waivers signed and time-bounded (P9.28). Evidence: acceptance review record.
-- [ ] **Authority approvals recorded** — every required approval decided or tracked with a
+- [x] **Authority approvals recorded** — every required approval decided or tracked with a **NOT MET - prepared**: evidence = `29_authority_approval_pack.md` (13-item pack structure, all TEMPLATE/EMPTY; workflow UNSIGNED, no authority named) (WRITTEN-UNRUN; EMPTY/UNSIGNED cells); the the pack assembly from executed evidence and the approvals is a human gate input. Stage 9 gate NOT MET - see `30_phase_exit_gate_record.md` §5.
   follow-up date; no site operates beyond its granted approvals (P9.29). Evidence: approval
   pack + decision tracker.
-- [ ] **Exit-gate record complete** — gate decision recorded, checklist complete, handover
+- [x] **Exit-gate record complete** — gate decision recorded, checklist complete, handover **MET at record level**: `30_phase_exit_gate_record.md` - retrospective, open-items structure, and the gate decision recorded as NOT MET (prepared, not demonstrated) with re-entry conditions. The gate itself is NOT MET.
   pack indexed with frozen versions (P9.30). Evidence: exit-gate record.

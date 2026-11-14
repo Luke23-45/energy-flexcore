@@ -58,7 +58,7 @@
 
 ## P7.01 — Phase readiness check: Phases 1–6 outputs and the P6.29 handover
 
-- [ ] **P7.01 — Phase readiness check: Phases 1–6 outputs and the P6.29 handover**
+- [x] **P7.01 — Phase readiness check: Phases 1–6 outputs and the P6.29 handover** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/01_readiness_check.md`)
   - **Objective:** Verify, by running the checks, that the capability seams
     this phase will publish actually exist in the code, and that the Phase 6
     handover is complete enough to build on.
@@ -89,7 +89,7 @@
 
 ## P7.02 — Plugin SDK scope freeze: contracts, categories, and the non-replaceable kernel
 
-- [ ] **P7.02 — Plugin SDK scope freeze: contracts, categories, and the non-replaceable kernel**
+- [x] **P7.02 — Plugin SDK scope freeze: contracts, categories, and the non-replaceable kernel** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/02_scope_freeze.md`)
   - **Objective:** Freeze, in writing, which capability contracts the SDK
     v0.5.0 publishes, which plugin categories it supports, and what is
     explicitly not replaceable — before any interface is written.
@@ -125,7 +125,7 @@
 
 ## P7.03 — License and dependency audit for the SDK stack (D4 follow-through)
 
-- [ ] **P7.03 — License and dependency audit for the SDK stack (D4 follow-through)**
+- [x] **P7.03 — License and dependency audit for the SDK stack (D4 follow-through)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/03_sdk_license_audit.md`)
   - **Objective:** Prove every SDK dependency (Wasmtime, WIT tooling, gRPC
     stack, WASM component tooling, example-plugin dependencies) is
     license-compatible with the recommended Apache-2.0 core license, or
@@ -160,7 +160,7 @@
 
 ## P7.04 — Capability-seam inventory: contract → provider → consumer map
 
-- [ ] **P7.04 — Capability-seam inventory: contract → provider → consumer map**
+- [x] **P7.04 — Capability-seam inventory: contract → provider → consumer map** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/04_seam_inventory.md`)
   - **Objective:** Produce the complete three-role map (§5.2) for every
     seam in scope: contract definition, each provider, each consumer — with
     no consumer depending on a concrete provider.
@@ -195,7 +195,7 @@
 
 ## P7.05 — Plugin manifest schema (versioned, validated, published)
 
-- [ ] **P7.05 — Plugin manifest schema (versioned, validated, published)**
+- [x] **P7.05 — Plugin manifest schema (versioned, validated, published)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/05_06_manifest_resolution.md`)
   - **Objective:** Define, version, and publish the plugin manifest schema,
     turning the §5.5 illustrative example into a validated schema — and
     record explicitly where it differs from the example.
@@ -233,7 +233,7 @@
 
 ## P7.06 — Dependency resolution: missing, incompatible, cyclic, conflicting providers
 
-- [ ] **P7.06 — Dependency resolution: missing, incompatible, cyclic, conflicting providers**
+- [x] **P7.06 — Dependency resolution: missing, incompatible, cyclic, conflicting providers** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/05_06_manifest_resolution.md`)
   - **Objective:** Implement dependency resolution that detects missing
     capabilities, version incompatibility, cycles, and conflicting providers
     **before activation** (§5.5).
@@ -266,7 +266,7 @@
 
 ## P7.07 — Plugin lifecycle state machine (with drain-before-replace)
 
-- [ ] **P7.07 — Plugin lifecycle state machine (with drain-before-replace)**
+- [x] **P7.07 — Plugin lifecycle state machine (with drain-before-replace)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/07_08_lifecycle_registry.md`)
   - **Objective:** Implement the §5.6 plugin lifecycle as an explicit state
     machine with preconditions, timeouts, and audit events — including the
     drain-before-replace rule for command-producing plugins.
@@ -303,7 +303,7 @@
 
 ## P7.08 — Built-in Rust provider registry (Class A)
 
-- [ ] **P7.08 — Built-in Rust provider registry (Class A)**
+- [x] **P7.08 — Built-in Rust provider registry (Class A)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/07_08_lifecycle_registry.md`)
   - **Objective:** Build the trusted built-in Rust provider registry:
     first-party providers compiled into the release, statically linked,
     registered at application composition time — replaceable at the contract
@@ -340,7 +340,7 @@
 
 ## P7.09 — WIT interface packages: versioned worlds for each contract
 
-- [ ] **P7.09 — WIT interface packages: versioned worlds for each contract**
+- [x] **P7.09 — WIT interface packages: versioned worlds for each contract** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/09_wit_worlds.md`)
   - **Objective:** Define the WIT packages and versioned worlds for the
     v0.5.0 contracts, under `wit/`, with SemVer and a compatibility policy.
   - **Report trace:** §5.4 Class B; §8.1 (`wit/`); §9.1; §10.5; §22.2
@@ -381,7 +381,7 @@
 
 ## P7.10 — Wasmtime component host prototype (separate process)
 
-- [ ] **P7.10 — Wasmtime component host prototype (separate process)**
+- [x] **P7.10 — Wasmtime component host prototype (separate process)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/10_11_plugin_host_broker.md`)
   - **Objective:** Build the constrained WASM plugin host as a separate
     process (`apps/plugin-host/`) on Wasmtime's Component Model embedding
     API, running one example component behind a WIT world from P7.09.
@@ -418,7 +418,7 @@
 
 ## P7.11 — Host capability broker: scoped capabilities, no ambient access
 
-- [ ] **P7.11 — Host capability broker: scoped capabilities, no ambient access**
+- [x] **P7.11 — Host capability broker: scoped capabilities, no ambient access** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/10_11_plugin_host_broker.md`)
   - **Objective:** Implement the host-side capability broker that grants a
     component only the specific scoped capabilities its manifest requests
     and the profile allows — and nothing else.
@@ -460,7 +460,7 @@
 
 ## P7.12 — Permission enforcement: manifest permissions are enforced, not decorative
 
-- [ ] **P7.12 — Permission enforcement: manifest permissions are enforced, not decorative**
+- [x] **P7.12 — Permission enforcement: manifest permissions are enforced, not decorative** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/12_13_enforcement_negatives.md`)
   - **Objective:** Prove the §5.7 permission table is enforced at runtime
     for every plugin class, including the "candidate only" rule for
     `schedule.propose` / `dispatch.propose`.
@@ -498,7 +498,7 @@
 
 ## P7.13 — Sandbox negative tests: escape, exhaustion, and ambient-access attempts
 
-- [ ] **P7.13 — Sandbox negative tests: escape, exhaustion, and ambient-access attempts**
+- [x] **P7.13 — Sandbox negative tests: escape, exhaustion, and ambient-access attempts** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/12_13_enforcement_negatives.md`)
   - **Objective:** Attempt to break the sandbox from inside a component —
     filesystem, network, environment, secrets, resource exhaustion, and
     host-function abuse — and record that each attempt fails safely.
@@ -537,7 +537,7 @@
 
 ## P7.14 — Plugin signing, provenance, and SBOM (supply chain)
 
-- [ ] **P7.14 — Plugin signing, provenance, and SBOM (supply chain)**
+- [x] **P7.14 — Plugin signing, provenance, and SBOM (supply chain)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/14_15_16_signing_profiles_recomposition.md`)
   - **Objective:** Require signatures/provenance for plugin installation,
     generate SBOMs for plugin packages, pin plugin dependencies, and retain
     rollback artifacts — with no plugin able to self-upgrade or fetch
@@ -570,7 +570,7 @@
 
 ## P7.15 — Composition profiles and bundles (`sim-lab`, `vpp-operator`, `site-edge`, research)
 
-- [ ] **P7.15 — Composition profiles and bundles (`sim-lab`, `vpp-operator`, `site-edge`, research)**
+- [x] **P7.15 — Composition profiles and bundles (`sim-lab`, `vpp-operator`, `site-edge`, research)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/14_15_16_signing_profiles_recomposition.md`)
   - **Objective:** Implement named runtime profiles composed from ordered
     bundles per §5.8, as explicit, reviewable compositions that never
     silently enable a control-capable plugin.
@@ -611,7 +611,7 @@
 
 ## P7.16 — Profile switching and safe re-composition (no silent control changes)
 
-- [ ] **P7.16 — Profile switching and safe re-composition (no silent control changes)**
+- [x] **P7.16 — Profile switching and safe re-composition (no silent control changes)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/14_15_16_signing_profiles_recomposition.md`)
   - **Objective:** Define and implement safe profile switching: drain,
     verify, switch, and audit — with control-authority mode never changed
     by a profile switch.
@@ -642,7 +642,7 @@
 
 ## P7.17 — Python gRPC worker template (Class C)
 
-- [ ] **P7.17 — Python gRPC worker template (Class C)**
+- [x] **P7.17 — Python gRPC worker template (Class C)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/17_18_workers_supervision.md`)
   - **Objective:** Build the out-of-process Python gRPC worker template
     that Class C plugins are written from, with Protobuf contracts,
     lifecycle, health, and isolation — so Python numerical/ML code never
@@ -683,7 +683,7 @@
 
 ## P7.18 — Worker supervision: timeouts, retries, crash isolation, and backpressure
 
-- [ ] **P7.18 — Worker supervision: timeouts, retries, crash isolation, and backpressure**
+- [x] **P7.18 — Worker supervision: timeouts, retries, crash isolation, and backpressure** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/17_18_workers_supervision.md`)
   - **Objective:** Supervise Class C workers with explicit timeouts,
     bounded retries, crash isolation, and backpressure — so a slow or dead
     worker degrades the schedule, never the platform.
@@ -714,7 +714,7 @@
 
 ## P7.19 — Plugin configuration: schema validation and secret references (never secrets in config)
 
-- [ ] **P7.19 — Plugin configuration: schema validation and secret references (never secrets in config)**
+- [x] **P7.19 — Plugin configuration: schema validation and secret references (never secrets in config)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/19_20_36_config_health_path.md`)
   - **Objective:** Validate every plugin's configuration against its
     declared JSON Schema at `Configured` time, and resolve secrets only by
     reference through the host/adapter — never as values in config files.
@@ -752,7 +752,7 @@
 
 ## P7.20 — Plugin health, readiness, and observability
 
-- [ ] **P7.20 — Plugin health, readiness, and observability**
+- [x] **P7.20 — Plugin health, readiness, and observability** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/19_20_36_config_health_path.md`)
   - **Objective:** Give every plugin health/readiness signals and wire
     plugin telemetry into the platform's observability (§21.3) with
     correlation IDs — without leaking secrets or customer data into logs.
@@ -787,7 +787,7 @@
 
 ## P7.21 — Plugin conformance suite (contract tests every plugin must pass)
 
-- [ ] **P7.21 — Plugin conformance suite (contract tests every plugin must pass)**
+- [x] **P7.21 — Plugin conformance suite (contract tests every plugin must pass)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/21_22_23_conformance_swap_untrusted.md`)
   - **Objective:** Build the conformance suite (§19.2(3)) that every plugin
     passes regardless of class: the same interface suite for every adapter
     and plugin, run in CI.
@@ -822,7 +822,7 @@
 
 ## P7.22 — Swap test: replace one optimizer and one grid provider without touching application/domain code
 
-- [ ] **P7.22 — Swap test: replace one optimizer and one grid provider without touching application/domain code**
+- [x] **P7.22 — Swap test: replace one optimizer and one grid provider without touching application/domain code** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/21_22_23_conformance_swap_untrusted.md`)
   - **Objective:** Execute the §23 Stage 7 exit gate's first half as a
     witnessed test: swap one optimizer provider and one grid-model provider
     with zero changes to application or domain code.
@@ -867,7 +867,7 @@
 
 ## P7.23 — Untrusted-plugin negative test: ungranted capabilities are unreachable
 
-- [ ] **P7.23 — Untrusted-plugin negative test: ungranted capabilities are unreachable**
+- [x] **P7.23 — Untrusted-plugin negative test: ungranted capabilities are unreachable** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/21_22_23_conformance_swap_untrusted.md`)
   - **Objective:** Execute the §23 Stage 7 exit gate's second half as a
     witnessed test: an untrusted plugin cannot access ungranted
     capabilities — demonstrated by attack, not by code review alone.
@@ -903,7 +903,7 @@
 
 ## P7.24 — SDK documentation and examples (including a deliberately bad example)
 
-- [ ] **P7.24 — SDK documentation and examples (including a deliberately bad example)**
+- [x] **P7.24 — SDK documentation and examples (including a deliberately bad example)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/24_25_docs_console.md`)
   - **Objective:** Publish the plugin SDK documentation and working
     examples — including one example that is deliberately wrong, so the
     conformance suite's rejection is demonstrated, not just described.
@@ -939,7 +939,7 @@
 
 ## P7.25 — Operator console: Plugins & Integrations workspace
 
-- [ ] **P7.25 — Operator console: Plugins & Integrations workspace**
+- [x] **P7.25 — Operator console: Plugins & Integrations workspace** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/24_25_docs_console.md`)
   - **Objective:** Show installed plugins, capabilities, permissions,
     versions, health, and configuration in the console (§20.1 item 10),
     with dangerous actions requiring explicit confirmation.
@@ -972,7 +972,7 @@
 
 ## P7.26 — Performance and resource validation of the plugin host and workers
 
-- [ ] **P7.26 — Performance and resource validation of the plugin host and workers**
+- [x] **P7.26 — Performance and resource validation of the plugin host and workers** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/26_27_35_ci_performance.md`)
   - **Objective:** Measure the plugin host's and workers' resource use and
     latency on the §24 slice scenario and record limits — no invented
     numbers.
@@ -1004,7 +1004,7 @@
 
 ## P7.27 — CI gates: fmt/clippy/tests, Buf, WIT validation, manifest validation, SBOM, scanning
 
-- [ ] **P7.27 — CI gates: fmt/clippy/tests, Buf, WIT validation, manifest validation, SBOM, scanning**
+- [x] **P7.27 — CI gates: fmt/clippy/tests, Buf, WIT validation, manifest validation, SBOM, scanning** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/26_27_35_ci_performance.md`)
   - **Objective:** Wire every §22.2 CI gate to the SDK work and add the
     plugin-specific gates: manifest validation, WIT compatibility
     validation, Buf lint/breaking, SBOM, and the license check from P7.03.
@@ -1036,7 +1036,7 @@
 
 ## P7.28 — Exit-gate run: swap + untrusted-plugin proofs, witnessed
 
-- [ ] **P7.28 — Exit-gate run: swap + untrusted-plugin proofs, witnessed**
+- [x] **P7.28 — Exit-gate run: swap + untrusted-plugin proofs, witnessed** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/28_exit_gate_run_record.md`)
   - **Objective:** Execute the §23 Stage 7 exit gate as a single witnessed
     run, combining the P7.22 swap proof and the P7.23 untrusted-plugin
     proof, and record the gate decision.
@@ -1066,7 +1066,7 @@
 
 ## P7.29 — Security testing: supply chain, escalation, and host compromise scenarios
 
-- [ ] **P7.29 — Security testing: supply chain, escalation, and host compromise scenarios**
+- [x] **P7.29 — Security testing: supply chain, escalation, and host compromise scenarios** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/29_security_test_report.md`)
   - **Objective:** Run the §19.2(7) security layer against the plugin
     surface — supply-chain compromise, privilege escalation, tenant
     leakage, secrets exposure, host compromise via a malicious plugin —
@@ -1098,7 +1098,7 @@
 
 ## P7.30 — Failure-mode drill (plugin host, workers, registry)
 
-- [ ] **P7.30 — Failure-mode drill (plugin host, workers, registry)**
+- [x] **P7.30 — Failure-mode drill (plugin host, workers, registry)** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/30_failure_drill.md`)
   - **Objective:** Run a combined drill over the §19.2(6) fault set against
     the plugin host, gRPC workers, and registry, and record recovery time
     and data loss per fault.
@@ -1125,7 +1125,7 @@
 
 ## P7.31 — Handover to Phase 8 (research): research profiles and worker contracts
 
-- [ ] **P7.31 — Handover to Phase 8 (research): research profiles and worker contracts**
+- [x] **P7.31 — Handover to Phase 8 (research): research profiles and worker contracts** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/31_phase8_handover.md`)
   - **Objective:** Hand Phase 8 the research-ready pieces of the SDK —
     the `research-gnn` / `research-marl` profiles, the gRPC worker
     template as the research-worker base, and the proposal-only boundary —
@@ -1160,7 +1160,7 @@
 
 ## P7.32 — Phase retrospective, open items, and v0.5.0 release-gate record
 
-- [ ] **P7.32 — Phase retrospective, open items, and v0.5.0 release-gate record**
+- [x] **P7.32 — Phase retrospective, open items, and v0.5.0 release-gate record** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/30_retrospective_release_gate.md` — note: the record file follows the P6.30 naming pattern and carries the P7.32 retrospective + v0.5.0 release-gate content; the ledger's P7.30 is the failure-mode drill, recorded in `30_failure_drill.md`)
   - **Objective:** Close the phase honestly: record what passed, what did
     not, every open item with an owner, and the v0.5.0 release-gate
     position per §22.3.
@@ -1200,7 +1200,7 @@
 
 ## P7.33 — Audit-integrity proof: plugin audit records are tamper-evident
 
-- [ ] **P7.33 — Audit-integrity proof: plugin audit records are tamper-evident**
+- [x] **P7.33 — Audit-integrity proof: plugin audit records are tamper-evident** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/33_34_audit_integrity_trust_boundary.md`)
   - **Objective:** Prove the audit records the plugin surface produces
     (P7.11–P7.13, P7.23) cannot be altered, deleted, or dropped by the
     plugin or plugin host they record — audit is a protected-kernel
@@ -1235,7 +1235,7 @@
 
 ## P7.34 — Plugin-host trust boundary: mTLS, service identity, untrusted host
 
-- [ ] **P7.34 — Plugin-host trust boundary: mTLS, service identity, untrusted host**
+- [x] **P7.34 — Plugin-host trust boundary: mTLS, service identity, untrusted host** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/33_34_audit_integrity_trust_boundary.md`)
   - **Objective:** Define and enforce the trust boundary between the
     plugin host (`apps/plugin-host/`) and the control plane: the host is
     not trusted merely because it is a first-party process — it executes
@@ -1272,7 +1272,7 @@
 
 ## P7.35 — ADR-006 automated enforcement: no-dylib CI gate
 
-- [ ] **P7.35 — ADR-006 automated enforcement: no-dylib CI gate**
+- [x] **P7.35 — ADR-006 automated enforcement: no-dylib CI gate** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/26_27_35_ci_performance.md`)
   - **Objective:** Enforce ADR-006 mechanically: no arbitrary Rust
     dynamic-library loading exists in the workspace, and CI fails if it
     is introduced — so the CHECKLIST item "No arbitrary Rust dylib loading
@@ -1308,7 +1308,7 @@
 
 ## P7.36 — Replay, sequence, and expiry protection on the plugin path
 
-- [ ] **P7.36 — Replay, sequence, and expiry protection on the plugin path**
+- [x] **P7.36 — Replay, sequence, and expiry protection on the plugin path** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/19_20_36_config_health_path.md`)
   - **Objective:** Prove a plugin-proposed command cannot be replayed,
     reordered, or used after expiry, and that broker duplication on the
     plugin path is handled by the outbox/inbox pattern — not by luck.
@@ -1344,7 +1344,7 @@
 
 ## P7.37 — §17.5 safety-invariant test map for the SDK
 
-- [ ] **P7.37 — §17.5 safety-invariant test map for the SDK**
+- [x] **P7.37 — §17.5 safety-invariant test map for the SDK** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/37_38_39_invariants_revocation_tenancy.md`)
   - **Objective:** Map each of the ten §17.5 safety invariants to the
     named subtask(s) and test(s) that prove it at the plugin boundary, and
     close the one invariant with no test at all.
@@ -1379,7 +1379,7 @@
 
 ## P7.38 — Plugin revocation, staged rollout, and failed-plugin removal
 
-- [ ] **P7.38 — Plugin revocation, staged rollout, and failed-plugin removal**
+- [x] **P7.38 — Plugin revocation, staged rollout, and failed-plugin removal** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/37_38_39_invariants_revocation_tenancy.md`)
   - **Objective:** Prove a revoked plugin is actually stopped and a new
     plugin version is actually rolled out in stages — and that a plugin in
     the `Failed` state can be drained and removed.
@@ -1413,7 +1413,7 @@
 
 ## P7.39 — Cross-component isolation and data-level tenant filtering
 
-- [ ] **P7.39 — Cross-component isolation and data-level tenant filtering**
+- [x] **P7.39 — Cross-component isolation and data-level tenant filtering** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/37_38_39_invariants_revocation_tenancy.md`)
   - **Objective:** Prove components in a shared plugin host cannot reach
     each other's state, and that tenant scope is enforced on the data a
     plugin receives — not only on the call that asked for it.
@@ -1447,7 +1447,7 @@
 
 ## P7.40 — Toolchain version pinning for WIT/WASM tooling
 
-- [ ] **P7.40 — Toolchain version pinning for WIT/WASM tooling**
+- [x] **P7.40 — Toolchain version pinning for WIT/WASM tooling** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/40_toolchain_pinning.md`)
   - **Objective:** Pin and record every WIT/WASM toolchain version the SDK
     is built and validated with, so a WIT world that validates under one
     tool version and fails under another is reproducible, not mysterious.
@@ -1476,7 +1476,7 @@
 
 ## P7.41 — Manifest-validator fuzz and property tests
 
-- [ ] **P7.41 — Manifest-validator fuzz and property tests**
+- [x] **P7.41 — Manifest-validator fuzz and property tests** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/41_42_43_hardening_determinism_regression.md`)
   - **Objective:** Test the manifest validator beyond its fixed example
     set, with fuzzing and property tests — it stands between an untrusted
     plugin author and activation.
@@ -1509,7 +1509,7 @@
 
 ## P7.42 — Plugin-path determinism and seeded replay
 
-- [ ] **P7.42 — Plugin-path determinism and seeded replay**
+- [x] **P7.42 — Plugin-path determinism and seeded replay** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/41_42_43_hardening_determinism_regression.md`)
   - **Objective:** Apply §24 step 10 replay reproducibility to the plugin
     path: the same scenario through the plugin host with the same versions
     and seeds reproduces the same proposed schedule within a stated
@@ -1544,7 +1544,7 @@
 
 ## P7.43 — Scenario-regression suite for the SDK
 
-- [ ] **P7.43 — Scenario-regression suite for the SDK**
+- [x] **P7.43 — Scenario-regression suite for the SDK** — implemented, awaiting human build/test (decision record: `ledger/phase-07-plugin-sdk/41_42_43_hardening_determinism_regression.md`)
   - **Objective:** Define the §22.2 scenario-regression suite for the SDK
     — named scenarios with pinned inputs, seeds, and expected outcomes —
     so the CI job P7.27 wires up has contents, and an empty suite cannot

@@ -1,0 +1,142 @@
+{
+  "manifest_schema": "flexcore-research/training-data-manifest.v1",
+  "manifest_version": 1,
+  "manifest_id": "flexcore-research/training-data-manifest-v1",
+  "created_utc": "2026-11-14",
+  "record": "ledger/phase-08-advanced-coordination/35_training_data_provenance.md",
+  "status": "FAMILY ASSIGNMENT CONFIRMED AT MANIFEST TIME (P8.10 section-4 RECOMMENDATION confirmed with findings F-1 and F-2 recorded in the owning record); NO DATASET EXISTS: every per-instance row is EMPTY and is filled only by the human/lab generation gate. Until instances exist, the trained-topology list is EMPTY and the P8.11 worker's scope check flags EVERY topology out-of-scope (fail-closed by design).",
+  "fact_base": {
+    "description": "Verifiable fixture facts of the report section 19.3 scenario library (scenarios/library/, read from the per-case grid_model.fixture fields; not claims produced by this manifest).",
+    "library_cases": {
+      "lib-01-minimal-single-asset": "three_bus_radial",
+      "lib-02-small-portfolio": "three_bus_radial",
+      "lib-03-medium-multi-site-meshed": "meshed_two_feeder",
+      "lib-04-stress-worker-timeout": "three_bus_radial",
+      "lib-05-stress-nonconvergence": "three_bus_radial",
+      "lib-06-stress-pv-ramp": "three_bus_radial",
+      "lib-07-stress-asset-dropout": "three_bus_radial",
+      "lib-08-stress-reverse-power-flow": "three_bus_radial"
+    }
+  },
+  "findings": [
+    {
+      "finding_id": "F-1",
+      "summary": "The lib-06/lib-07/lib-08 cases share the three_bus_radial fixture with the lib-01..lib-05 training side; their distinction is REGIME (PV ramp, asset dropout, reverse power flow), not topology. Held out literally as 'topology families' they would be near-duplicates of training topologies (the P8.12 named risk). Resolution: lib-06/07/08 scenario material is assigned to the HELD-OUT OPERATING-REGIME track (fam-regime-holdout-lib-06-07-08), and the topology hold-out is the generator-produced families declared below, structurally disjoint by construction.",
+      "resolution": "record-level (see the owning record section 4)"
+    },
+    {
+      "finding_id": "F-2",
+      "summary": "The P8.10 RECOMMENDED training set (families of lib-01..lib-05) includes the MESHED meshed_two_feeder fixture (lib-03), while the P8.10 D3 obligation declares balanced radial feeders as the 0.x scope RECOMMENDATION with meshed OUT unless explicitly scoped. Resolution: the meshed family is EXCLUDED from GNN training topology instances by default; inclusion requires a new explicitly scoped decision (a RadialAndMeshed analogue of the P4.34 adapter scope) BEFORE training. D3 remains OPEN.",
+      "resolution": "record-level default exclusion (see the owning record section 4, Finding F-2)"
+    }
+  ],
+  "declared_network_class": {
+    "class": "balanced radial distribution feeders",
+    "label": "RECOMMENDATION on the 0.x default (P8.10 section 4 D3 obligation) - not a D3 closure; D3 OPEN",
+    "meshed_in_scope": false
+  },
+  "topology_families": [
+    {
+      "family_id": "fam-train-radial-small",
+      "track": "training",
+      "structural_definition": "balanced radial feeder; 3-12 nodes; single spine; lateral depth <= 2",
+      "node_count_bounds": [3, 12],
+      "max_lateral_depth": 2,
+      "meshed": false,
+      "ring": false,
+      "lineage": "generator-parameterized instances over the radial lineage of the library's three_bus_radial fixture family (lib-01/02/04/05)",
+      "instance_count": "EMPTY - recorded at generation",
+      "instance_seed_rule": "seed(instance_key) = dataset_master_seed XOR splitmix64(FNV-1a-64(instance_key)); the derivation string is the verbatim benchmark-set derivation; the dataset master seed is recorded per dataset at generation"
+    },
+    {
+      "family_id": "fam-train-radial-medium",
+      "track": "training",
+      "structural_definition": "balanced radial feeder; 13-48 nodes; spine + laterals; lateral depth <= 3",
+      "node_count_bounds": [13, 48],
+      "max_lateral_depth": 3,
+      "meshed": false,
+      "ring": false,
+      "lineage": "same radial lineage, larger parameter range",
+      "instance_count": "EMPTY - recorded at generation",
+      "instance_seed_rule": "see fam-train-radial-small"
+    },
+    {
+      "family_id": "fam-holdout-radial-large",
+      "track": "held_out_topology",
+      "structural_definition": "balanced radial feeder; 49-200 nodes; lateral depth <= 3 (size transfer per P8.21)",
+      "node_count_bounds": [49, 200],
+      "max_lateral_depth": 3,
+      "meshed": false,
+      "ring": false,
+      "lineage": "same radial lineage; disjoint from both training families by node-count bound",
+      "instance_count": "EMPTY - recorded at generation",
+      "instance_seed_rule": "see fam-train-radial-small"
+    },
+    {
+      "family_id": "fam-holdout-radial-deep-lateral",
+      "track": "held_out_topology",
+      "structural_definition": "balanced radial feeder; any node count; lateral depth >= 4 (a structurally distinct radial shape absent from the library)",
+      "node_count_bounds": [3, 200],
+      "max_lateral_depth": 4,
+      "meshed": false,
+      "ring": false,
+      "lineage": "disjoint from every training family by lateral-depth bound",
+      "instance_count": "EMPTY - recorded at generation",
+      "instance_seed_rule": "see fam-train-radial-small"
+    },
+    {
+      "family_id": "fam-holdout-radial-open-ring",
+      "track": "held_out_topology",
+      "structural_definition": "normally-open ring feeder (radial in operation with one normally-open tie switch); any node count - the P8.10 'at least one topology family absent from the library entirely' requirement, named here",
+      "node_count_bounds": [3, 200],
+      "max_lateral_depth": 3,
+      "meshed": false,
+      "ring": true,
+      "lineage": "structurally unseen in the library; disjoint from every training family by the ring structure",
+      "instance_count": "EMPTY - recorded at generation",
+      "instance_seed_rule": "see fam-train-radial-small"
+    },
+    {
+      "family_id": "fam-regime-holdout-lib-06-07-08",
+      "track": "held_out_operating_regime",
+      "structural_definition": "the lib-06/07/08 scenario material (PV ramp, asset dropout, reverse power flow) over the library fixture topology - topology FIXED, regime held out (P8.10 held-out-operating-regimes row; Finding F-1)",
+      "node_count_bounds": null,
+      "max_lateral_depth": null,
+      "meshed": false,
+      "ring": false,
+      "lineage": "scenarios/library/lib-06-stress-pv-ramp.json, lib-07-stress-asset-dropout.json, lib-08-stress-reverse-power-flow.json; regime seeds must be disjoint from and recorded against the training seeds (P8.10 leakage control 3)",
+      "instance_count": "EMPTY - recorded at generation",
+      "instance_seed_rule": "see fam-train-radial-small"
+    },
+    {
+      "family_id": "fam-meshed-two-feeder",
+      "track": "excluded_from_declared_scope",
+      "structural_definition": "the library's meshed two-feeder fixture (lib-03; TopologyScope::RadialAndMeshed per P4.34)",
+      "node_count_bounds": null,
+      "max_lateral_depth": null,
+      "meshed": true,
+      "ring": false,
+      "lineage": "EXCLUDED from GNN training topology instances under the declared balanced-radial scope (Finding F-2); re-inclusion requires an explicitly scoped recorded decision BEFORE training",
+      "instance_count": "EMPTY - recorded at generation",
+      "instance_seed_rule": "see fam-train-radial-small"
+    }
+  ],
+  "trained_topology_ids_rule": {
+    "instance_id_scheme": "<family_id>-<4-digit zero-padded sequence>, e.g. fam-train-radial-small-0001",
+    "membership_semantics": "EXACT string equality (the P8.11 worker's evaluate_topology_scope; no fuzzy or prefix matching - a near-miss flags, never passes)",
+    "current_trained_instance_list": [],
+    "current_state": "EMPTY BY DESIGN: no dataset exists; every inference request flags out-of-scope (outputs NULL, termination failed) until instances are generated and recorded here",
+    "overlap_check": "gnn_worker/gnn_evaluation.py::check_heldout_overlap over the generated trained vs held-out instance-ID lists (exact string equality) - the reviewer re-checks; any non-empty overlap is a finding against the generalization claim (X-7)"
+  },
+  "leakage_controls_required_per_dataset": {
+    "normalization_split": "training_only",
+    "regime_seeds_disjoint_from_holdout": true,
+    "heldout_topology_overlap_checked": true,
+    "note": "these are the REQUIRED declarations a dataset version must carry at freeze time (checked by gnn_worker/gnn_evaluation.py::verify_leakage_controls at evaluation time); they are requirements, not claims - no dataset exists to carry them"
+  },
+  "license_register_ref": "ledger/phase-08-advanced-coordination/35_training_data_provenance.md section 5 (datasets inherit the P8.03 discipline; ANDES GPLv3 isolation applies to training-data outputs; the torch/PyG and RL-framework DECISION-POINTs are carried OPEN)",
+  "poisoning_controls_ref": "ledger/phase-08-advanced-coordination/35_training_data_provenance.md section 6 (ingestion schema/range/duplication checks, quarantine WITH a record, digests pinned before training; the poisoning-detection run is a HUMAN GATE, UNRUN)",
+  "versioning_rule": "a dataset content change is a NEW dataset_version; a family-assignment change is a NEW manifest version (training-data-manifest-v2); never a silent edit (the P8.19 anti-silent-growth rule, mirrored)",
+  "per_instance_rows": [],
+  "per_instance_row_note": "EMPTY - one row per generated instance at the human/lab generation gate: {instance_id, family_id, generator_version, parameter_set_ref, seed, generated_utc, source_record_digest}. A dataset version whose rows are incomplete is not freezable."
+}

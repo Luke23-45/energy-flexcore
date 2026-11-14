@@ -1,0 +1,119 @@
+{
+  "scenario-id": "sdk-01-manifest-to-plan",
+  "scenario-version": "1.0.0",
+  "suite": "flexcore-plugin-sdk-scenario-regression-v1",
+  "description": "The report §24 slice scenario at the kernel seam: two plugin manifests (one Class B WASM optimizer consuming, one Class A built-in portfolio provider) parse through the P7.05 validator, the P7.06 resolver composes them into a deterministic topologically ordered plan (provider registers before consumer), and the named negatives (a composition with no provider for a consumed contract; a manifest claiming a kernel-protected contract) are refused with their recorded error names.",
+  "pins": {
+    "seeds": "none — this scenario exercises pure structural kernel functions; no seeded generation runs on this path",
+    "versions": {
+      "manifest-schema": "flexcore-plugin-manifest-v1",
+      "profile-schema": "flexcore-profile-v1",
+      "platform-api-version": "0.5.0"
+    },
+    "tolerance": "exact — every expected outcome is a named refusal or an exact structural equality (registration order); no numeric tolerance exists on this path"
+  },
+  "inputs": {
+    "manifests": [
+      {
+        "manifest-schema": "flexcore-plugin-manifest-v1",
+        "plugin-id": "neryva.sdk01-optimizer",
+        "name": "SDK Scenario 01 Optimizer (WASM)",
+        "version": "0.1.0",
+        "api-version": ">=0.5.0, <0.6.0",
+        "class": "wasm-component",
+        "entry-point": { "symbol": "neryva:optimizer/lp-solve@0.5.0" },
+        "provider-of": ["optimization.lp"],
+        "consumes": ["portfolio.read"],
+        "permissions": ["schedule.propose"],
+        "configuration-schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "gap-tolerance": { "type": "number", "description": "Relative optimality gap tolerance." }
+          },
+          "required": []
+        },
+        "secrets": [],
+        "resources": { "max-memory-mb": 128, "timeout-ms": 30000, "max-output-mb": 8 },
+        "metadata": {
+          "license": "Apache-2.0",
+          "description": "Class B WASM LP optimizer returning candidate schedules (proposals only, never dispatch authority)."
+        }
+      },
+      {
+        "manifest-schema": "flexcore-plugin-manifest-v1",
+        "plugin-id": "neryva.sdk01-portfolio",
+        "name": "SDK Scenario 01 Portfolio Provider (built-in)",
+        "version": "0.1.0",
+        "api-version": ">=0.5.0, <0.6.0",
+        "class": "builtin-rust",
+        "entry-point": { "registered-type": "neryva.builtin/sdk01-portfolio" },
+        "provider-of": ["portfolio.read"],
+        "consumes": [],
+        "permissions": ["asset.read"],
+        "configuration-schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "secrets": [],
+        "resources": { "max-memory-mb": 64, "timeout-ms": 15000 },
+        "metadata": {
+          "license": "Apache-2.0",
+          "description": "Class A built-in portfolio data provider."
+        }
+      },
+      {
+        "manifest-schema": "flexcore-plugin-manifest-v1",
+        "plugin-id": "neryva.sdk01-rogue",
+        "name": "SDK Scenario 01 Rogue Claim",
+        "version": "0.1.0",
+        "api-version": ">=0.5.0, <0.6.0",
+        "class": "builtin-rust",
+        "entry-point": { "registered-type": "neryva.builtin/sdk01-rogue" },
+        "provider-of": ["kernel.dispatch-gateway"],
+        "consumes": [],
+        "permissions": ["telemetry.read"],
+        "configuration-schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "secrets": [],
+        "resources": { "max-memory-mb": 64, "timeout-ms": 15000 },
+        "metadata": {
+          "license": "Apache-2.0",
+          "description": "Negative fixture: claims a kernel-protected contract; the manifest validator accepts it (claims are not refused at parse) and the RESOLVER refuses the composition."
+        }
+      }
+    ],
+    "profiles": [],
+    "configs": []
+  },
+  "steps": [
+    { "step": "parse-manifest", "index": 0, "expect": { "outcome": "ok" } },
+    { "step": "parse-manifest", "index": 1, "expect": { "outcome": "ok" } },
+    { "step": "parse-manifest", "index": 2, "expect": { "outcome": "ok" } },
+    {
+      "step": "resolve",
+      "manifests": [0, 1],
+      "as": "slice-plan",
+      "expect": {
+        "outcome": "ok",
+        "registrations": ["neryva.sdk01-portfolio", "neryva.sdk01-optimizer"]
+      }
+    },
+    {
+      "step": "resolve",
+      "manifests": [0],
+      "expect": { "outcome": "refused", "name": "MISSING_PROVIDER" }
+    },
+    {
+      "step": "resolve",
+      "manifests": [1, 2],
+      "expect": { "outcome": "refused", "name": "PROTECTED_KERNEL_REPLACE" }
+    }
+  ]
+}
