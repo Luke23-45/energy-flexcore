@@ -2045,3 +2045,1280 @@ mod tests {
         assert_eq!(CommandAuthzAction::Read.id(), "command.read");
     }
 }
+
+// ============================================================================
+// P13.06 — The multi-step approval workflow engine (ADDITIVE; decision
+// record: phase-13 `records/06_p13_06_approval_workflow_engine.md`).
+//
+// THE EXTENSION RULE (plan §2.2, enforced here by construction): the engine
+// extends the P4.13 authorization gate FROM OUTSIDE. It does NOT contain,
+// wrap, or restate the lifecycle: there is no `CommandLifecycle`, no
+// `CommandTransition`, and no state change anywhere in this section. The
+// frozen 14-state / 27-edge transition set
+// (`flexcore_domain::command_state` — the code form of the freeze table)
+// is byte-identical after Phase 13. Multiple human inputs accumulate as
+// `record_command_approval`-shaped records against one command; when the
+// policy is satisfied, the COMPOSITION ROOT calls the existing
+// [`CommandGates::record_command_approval`] — the single operation that can
+// produce APPROVED — and the transition fires through the SAME gate as
+// before. Validation, feasibility, and authorization remain three distinct
+// gates: a multi-step approval is still exactly ONE authorization gate with
+// multiple human inputs.
+//
+// Failure semantics (plan risk 3): an engine denial is a RECORDED DENIAL
+// (`ApprovalWorkflowDenial`) of the attempted step — it never moves a
+// command anywhere. A command whose approval policy is unsatisfied simply
+// stays FEASIBLE and unapproved, exactly as in the single-approval world.
+//
+// Step-up composition (P13.04): a step whose requirement names
+// `requires_step_up: true` records the step-up EVIDENCE REFERENCE the
+// P13.04 service issued. The engine records the reference and requires its
+// presence; verifying the evidence is the composition root's obligation at
+// the P13.04 boundary (the evidence is single-use there — the engine never
+// re-verifies or re-issues it). A step without the required reference is a
+// named denial.
+// ============================================================================
+
+/// The scope level an approval step demands as its MINIMUM. The recorded
+/// scope must COVER the command (site, asset) — the
+/// [`ApprovalScope::covers`] superset rule (Tenant ⊇ site ⊇ asset) is the
+/// coverage test; the minimum names the demand the step records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalScopeMinimum {
+    /// The record must cover the command's site/asset (any covering scope
+    /// qualifies — the coverage rule is the check).
+    CoversCommand,
+}
+
+/// One approval-step requirement: the role that may satisfy the step, the
+/// coverage the approval record must have over the command, and whether the
+/// step requires P13.04 step-up evidence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalStepRequirement {
+    /// The role id (the authorization-surface role string, e.g.
+    /// `tenant-admin`, `site-approver` — the closed role vocabulary's ids).
+    pub role: String,
+    /// The coverage the record must have over the command (the current,
+    /// deliberately single variant: a record must COVER the command — the
+    /// same rule the P4.13 gate itself enforces at approval time).
+    pub coverage: ApprovalScopeMinimum,
+    /// Whether the step requires P13.04 step-up evidence (recorded as the
+    /// evidence reference; absence is a named denial).
+    pub requires_step_up: bool,
+}
+
+/// The quorum rule for high-impact commands (plan §2.2): N DISTINCT
+/// approvers drawn from the eligible role set, on top of (or instead of,
+/// when `steps` is empty) the sequential requirements.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalQuorumRule {
+    /// The minimum number of DISTINCT approvers.
+    pub minimum_approvers: usize,
+    /// The role ids whose approval records count toward the quorum.
+    pub eligible_roles: Vec<String>,
+}
+
+/// The absence policy (plan §2.2: delegation is scoped, time-bounded,
+/// audited). Delegation is allowed only when this says so; a delegated
+/// approval carries the delegator's scope subset and travels with BOTH
+/// identities recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AbsencePolicy {
+    /// Whether delegation may satisfy steps for an absent approver.
+    pub allow_delegation: bool,
+}
+
+impl Default for AbsencePolicy {
+    fn default() -> Self {
+        // Recorded default: delegation is DISABLED. Turning it on is a
+        // deployment decision recorded per deployment (audited when used).
+        Self {
+            allow_delegation: false,
+        }
+    }
+}
+
+/// The approval workflow policy for a command class (deployment data):
+/// the ordered sequence of step requirements plus the optional quorum and
+/// the absence policy. An EMPTY steps list with `None` quorum means the
+/// single-approval default (the plain P4.13 gate; the engine is not
+/// engaged).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ApprovalWorkflowPolicy {
+    /// The ordered steps. Order matters: a record for step N+1 does not
+    /// satisfy step N (sequential approvals; out-of-order inputs are
+    /// denied at record time).
+    pub steps: Vec<ApprovalStepRequirement>,
+    /// The optional quorum for high-impact commands.
+    pub quorum: Option<ApprovalQuorumRule>,
+    /// The absence (delegation) policy.
+    pub absence: AbsencePolicy,
+}
+
+/// One accumulated human approval input — `record_command_approval`-SHAPED
+/// (the fields mirror [`AuthorizationDecisionRecord`]'s identity/scope/
+/// evidence surface; the accumulated records are the material the gate's
+/// decision rests on, never a replacement for it). One command accumulates
+/// many of these; none of them transitions anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccumulatedApproval {
+    /// The subject (approver identity) — distinct across steps by policy.
+    pub subject: String,
+    /// The role id the approval was recorded under.
+    pub role: String,
+    /// The approval scope (the [`ApprovalScope`] recorded form).
+    pub scope: ApprovalScope,
+    /// The decision instant (controlled clock, UTC millis).
+    pub decided_at_unix_millis: i64,
+    /// The P13.04 step-up evidence reference, present exactly when the
+    /// step required one (and supplied by the composition root after the
+    /// P13.04 service verified it).
+    pub step_up_evidence: Option<String>,
+    /// The delegation in force when the step was recorded, present exactly
+    /// for a delegated approval (the delegator travels — a delegated
+    /// approval is audited with both identities).
+    pub delegation: Option<DelegationReference>,
+    /// The step index this record was accepted against (0-based into the
+    /// policy's `steps`); present once the engine accepted the record.
+    pub satisfied_step: Option<usize>,
+}
+
+/// The recorded reference of the delegation in force for one delegated
+/// approval (a pointer into the store's delegation record — the full
+/// record is audited at registration time; the pointer travels with the
+/// approval).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DelegationReference {
+    /// The delegation id (unique per registration).
+    pub delegation_id: String,
+    /// The ABSENT approver whose duty is being exercised (the delegator).
+    pub delegator: String,
+}
+
+/// A registered delegation: delegator → delegate, scope-bounded and
+/// time-bounded. Registration is itself an audited act (the store's
+/// registration is the audit input; the delegation never widens the
+/// delegator's authority — the delegate can record only steps the
+/// DELEGATOR's role and scope could satisfy, which the engine enforces by
+/// requiring the delegated record's role/scope to match the step
+/// requirement the same way a direct record would).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DelegationRecord {
+    /// The delegation id.
+    pub delegation_id: String,
+    /// The absent approver (the delegator).
+    pub delegator: String,
+    /// The delegate who may record in the delegator's absence.
+    pub delegate: String,
+    /// The scope subset the delegation carries (must COVER the command at
+    /// record time — a delegation cannot widen authority beyond the
+    /// delegator's own coverage).
+    pub scope: ApprovalScope,
+    /// The window opens (UTC millis, inclusive).
+    pub valid_from_unix_millis: i64,
+    /// The window closes (UTC millis, exclusive — an expired delegation is
+    /// a named denial, never a grace extension).
+    pub valid_until_unix_millis: i64,
+    /// The recorded reason (absence declaration; audit text).
+    pub reason: String,
+    /// The registration instant (controlled clock, UTC millis).
+    pub registered_at_unix_millis: i64,
+}
+
+/// Errors of the accumulation store seam. Fail-closed by convention.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApprovalWorkflowStoreError {
+    /// The command already carries an approval record from this subject.
+    DuplicateApprover {
+        command_id: String,
+        subject: String,
+    },
+    /// Storage backend failure — opaque code + message only.
+    Backend {
+        code: String,
+        message: String,
+    },
+}
+
+impl std::fmt::Display for ApprovalWorkflowStoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApprovalWorkflowStoreError::DuplicateApprover { command_id, subject } => write!(
+                f,
+                "command {command_id} already carries an approval record from {subject}; \
+                 one approver, one record"
+            ),
+            ApprovalWorkflowStoreError::Backend { code, message } => {
+                write!(f, "approval-workflow store failure ({code}): {message}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ApprovalWorkflowStoreError {}
+
+/// The accumulation store seam: where accumulated approvals and registered
+/// delegations live. The composition root implements it over the
+/// persistence layer; the engine consumes only this seam (no store type
+/// leaks into the engine, the same injected-seam pattern as the gates).
+pub trait ApprovalAccumulationStore {
+    /// Appends one approval record against the command. The store enforces
+    /// one record per (command, subject) — a duplicate is
+    /// [`ApprovalWorkflowStoreError::DuplicateApprover`].
+    fn append_approval(
+        &self,
+        command_id: CommandId,
+        record: &AccumulatedApproval,
+    ) -> Result<(), ApprovalWorkflowStoreError>;
+
+    /// All accumulated approval records for the command, in recorded order.
+    fn approvals_for(
+        &self,
+        command_id: CommandId,
+    ) -> Result<Vec<AccumulatedApproval>, ApprovalWorkflowStoreError>;
+
+    /// Registers a delegation (the audited registration act).
+    fn register_delegation(
+        &self,
+        delegation: &DelegationRecord,
+    ) -> Result<(), ApprovalWorkflowStoreError>;
+
+    /// The ACTIVE delegation matching (delegate, delegator) at the given
+    /// instant, if any.
+    fn active_delegation(
+        &self,
+        delegate: &str,
+        delegator: &str,
+        now_unix_millis: i64,
+    ) -> Result<Option<DelegationRecord>, ApprovalWorkflowStoreError>;
+}
+
+/// The verdict of the engine's policy evaluation. `Satisfied` is the ONLY
+/// verdict that lets the composition root proceed to
+/// [`CommandGates::record_command_approval`] — and even then the gate's own
+/// checks (policy allow, scope coverage, separation of duties, expiry)
+/// still apply on top. The engine can make approval HARDER, never easier.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApprovalWorkflowVerdict {
+    /// The policy is satisfied (every sequential step matched and, when
+    /// configured, the quorum is met): the composition root may now call
+    /// the P4.13 gate. The verdict carries the step indices satisfied.
+    Satisfied {
+        satisfied_steps: Vec<usize>,
+    },
+    /// The policy is not yet satisfied: the named steps remain unmatched.
+    Pending {
+        /// Indices (into the policy's `steps`) with no satisfying record.
+        missing_steps: Vec<usize>,
+        /// The distinct approvers recorded so far (quorum progress).
+        distinct_approvers: usize,
+        /// The quorum minimum, when a quorum is configured.
+        quorum_minimum: Option<usize>,
+    },
+}
+
+/// A denial of an ATTEMPTED step record (a recorded denial — the step did
+/// not happen; nothing transitions; the command stays FEASIBLE).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApprovalWorkflowDenial {
+    /// The subject is empty — an approval without an approver identity is
+    /// not one.
+    EmptySubject,
+    /// The subject already recorded an approval for this command (one
+    /// approver, one record — separation of inputs).
+    DuplicateApprover {
+        subject: String,
+    },
+    /// The command already carries the maximum records the policy admits
+    /// (every step satisfied) — further records are refused rather than
+    /// accumulated silently.
+    PolicyAlreadySatisfied,
+    /// No policy step is waiting for a record with this role (out-of-order
+    /// or unqualified input; the named detail carries the attempted role).
+    NoMatchingStep {
+        role: String,
+    },
+    /// The approval scope does not cover the command (the step demands a
+    /// record that covers it; the recorded scope did not).
+    ScopeDoesNotCoverCommand {
+        recorded_scope: String,
+    },
+    /// The step requires P13.04 step-up evidence and none was presented.
+    StepUpEvidenceMissing,
+    /// The presented delegation is not usable for this step (the named
+    /// reason distinguishes the cases).
+    DelegationInvalid {
+        reason: String,
+    },
+    /// The store seam failed (fail-closed).
+    Store(ApprovalWorkflowStoreError),
+}
+
+impl std::fmt::Display for ApprovalWorkflowDenial {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApprovalWorkflowDenial::EmptySubject => write!(f, "the approval subject is empty"),
+            ApprovalWorkflowDenial::DuplicateApprover { subject } => {
+                write!(f, "{subject} already recorded an approval for this command")
+            }
+            ApprovalWorkflowDenial::PolicyAlreadySatisfied => write!(
+                f,
+                "the approval policy is already satisfied; further records are refused"
+            ),
+            ApprovalWorkflowDenial::NoMatchingStep { role } => write!(
+                f,
+                "no waiting step matches the role '{role}' (sequential policy; \
+                 out-of-order inputs are denied)"
+            ),
+            ApprovalWorkflowDenial::ScopeDoesNotCoverCommand { recorded_scope } => write!(
+                f,
+                "the approval scope '{recorded_scope}' does not cover the command"
+            ),
+            ApprovalWorkflowDenial::StepUpEvidenceMissing => write!(
+                f,
+                "the step requires server-verified step-up evidence and none was presented"
+            ),
+            ApprovalWorkflowDenial::DelegationInvalid { reason } => {
+                write!(f, "the delegation is not usable for this step: {reason}")
+            }
+            ApprovalWorkflowDenial::Store(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for ApprovalWorkflowDenial {}
+
+/// The multi-step approval workflow engine. One struct per composition;
+/// the accumulation store and the controlled clock are injected. The
+/// engine holds NO reference to the command lifecycle: it cannot move a
+/// command, and the frozen transition set is untouched by construction.
+pub struct ApprovalWorkflowEngine<'a> {
+    /// The accumulation store seam.
+    pub store: &'a dyn ApprovalAccumulationStore,
+    /// The controlled clock (every engine instant; never a wall clock).
+    pub clock: &'a dyn LifecycleClock,
+    /// The deployment's workflow policy for the command class at hand.
+    pub policy: ApprovalWorkflowPolicy,
+}
+
+impl<'a> ApprovalWorkflowEngine<'a> {
+    /// Records one human approval input against the command. On acceptance
+    /// the record accumulates (store) and the current verdict is returned.
+    /// On denial a named [`ApprovalWorkflowDenial`] is returned — a
+    /// RECORDED DENIAL of the attempt, never a state change.
+    pub fn record_step(
+        &self,
+        command_id: CommandId,
+        site: SiteId,
+        asset: AssetId,
+        request: AccumulatedApproval,
+    ) -> Result<ApprovalWorkflowVerdict, ApprovalWorkflowDenial> {
+        if request.subject.trim().is_empty() {
+            return Err(ApprovalWorkflowDenial::EmptySubject);
+        }
+        let existing = self
+            .store
+            .approvals_for(command_id)
+            .map_err(ApprovalWorkflowDenial::Store)?;
+
+        // One approver, one record.
+        if existing.iter().any(|r| r.subject == request.subject) {
+            return Err(ApprovalWorkflowDenial::DuplicateApprover {
+                subject: request.subject.clone(),
+            });
+        }
+
+        // The first UNSATISFIED step whose requirements this record meets.
+        // Sequential: earlier unmatched steps block later ones (a record
+        // never skips ahead).
+        let satisfied_so_far: Vec<usize> = existing
+            .iter()
+            .filter_map(|r| r.satisfied_step)
+            .collect();
+        let mut step_index: Option<usize> = None;
+        for (index, step) in self.policy.steps.iter().enumerate() {
+            if satisfied_so_far.contains(&index) {
+                continue;
+            }
+            if step.role != request.role {
+                return Err(ApprovalWorkflowDenial::NoMatchingStep {
+                    role: request.role.clone(),
+                });
+            }
+            if !request.scope.covers(site, asset) {
+                return Err(ApprovalWorkflowDenial::ScopeDoesNotCoverCommand {
+                    recorded_scope: request.scope.recorded_text(),
+                });
+            }
+            if step.requires_step_up && request.step_up_evidence.is_none() {
+                return Err(ApprovalWorkflowDenial::StepUpEvidenceMissing);
+            }
+            step_index = Some(index);
+            break;
+        }
+        let Some(step_index) = step_index else {
+            // Either every step is satisfied (the policy is complete —
+            // refuse rather than accumulate) or the policy declares no
+            // steps (the engine is not engaged; the plain P4.13 gate is
+            // the authority).
+            if !self.policy.steps.is_empty()
+                && satisfied_so_far.len() == self.policy.steps.len()
+            {
+                return Err(ApprovalWorkflowDenial::PolicyAlreadySatisfied);
+            }
+            return Err(ApprovalWorkflowDenial::NoMatchingStep {
+                role: request.role.clone(),
+            });
+        };
+
+        // The delegation path: a record carrying a delegation is accepted
+        // only when the absence policy allows delegation, the delegation
+        // is registered and ACTIVE at this instant, and it does not widen
+        // authority (delegate ≠ delegator — a delegation to the delegator's
+        // own subject is refused explicitly, and the delegation's scope
+        // must cover the command).
+        let mut record = request;
+        if let Some(delegation_ref) = &record.delegation {
+            if !self.policy.absence.allow_delegation {
+                return Err(ApprovalWorkflowDenial::DelegationInvalid {
+                    reason: "the deployment's absence policy does not allow delegation"
+                        .to_string(),
+                });
+            }
+            if delegation_ref.delegator == record.subject {
+                return Err(ApprovalWorkflowDenial::DelegationInvalid {
+                    reason: "the delegator and the delegate are the same identity"
+                        .to_string(),
+                });
+            }
+            let now = self.clock.now_unix_millis();
+            let delegation = self
+                .store
+                .active_delegation(&record.subject, &delegation_ref.delegator, now)
+                .map_err(ApprovalWorkflowDenial::Store)?
+                .ok_or_else(|| ApprovalWorkflowDenial::DelegationInvalid {
+                    reason:
+                        "no active delegation is registered for this delegate and delegator"
+                            .to_string(),
+                })?;
+            if delegation.delegation_id != delegation_ref.delegation_id {
+                return Err(ApprovalWorkflowDenial::DelegationInvalid {
+                    reason: "the presented delegation id is not the registered one"
+                        .to_string(),
+                });
+            }
+            if !delegation.scope.covers(site, asset) {
+                return Err(ApprovalWorkflowDenial::DelegationInvalid {
+                    reason: "the delegation's scope does not cover the command".to_string(),
+                });
+            }
+        }
+
+        record.satisfied_step = Some(step_index);
+        self.store
+            .append_approval(command_id, &record)
+            .map_err(ApprovalWorkflowDenial::Store)?;
+        self.evaluate(command_id, site, asset)
+    }
+
+    /// Evaluates the policy against the accumulated records (the verdict
+    /// the composition root checks BEFORE calling the P4.13 gate). With an
+    /// empty policy this returns `Satisfied` with an empty step list: no
+    /// multi-step policy means the plain gate decides, as always.
+    pub fn evaluate(
+        &self,
+        command_id: CommandId,
+        site: SiteId,
+        asset: AssetId,
+    ) -> Result<ApprovalWorkflowVerdict, ApprovalWorkflowDenial> {
+        let records = self
+            .store
+            .approvals_for(command_id)
+            .map_err(ApprovalWorkflowDenial::Store)?;
+        let satisfied_so_far: Vec<usize> = records
+            .iter()
+            .filter_map(|r| r.satisfied_step)
+            .collect();
+        let missing: Vec<usize> = self
+            .policy
+            .steps
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !satisfied_so_far.contains(index))
+            .map(|(index, _)| index)
+            .collect();
+
+        // The quorum (when configured): DISTINCT approvers whose records
+        // carry an eligible role AND a scope covering the command.
+        let quorum_minimum = self.policy.quorum.as_ref().map(|q| q.minimum_approvers);
+        if let Some(quorum) = &self.policy.quorum {
+            let distinct: std::collections::BTreeSet<&str> = records
+                .iter()
+                .filter(|r| {
+                    quorum.eligible_roles.contains(&r.role) && r.scope.covers(site, asset)
+                })
+                .map(|r| r.subject.as_str())
+                .collect();
+            if distinct.len() < quorum.minimum_approvers {
+                return Ok(ApprovalWorkflowVerdict::Pending {
+                    missing_steps: missing,
+                    distinct_approvers: distinct.len(),
+                    quorum_minimum,
+                });
+            }
+        }
+
+        if missing.is_empty() {
+            let mut satisfied = satisfied_so_far;
+            satisfied.sort_unstable();
+            Ok(ApprovalWorkflowVerdict::Satisfied {
+                satisfied_steps: satisfied,
+            })
+        } else {
+            Ok(ApprovalWorkflowVerdict::Pending {
+                missing_steps: missing,
+                distinct_approvers: records.len(),
+                quorum_minimum,
+            })
+        }
+    }
+}
+
+/// Registers a delegation through the store after the identity and
+/// time-window checks (the audited registration act; the engine's
+/// `record_step` re-validates activity at record time — a delegation valid
+/// at registration can still expire before use).
+pub fn register_delegation(
+    engine_clock: &dyn LifecycleClock,
+    store: &dyn ApprovalAccumulationStore,
+    mut delegation: DelegationRecord,
+) -> Result<DelegationRecord, ApprovalWorkflowDenial> {
+    if delegation.delegator.trim().is_empty() || delegation.delegate.trim().is_empty() {
+        return Err(ApprovalWorkflowDenial::DelegationInvalid {
+            reason: "the delegation names an empty identity".to_string(),
+        });
+    }
+    if delegation.delegator == delegation.delegate {
+        return Err(ApprovalWorkflowDenial::DelegationInvalid {
+            reason: "the delegator and the delegate are the same identity".to_string(),
+        });
+    }
+    let now = engine_clock.now_unix_millis();
+    if delegation.valid_from_unix_millis < now {
+        return Err(ApprovalWorkflowDenial::DelegationInvalid {
+            reason: "the delegation window cannot start in the past".to_string(),
+        });
+    }
+    if delegation.valid_until_unix_millis <= delegation.valid_from_unix_millis {
+        return Err(ApprovalWorkflowDenial::DelegationInvalid {
+            reason: "the delegation window is empty or reversed".to_string(),
+        });
+    }
+    delegation.registered_at_unix_millis = now;
+    store
+        .register_delegation(&delegation)
+        .map_err(ApprovalWorkflowDenial::Store)?;
+    Ok(delegation)
+}
+
+#[cfg(test)]
+mod approval_workflow_tests {
+    use super::*;
+    use flexcore_contracts::ids::FlexUuid;
+    use std::cell::RefCell;
+
+    fn uuid(s: &str) -> FlexUuid {
+        FlexUuid::parse(s).unwrap()
+    }
+
+    const UUID_COMMAND: &str = "0192a5e0-0000-7e2f-9a1b-3c4d5e6f8d01";
+    const UUID_SITE: &str = "0192a5e0-0000-7e2f-9a1b-3c4d5e6f8d02";
+    const UUID_ASSET: &str = "0192a5e0-0000-7e2f-9a1b-3c4d5e6f8d03";
+
+    fn command_id() -> CommandId {
+        CommandId::new(uuid(UUID_COMMAND))
+    }
+
+    fn site() -> SiteId {
+        SiteId::new(uuid(UUID_SITE))
+    }
+
+    fn asset() -> AssetId {
+        AssetId::new(uuid(UUID_ASSET))
+    }
+
+    fn other_asset() -> AssetId {
+        AssetId::new(uuid("0192a5e0-0000-7e2f-9a1b-3c4d5e6f8d04"))
+    }
+
+    /// The controlled test clock (advance explicitly; monotonicity is
+    /// reproduced, never invented — the gates' discipline).
+    struct TestClock(RefCell<i64>);
+
+    impl LifecycleClock for TestClock {
+        fn now_unix_millis(&self) -> i64 {
+            *self.0.borrow()
+        }
+    }
+
+    impl TestClock {
+        fn advance(&self, millis: i64) {
+            *self.0.borrow_mut() += millis;
+        }
+    }
+
+    /// The in-memory accumulation-store fake (the engine's seam; mirrors
+    /// the recorded store obligations: one record per (command, subject),
+    /// ordered reads, active-delegation lookup).
+    #[derive(Default)]
+    struct FakeStore {
+        approvals: RefCell<std::collections::BTreeMap<String, Vec<AccumulatedApproval>>>,
+        delegations: RefCell<Vec<DelegationRecord>>,
+    }
+
+    impl ApprovalAccumulationStore for FakeStore {
+        fn append_approval(
+            &self,
+            command_id: CommandId,
+            record: &AccumulatedApproval,
+        ) -> Result<(), ApprovalWorkflowStoreError> {
+            let mut map = self.approvals.borrow_mut();
+            let entry = map.entry(command_id.uuid().to_string()).or_default();
+            if entry.iter().any(|r| r.subject == record.subject) {
+                return Err(ApprovalWorkflowStoreError::DuplicateApprover {
+                    command_id: command_id.uuid().to_string(),
+                    subject: record.subject.clone(),
+                });
+            }
+            entry.push(record.clone());
+            Ok(())
+        }
+
+        fn approvals_for(
+            &self,
+            command_id: CommandId,
+        ) -> Result<Vec<AccumulatedApproval>, ApprovalWorkflowStoreError> {
+            Ok(self
+                .approvals
+                .borrow()
+                .get(&command_id.uuid().to_string())
+                .cloned()
+                .unwrap_or_default())
+        }
+
+        fn register_delegation(
+            &self,
+            delegation: &DelegationRecord,
+        ) -> Result<(), ApprovalWorkflowStoreError> {
+            self.delegations.borrow_mut().push(delegation.clone());
+            Ok(())
+        }
+
+        fn active_delegation(
+            &self,
+            delegate: &str,
+            delegator: &str,
+            now_unix_millis: i64,
+        ) -> Result<Option<DelegationRecord>, ApprovalWorkflowStoreError> {
+            Ok(self
+                .delegations
+                .borrow()
+                .iter()
+                .find(|d| {
+                    d.delegate == delegate
+                        && d.delegator == delegator
+                        && d.valid_from_unix_millis <= now_unix_millis
+                        && now_unix_millis < d.valid_until_unix_millis
+                })
+                .cloned())
+        }
+    }
+
+    fn sequential_policy(with_step_up: bool) -> ApprovalWorkflowPolicy {
+        ApprovalWorkflowPolicy {
+            steps: vec![
+                ApprovalStepRequirement {
+                    role: "tenant-admin".to_string(),
+                    coverage: ApprovalScopeMinimum::CoversCommand,
+                    requires_step_up: with_step_up,
+                },
+                ApprovalStepRequirement {
+                    role: "site-approver".to_string(),
+                    coverage: ApprovalScopeMinimum::CoversCommand,
+                    requires_step_up: false,
+                },
+            ],
+            quorum: None,
+            absence: AbsencePolicy::default(),
+        }
+    }
+
+    fn record(subject: &str, role: &str, scope: ApprovalScope) -> AccumulatedApproval {
+        AccumulatedApproval {
+            subject: subject.to_string(),
+            role: role.to_string(),
+            scope,
+            decided_at_unix_millis: 1_000,
+            step_up_evidence: None,
+            delegation: None,
+            satisfied_step: None,
+        }
+    }
+
+    #[test]
+    fn an_empty_policy_is_satisfied_immediately_the_plain_gate_is_the_authority() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy: ApprovalWorkflowPolicy::default(),
+        };
+        assert_eq!(
+            engine.evaluate(command_id(), site(), asset()).unwrap(),
+            ApprovalWorkflowVerdict::Satisfied {
+                satisfied_steps: vec![]
+            }
+        );
+    }
+
+    #[test]
+    fn sequential_steps_accumulate_and_fire_only_when_the_policy_is_satisfied() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy: sequential_policy(false),
+        };
+
+        // Step 0 pending.
+        assert_eq!(
+            engine.evaluate(command_id(), site(), asset()).unwrap(),
+            ApprovalWorkflowVerdict::Pending {
+                missing_steps: vec![0, 1],
+                distinct_approvers: 0,
+                quorum_minimum: None,
+            }
+        );
+        // Step 0 accepted (tenant-admin, site-level scope covers the site).
+        let verdict = engine
+            .record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("admin-1", "tenant-admin", ApprovalScope::Site(site())),
+            )
+            .unwrap();
+        assert_eq!(
+            verdict,
+            ApprovalWorkflowVerdict::Pending {
+                missing_steps: vec![1],
+                distinct_approvers: 1,
+                quorum_minimum: None,
+            }
+        );
+        // Step 1 accepted (site-approver, asset-level scope).
+        let verdict = engine
+            .record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("approver-1", "site-approver", ApprovalScope::Asset(asset())),
+            )
+            .unwrap();
+        assert_eq!(
+            verdict,
+            ApprovalWorkflowVerdict::Satisfied {
+                satisfied_steps: vec![0, 1]
+            }
+        );
+        // The records accumulated; NO transition exists anywhere in the
+        // engine (the store's records are the only effect).
+        assert_eq!(store.approvals_for(command_id()).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn out_of_order_and_unqualified_records_are_named_denials() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy: sequential_policy(false),
+        };
+        // Step 1's role first: denied (the first waiting step is step 0).
+        assert_eq!(
+            engine.record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("approver-1", "site-approver", ApprovalScope::Asset(asset())),
+            ),
+            Err(ApprovalWorkflowDenial::NoMatchingStep {
+                role: "site-approver".to_string()
+            })
+        );
+        // Step 0 with a role that no step names: denied.
+        assert_eq!(
+            engine.record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("operator-1", "operator", ApprovalScope::Site(site())),
+            ),
+            Err(ApprovalWorkflowDenial::NoMatchingStep {
+                role: "operator".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn a_duplicate_approver_is_refused_and_scope_coverage_is_enforced() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy: sequential_policy(false),
+        };
+        engine
+            .record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("admin-1", "tenant-admin", ApprovalScope::Site(site())),
+            )
+            .unwrap();
+        // The same subject again (even for the other step): refused.
+        assert_eq!(
+            engine.record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("admin-1", "site-approver", ApprovalScope::Asset(asset())),
+            ),
+            Err(ApprovalWorkflowDenial::DuplicateApprover {
+                subject: "admin-1".to_string()
+            })
+        );
+        // Step 1 from a DIFFERENT subject but a scope that does not cover
+        // the command's asset: denied.
+        assert_eq!(
+            engine.record_step(
+                command_id(),
+                site(),
+                asset(),
+                record(
+                    "approver-1",
+                    "site-approver",
+                    ApprovalScope::Asset(other_asset())
+                ),
+            ),
+            Err(ApprovalWorkflowDenial::ScopeDoesNotCoverCommand {
+                recorded_scope: ApprovalScope::Asset(other_asset()).recorded_text()
+            })
+        );
+    }
+
+    #[test]
+    fn a_step_requiring_step_up_evidence_denies_without_it_and_accepts_with_it() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy: sequential_policy(true),
+        };
+        // Missing evidence: a named denial; the command stays FEASIBLE
+        // (the engine touched nothing).
+        assert_eq!(
+            engine.record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("admin-1", "tenant-admin", ApprovalScope::Site(site())),
+            ),
+            Err(ApprovalWorkflowDenial::StepUpEvidenceMissing)
+        );
+        // With the (composition-verified) evidence reference: accepted.
+        let mut with_evidence = record("admin-1", "tenant-admin", ApprovalScope::Site(site()));
+        with_evidence.step_up_evidence = Some("stepup:evidence-1".to_string());
+        engine
+            .record_step(command_id(), site(), asset(), with_evidence)
+            .unwrap();
+    }
+
+    #[test]
+    fn a_policy_already_satisfied_refuses_further_records() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy: sequential_policy(false),
+        };
+        engine
+            .record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("admin-1", "tenant-admin", ApprovalScope::Site(site())),
+            )
+            .unwrap();
+        engine
+            .record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("approver-1", "site-approver", ApprovalScope::Asset(asset())),
+            )
+            .unwrap();
+        assert_eq!(
+            engine.record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("third-1", "tenant-admin", ApprovalScope::Site(site())),
+            ),
+            Err(ApprovalWorkflowDenial::PolicyAlreadySatisfied)
+        );
+    }
+
+    #[test]
+    fn delegation_requires_policy_registration_activity_and_scope() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy: sequential_policy(false),
+        };
+
+        let mut delegated = record("delegate-1", "tenant-admin", ApprovalScope::Site(site()));
+        delegated.delegation = Some(DelegationReference {
+            delegation_id: "del-1".to_string(),
+            delegator: "admin-1".to_string(),
+        });
+
+        // Delegation OFF by default (the recorded AbsencePolicy default):
+        // denied even if a delegation were registered.
+        assert_eq!(
+            engine.record_step(command_id(), site(), asset(), delegated.clone()),
+            Err(ApprovalWorkflowDenial::DelegationInvalid {
+                reason: "the deployment's absence policy does not allow delegation".to_string()
+            })
+        );
+
+        // Turn the absence policy on; re-register the engine.
+        let policy = ApprovalWorkflowPolicy {
+            steps: sequential_policy(false).steps,
+            quorum: None,
+            absence: AbsencePolicy {
+                allow_delegation: true,
+            },
+        };
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy,
+        };
+
+        // Self-delegation is refused (a delegation to the delegator's own
+        // subject is not an absence policy, it is a second login).
+        let mut self_delegated =
+            record("admin-1", "tenant-admin", ApprovalScope::Site(site()));
+        self_delegated.delegation = Some(DelegationReference {
+            delegation_id: "del-2".to_string(),
+            delegator: "admin-1".to_string(),
+        });
+        assert_eq!(
+            engine.record_step(command_id(), site(), asset(), self_delegated),
+            Err(ApprovalWorkflowDenial::DelegationInvalid {
+                reason: "the delegator and the delegate are the same identity".to_string()
+            })
+        );
+
+        // No registered delegation: denied.
+        assert_eq!(
+            engine.record_step(command_id(), site(), asset(), delegated.clone()),
+            Err(ApprovalWorkflowDenial::DelegationInvalid {
+                reason: "no active delegation is registered for this delegate and delegator"
+                    .to_string()
+            })
+        );
+
+        // Register an ACTIVE delegation covering the command's site.
+        let registration = register_delegation(
+            &clock,
+            &store,
+            DelegationRecord {
+                delegation_id: "del-1".to_string(),
+                delegator: "admin-1".to_string(),
+                delegate: "delegate-1".to_string(),
+                scope: ApprovalScope::Site(site()),
+                valid_from_unix_millis: 1_000,
+                valid_until_unix_millis: 10_000,
+                reason: "approver absence, declared".to_string(),
+                registered_at_unix_millis: 0,
+            },
+        )
+        .unwrap();
+        assert_eq!(registration.delegation_id, "del-1");
+
+        // Now the delegated step records (with BOTH identities audited in
+        // the record).
+        engine
+            .record_step(command_id(), site(), asset(), delegated)
+            .unwrap();
+        let records = store.approvals_for(command_id()).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].delegation.as_ref().unwrap().delegator,
+            "admin-1"
+        );
+
+        // A delegation whose scope does NOT cover the command (an
+        // asset-scoped delegation over a DIFFERENT asset): denied.
+        let mut foreign = record("delegate-2", "tenant-admin", ApprovalScope::Site(site()));
+        foreign.delegation = Some(DelegationReference {
+            delegation_id: "del-3".to_string(),
+            delegator: "admin-2".to_string(),
+        });
+        store
+            .register_delegation(&DelegationRecord {
+                delegation_id: "del-3".to_string(),
+                delegator: "admin-2".to_string(),
+                delegate: "delegate-2".to_string(),
+                scope: ApprovalScope::Asset(other_asset()),
+                valid_from_unix_millis: 1_000,
+                valid_until_unix_millis: 10_000,
+                reason: "scope-limited delegation".to_string(),
+                registered_at_unix_millis: 1_000,
+            })
+            .unwrap();
+        assert_eq!(
+            engine.record_step(command_id(), site(), asset(), foreign),
+            Err(ApprovalWorkflowDenial::DelegationInvalid {
+                reason: "the delegation's scope does not cover the command".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn an_expired_delegation_is_a_named_denial_never_a_grace_extension() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let policy = ApprovalWorkflowPolicy {
+            steps: sequential_policy(false).steps,
+            quorum: None,
+            absence: AbsencePolicy {
+                allow_delegation: true,
+            },
+        };
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy,
+        };
+        store
+            .register_delegation(&DelegationRecord {
+                delegation_id: "del-x".to_string(),
+                delegator: "admin-1".to_string(),
+                delegate: "delegate-1".to_string(),
+                scope: ApprovalScope::Site(site()),
+                valid_from_unix_millis: 1_000,
+                valid_until_unix_millis: 2_000,
+                reason: "short absence".to_string(),
+                registered_at_unix_millis: 1_000,
+            })
+            .unwrap();
+        clock.advance(1_000); // now == 2_000 == valid_until (exclusive close)
+        let mut delegated = record("delegate-1", "tenant-admin", ApprovalScope::Site(site()));
+        delegated.delegation = Some(DelegationReference {
+            delegation_id: "del-x".to_string(),
+            delegator: "admin-1".to_string(),
+        });
+        assert_eq!(
+            engine.record_step(command_id(), site(), asset(), delegated),
+            Err(ApprovalWorkflowDenial::DelegationInvalid {
+                reason: "no active delegation is registered for this delegate and delegator"
+                    .to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn quorum_counts_distinct_eligible_in_scope_approvers() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let policy = ApprovalWorkflowPolicy {
+            steps: vec![],
+            quorum: Some(ApprovalQuorumRule {
+                minimum_approvers: 2,
+                eligible_roles: vec!["tenant-admin".to_string(), "site-approver".to_string()],
+            }),
+            absence: AbsencePolicy::default(),
+        };
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy,
+        };
+        // One approver: pending (1 of 2).
+        engine
+            .record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("admin-1", "tenant-admin", ApprovalScope::Site(site())),
+            )
+            .unwrap();
+        assert_eq!(
+            engine.evaluate(command_id(), site(), asset()).unwrap(),
+            ApprovalWorkflowVerdict::Pending {
+                missing_steps: vec![],
+                distinct_approvers: 1,
+                quorum_minimum: Some(2),
+            }
+        );
+        // A second DISTINCT approver with an eligible role and covering
+        // scope: satisfied.
+        engine
+            .record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("approver-1", "site-approver", ApprovalScope::Asset(asset())),
+            )
+            .unwrap();
+        assert_eq!(
+            engine.evaluate(command_id(), site(), asset()).unwrap(),
+            ApprovalWorkflowVerdict::Satisfied {
+                satisfied_steps: vec![]
+            }
+        );
+    }
+
+    #[test]
+    fn quorum_ignores_out_of_scope_and_ineligible_records() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let policy = ApprovalWorkflowPolicy {
+            steps: vec![],
+            quorum: Some(ApprovalQuorumRule {
+                minimum_approvers: 2,
+                eligible_roles: vec!["tenant-admin".to_string()],
+            }),
+            absence: AbsencePolicy::default(),
+        };
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy,
+        };
+        // An ineligible role's record does not count.
+        engine
+            .record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("viewer-1", "viewer", ApprovalScope::Tenant),
+            )
+            .unwrap();
+        assert_eq!(
+            engine.evaluate(command_id(), site(), asset()).unwrap(),
+            ApprovalWorkflowVerdict::Pending {
+                missing_steps: vec![],
+                distinct_approvers: 0,
+                quorum_minimum: Some(2),
+            }
+        );
+        // An eligible role but a scope that does not cover the command's
+        // asset does not count either.
+        engine
+            .record_step(
+                command_id(),
+                site(),
+                asset(),
+                record(
+                    "admin-2",
+                    "tenant-admin",
+                    ApprovalScope::Asset(other_asset())
+                ),
+            )
+            .unwrap();
+        assert_eq!(
+            engine.evaluate(command_id(), site(), asset()).unwrap(),
+            ApprovalWorkflowVerdict::Pending {
+                missing_steps: vec![],
+                distinct_approvers: 0,
+                quorum_minimum: Some(2),
+            }
+        );
+    }
+
+    #[test]
+    fn empty_subject_is_a_named_denial() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let engine = ApprovalWorkflowEngine {
+            store: &store,
+            clock: &clock,
+            policy: sequential_policy(false),
+        };
+        assert_eq!(
+            engine.record_step(
+                command_id(),
+                site(),
+                asset(),
+                record("  ", "tenant-admin", ApprovalScope::Site(site())),
+            ),
+            Err(ApprovalWorkflowDenial::EmptySubject)
+        );
+    }
+
+    #[test]
+    fn delegation_registration_validates_window_and_identity() {
+        let store = FakeStore::default();
+        let clock = TestClock(RefCell::new(1_000));
+        let make = |delegator: &str, delegate: &str, from: i64, until: i64| DelegationRecord {
+            delegation_id: "d".to_string(),
+            delegator: delegator.to_string(),
+            delegate: delegate.to_string(),
+            scope: ApprovalScope::Tenant,
+            valid_from_unix_millis: from,
+            valid_until_unix_millis: until,
+            reason: String::new(),
+            registered_at_unix_millis: 0,
+        };
+        // Empty identities.
+        assert_eq!(
+            register_delegation(&clock, &store, make("  ", "delegate-1", 1_000, 2_000)),
+            Err(ApprovalWorkflowDenial::DelegationInvalid {
+                reason: "the delegation names an empty identity".to_string()
+            })
+        );
+        // Self-delegation.
+        assert_eq!(
+            register_delegation(&clock, &store, make("admin-1", "admin-1", 1_000, 2_000)),
+            Err(ApprovalWorkflowDenial::DelegationInvalid {
+                reason: "the delegator and the delegate are the same identity".to_string()
+            })
+        );
+        // A window starting in the past (the clock is at 1_000).
+        assert_eq!(
+            register_delegation(&clock, &store, make("admin-1", "delegate-1", 999, 2_000)),
+            Err(ApprovalWorkflowDenial::DelegationInvalid {
+                reason: "the delegation window cannot start in the past".to_string()
+            })
+        );
+        // An empty/reversed window.
+        assert_eq!(
+            register_delegation(&clock, &store, make("admin-1", "delegate-1", 2_000, 2_000)),
+            Err(ApprovalWorkflowDenial::DelegationInvalid {
+                reason: "the delegation window is empty or reversed".to_string()
+            })
+        );
+    }
+}

@@ -63,6 +63,27 @@
 
 pub mod action;
 pub mod decision;
+// P13.05 (Phase 13 wave 1, Agent A; WRITTEN-UNRUN) — the recorded Phase 13
+// grant set: the `SiteApprover` approval-duty role (`command.approve` at
+// site/asset scope only — the LR-049 separation of approval duty from
+// administrative rights) and the `apikey.*` administration set at tenant
+// scope (P13.08). Additive closed-enum extension; the never-granted set
+// (`dispatch.authorize`, `dispatch.issue`, `secret.read`, `network.any`)
+// stays byte-identical. Decision record: phase-13
+// `records/05_p13_05_role_model.md`.
+pub mod phase13_policies;
 pub mod phase4_policies;
+// P16.19/P16.22 (Phase 16 wave 2, Agent B; WRITTEN-UNRUN) — the recorded
+// Phase 16 `market.*` grant set: record-read and grant-administration
+// actions over the market surface (P16.07 prices, P16.09 settlement
+// records, P16.06 bids and per-market grants) at TENANT scope only. The
+// set carries ZERO dispatch reach — the P14.16 command-relay-only rule is
+// consumed by citation (a market adapter reaches dispatch ONLY through the
+// command lifecycle), no `market.dispatch.*` action exists, and the
+// never-granted set stays byte-identical (review verdict quoted in the
+// module header). Decision records: phase-16
+// `records/61_p16_19_market_adapter_permission_model.md`,
+// `records/64_p16_22_market_v2_vocabulary_and_market_actions.md`.
+pub mod phase16_market_policies;
 pub mod policy;
 pub mod scope;

@@ -111,6 +111,7 @@
 // implied here.
 
 use flexcore_domain::bess_model::{DegradationMetadata, DEGRADATION_PLACEHOLDER_STATEMENT};
+use flexcore_optimization_api::degradation_cost::DegradationCostDeclaration;
 
 // --- Recorded constants ------------------------------------------------------
 
@@ -123,6 +124,38 @@ pub const OBJECTIVE_SCHEMA_VERSION: u32 = 1;
 
 /// The only objective schema version this module supports.
 pub const SUPPORTED_OBJECTIVE_SCHEMA_VERSION: u32 = OBJECTIVE_SCHEMA_VERSION;
+
+// P15.08 — degradation cost-curve INPUT DATA (additive; decision record
+// docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/
+// 22_p15_08_degradation_cost_curve.md). The objective TERM SET and the
+// `C_degradation` term SHAPE are unchanged, so OBJECTIVE_SCHEMA_VERSION is
+// NOT bumped (P3.14: a version bump is required only for a term change);
+// what changes is the INPUT DATA the term accepts, which carries its own
+// data-contract version:
+//
+//   v1 = the P3.06 linear-throughput placeholder metadata only;
+//   v2 = the P3.06 placeholder metadata PLUS the P15.08 per-asset
+//        degradation cost-curve declarations (`DegradationCostDeclaration`,
+//        flexcore-optimization-api::degradation_cost) as optimizer INPUT
+//        DATA — linear or piecewise-linear, feeding the same
+//        `C_degradation` term. The P3.06 placeholder is superseded AS DATA,
+//        never as physics; solver-tier guards and the MISOCP refusal stay
+//        (the guard tests in flexcore-optimization-api::problem prove it).
+//        A degradation price never authorizes or produces a dispatch
+//        command (ADR-010, conventions §6.3).
+pub const DEGRADATION_INPUT_DATA_SCHEMA_VERSION: u32 = 2;
+/// The v1 input-data contract (the P3.06 placeholder only; recorded for
+/// traceability).
+pub const DEGRADATION_INPUT_DATA_V1_SCHEMA_VERSION: u32 = 1;
+/// The recorded input-data statement carried in the degradation note when
+/// curve data is declared.
+pub const DEGRADATION_INPUT_DATA_STATEMENT: &str =
+    "P15.08: per-asset degradation cost curves are optimizer INPUT DATA \
+(linear/piecewise-linear) feeding the existing C_degradation term; the \
+evaluated C_degradation total remains the P3.06 evaluation output. \
+Non-convex piecewise-linear data is refused (reshape the data, never the \
+solver). A degradation price never authorizes or produces a dispatch \
+command (ADR-010).";
 
 /// The named default v0.2.0 objective (D1/D2 OPEN): minimise energy cost
 /// against the versioned synthetic price curve plus a quadratic deviation
@@ -328,6 +361,15 @@ pub enum ObjectiveError {
         /// Which rule reference.
         field: &'static str,
     },
+    /// A P15.08 degradation cost-curve declaration was structurally invalid
+    /// or inconsistent with the rest of the inputs (P15.08; the detail
+    /// carries the named underlying reason — never a bare "invalid input").
+    InvalidDegradationCostData {
+        /// The offending asset's registry reference.
+        asset_id: String,
+        /// The recorded reason.
+        detail: String,
+    },
 }
 
 impl std::fmt::Display for ObjectiveError {
@@ -393,6 +435,10 @@ impl std::fmt::Display for ObjectiveError {
             ObjectiveError::InvalidRuleRef { field } => {
                 write!(f, "rule reference '{field}' must be non-empty and whitespace-free")
             }
+            ObjectiveError::InvalidDegradationCostData { asset_id, detail } => write!(
+                f,
+                "asset {asset_id}: invalid P15.08 degradation cost-curve data: {detail}"
+            ),
         }
     }
 }
@@ -1004,6 +1050,14 @@ pub struct ObjectiveInputs {
     /// The per-asset P3.06 degradation placeholder metadata (required
     /// non-empty iff the degradation term is enabled).
     pub degradation: Vec<DegradationTermInput>,
+    /// P15.08 (additive): the per-asset degradation cost-curve declarations
+    /// as optimizer INPUT DATA (linear/piecewise-linear; see
+    /// `DEGRADATION_INPUT_DATA_STATEMENT`). Empty by default (the v1
+    /// input-data contract). When supplied, each declaration is validated
+    /// against the degradation-term inputs and recorded in the term
+    /// provenance. Supplying curves while the degradation term is disabled
+    /// is a validation error — unused optimizer data never passes silently.
+    pub degradation_cost_curves: Vec<DegradationCostDeclaration>,
     /// The named, versioned curtailment rule (required iff the curtailment
     /// term is enabled).
     pub curtailment_rule: Option<RuleRef>,
@@ -1324,6 +1378,42 @@ pub fn evaluate_objective(
         }
     }
 
+    // P15.08 (additive): the declared degradation cost-curve INPUT DATA.
+    // Validated whenever supplied; unused data never passes silently.
+    let curves_supplied = !inputs.degradation_cost_curves.is_empty();
+    if curves_supplied && !config.degradation.enabled {
+        return Err(ObjectiveError::InvalidDegradationCostData {
+            asset_id: inputs.degradation_cost_curves[0].asset_id.clone(),
+            detail: "degradation cost-curve data was supplied while the degradation \
+                     term is disabled — unused optimizer input data never passes \
+                     silently (enable the term or remove the curves)"
+                .to_string(),
+        });
+    }
+    for curve in &inputs.degradation_cost_curves {
+        if !inputs.degradation.iter().any(|input| input.asset_id == curve.asset_id) {
+            return Err(ObjectiveError::InvalidDegradationCostData {
+                asset_id: curve.asset_id.clone(),
+                detail: "the curve declaration names an asset with no P3.06 \
+                         degradation metadata input — the curve feeds the same \
+                         C_degradation term, so the evaluated metadata must exist"
+                    .to_string(),
+            });
+        }
+        if let Err(error) = curve.require_in_scope() {
+            return Err(ObjectiveError::InvalidDegradationCostData {
+                asset_id: curve.asset_id.clone(),
+                detail: error.to_string(),
+            });
+        }
+        if let Err(error) = curve.curve.validate_convex_for_minimization() {
+            return Err(ObjectiveError::InvalidDegradationCostData {
+                asset_id: curve.asset_id.clone(),
+                detail: error.to_string(),
+            });
+        }
+    }
+
     let curtailment_rule = if config.curtailment.enabled {
         let rule = inputs
             .curtailment_rule
@@ -1454,14 +1544,29 @@ pub fn evaluate_objective(
             }
         }
         totals.degradation = config.degradation.weight * raw_cost;
+        let curve_note = if inputs.degradation_cost_curves.is_empty() {
+            format!(
+                "input-data contract v{} (P3.06 placeholder metadata only).",
+                DEGRADATION_INPUT_DATA_V1_SCHEMA_VERSION
+            )
+        } else {
+            format!(
+                "input-data contract v{}: {} P15.08 cost-curve declaration(s) supplied as \
+                 optimizer INPUT DATA ({}).",
+                DEGRADATION_INPUT_DATA_SCHEMA_VERSION,
+                inputs.degradation_cost_curves.len(),
+                DEGRADATION_INPUT_DATA_STATEMENT
+            )
+        };
         degradation_note = Some(format!(
             "degradation term uses the P3.06 linear-throughput PLACEHOLDER over {} asset(s) \
              ({} with the term configured); raw placeholder cost = {raw_cost} currency-units, \
-             weighted total = {}. {}",
+             weighted total = {}. {}. {}",
             inputs.degradation.len(),
             configured_assets,
             totals.degradation,
-            DEGRADATION_PLACEHOLDER_STATEMENT
+            DEGRADATION_PLACEHOLDER_STATEMENT,
+            curve_note
         ));
     }
 
@@ -1489,6 +1594,24 @@ pub fn evaluate_objective(
                     input.metadata.is_placeholder,
                     input.metadata.linear_cost_per_mwh_throughput,
                     input.metadata.placeholder_statement
+                ),
+            });
+        }
+        // P15.08 (additive): the declared cost-curve INPUT DATA travels in
+        // the term provenance — versioned, with its chemistry scope and
+        // provenance note (no untracked constants; ADR-010 recorded).
+        for curve in &inputs.degradation_cost_curves {
+            term_provenance.push(TermProvenanceRecord {
+                term: ObjectiveTerm::Degradation,
+                source: "P15.08 degradation cost curve (optimizer INPUT DATA)".to_string(),
+                version: curve.curve_version.clone(),
+                note: format!(
+                    "asset {}: chemistry = {}; provenance = {}; linear/piecewise-linear \
+                     data feeding the existing C_degradation term; a degradation price \
+                     never authorizes or produces a dispatch command (ADR-010)",
+                    curve.asset_id,
+                    curve.chemistry.label(),
+                    curve.provenance_note
                 ),
             });
         }

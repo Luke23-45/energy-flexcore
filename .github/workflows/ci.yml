@@ -509,6 +509,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # P11.17 (ADDITIVE comment only — the step's behavior is unchanged):
+      # the gitleaks-class configuration is now checked in at the
+      # repository root (.gitleaks.toml, with the repo-specific allowlist
+      # and the FlexCore-specific rules). ASSUMPTION (UNVERIFIED external
+      # behavior): the action reads .gitleaks.toml from the repository
+      # root — the first human scan run confirms it and, if it does not,
+      # wires the config explicitly. NO SCAN HAS EVER RUN IN THIS PROGRAM:
+      # every finding list is a HUMAN GATE INPUT recorded UNRUN, and no
+      # agent triages or dismisses findings. The pre-commit hook
+      # (.pre-commit-config.yaml) pins the same gitleaks version target
+      # (v8.30.1) so local and CI scans share one rule set.
       - name: Secret scan (gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env:

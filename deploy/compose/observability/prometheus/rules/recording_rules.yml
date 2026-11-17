@@ -1,0 +1,47 @@
+# P11.09 — Prometheus recording rules (Phase 11 wave 1, Agent B).
+#
+# Dashboard-as-code companion: the SLI-shaped aggregates the dashboards
+# and the burn-rate alert rules (slo_burn_rate_alerts.yml) consume,
+# computed over EXACTLY the metric families the P11.01 taxonomy record
+# names (records/01_p11_01_metric_taxonomy.md §4) — no rule invents a
+# metric, and no rule invents a state (state names come from the frozen
+# 14-state vocabulary only).
+#
+# WRITTEN-UNRUN: no live Prometheus has evaluated these rules in this
+# program (the live evaluation check is a human gate input, recorded
+# UNRUN in the P11.09 record). Every threshold referenced below is a
+# REGISTERED RECOMMENDATION (X-8) pending operator sign-off; the P11.02
+# SLO register is authoritative for targets once it lands — this file's
+# registered values are the pre-registration placeholders and are
+# labeled as such.
+groups:
+  - name: flexcore_sli_recording
+    # The control-plane-api SLI aggregates (the P11.01 record §4 shapes).
+    rules:
+      - record: flexcore:sli:api_request_rate_5m
+        expr: sum(rate(flexcore_http_requests_total[5m]))
+      - record: flexcore:sli:api_error_ratio_5m
+        expr: sum(rate(flexcore_http_errors_total[5m])) / sum(rate(flexcore_http_requests_total[5m]))
+      # Latency good-event ratio at the registered 1000 ms bucket (the
+      # P11.01 record §4 threshold candidate, RECOMMENDATION).
+      - record: flexcore:sli:api_latency_good_ratio_5m
+        expr: sum(rate(flexcore_api_request_duration_milliseconds_bucket{le="1000"}[5m])) / sum(rate(flexcore_api_request_duration_milliseconds_count[5m]))
+      # Saturation (no labels by recorded cardinality decision).
+      - record: flexcore:sli:api_in_flight_requests
+        expr: max(flexcore_api_in_flight_requests)
+
+  - name: flexcore_command_sli_recording
+    # The command-lifecycle SLI aggregates (the P11.01 record §4 shapes,
+    # with the P11.02 register's SLI definitions). Terminal = the five
+    # frozen terminal states; FAILED and EXPIRED are NOT terminal (they
+    # exit only via FALLBACK — frozen transitions 26-27). The
+    # terminal-state ratio denominator follows the P11.02 register's SLO 4
+    # definition: commands reaching APPROVED (the last gate a command
+    # cannot bypass).
+    rules:
+      - record: flexcore:sli:command_terminal_state_ratio_1h
+        expr: sum(rate(flexcore_command_state_transitions_total{to=~"COMPLETED|REJECTED|CANCELLED|SUPERSEDED|FALLBACK"}[1h])) / sum(rate(flexcore_command_state_transitions_total{to="APPROVED"}[1h]))
+      - record: flexcore:sli:command_accept_latency_good_ratio_5m
+        expr: sum(rate(flexcore_command_accept_duration_milliseconds_bucket{le="500"}[5m])) / sum(rate(flexcore_command_accept_duration_milliseconds_count[5m]))
+      - record: flexcore:sli:command_accept_latency_p95_5m
+        expr: histogram_quantile(0.95, sum by (le) (rate(flexcore_command_accept_duration_milliseconds_bucket[5m])))

@@ -54,13 +54,27 @@ async fn main() {
 
     // JSON logs for every line, including the per-request correlation line
     // (P1.20). The level comes from FLEXCORE_LOG_LEVEL.
-    let filter = tracing_subscriber::EnvFilter::try_new(&cfg.log_level)
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let _ = tracing_subscriber::fmt()
-        .json()
-        .with_env_filter(filter)
-        .with_target(false)
-        .try_init();
+    //
+    // P11.04 — OTel tracing wiring (Phase 11 wave 1, Agent A): the
+    // subscriber composition and the OTLP trace/log providers move into
+    // `otel_telemetry::init_from_env`. With
+    // `FLEXCORE_OTEL_EXPORTER_OTLP_ENDPOINT` unset the behavior is the
+    // plain P1.20 JSON subscriber (unchanged); with it set, spans and log
+    // records also export OTLP to the Collector gateway (P11.06 Compose
+    // shape). WRITTEN-UNRUN: pinned SDK versions are an ASSUMPTION that
+    // compiles — verified only at the first human build (records/
+    // 04_p11_04_otel_tracing_rust.md).
+    let otel_config = match flexcore_control_plane::otel_telemetry::TelemetryConfig::from_env() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("configuration error: otel telemetry ({e})");
+            std::process::exit(2);
+        }
+    };
+    let otel_guard = flexcore_control_plane::otel_telemetry::init_from_env(
+        &otel_config,
+        &cfg.log_level,
+    );
 
     // Postgres store: the adapter is SYNCHRONOUS (it owns a private runtime),
     // so connect + migrations run on a blocking thread. The URL is never
@@ -147,6 +161,25 @@ async fn main() {
                 state.clone(),
                 track_metrics,
             ))
+            // P11.14 — per-tenant token-bucket rate limiting + in-flight
+            // command-submission caps (Phase 11 wave 1, Agent B): 429 +
+            // `Retry-After` contract; probes and `/metrics` are never
+            // rate limited. Outer to the idempotency middleware so a 429
+            // is never cached as a stored response. WRITTEN-UNRUN;
+            // records/26_p11_14_rate_limiting.md.
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::rate_limit::rate_limit_middleware,
+            ))
+            // P11.11 — Idempotency-Key enforcement on command-submission
+            // POSTs (Phase 11 wave 1, Agent B): key required (422),
+            // stored-response replay, 409 replay conflict; key
+            // representation reuses the P1.09 envelope key type.
+            // WRITTEN-UNRUN; records/23_p11_11_command_post_idempotency.md.
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::idempotency::idempotency_middleware,
+            ))
             .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(15)))
             .layer(tower_http::limit::RequestBodyLimitLayer::new(1024 * 1024)),
     );
@@ -185,6 +218,30 @@ async fn main() {
         signal_rx.clone(),
     ));
 
+    // P11.20 — stuck-state scanner (Phase 11 wave 2, Agent B): a periodic
+    // scan of every tenant's commands parked in a NON-terminal frozen
+    // lifecycle state beyond the registered threshold
+    // (`COMMANDS_STUCK_THRESHOLD_MILLIS` — X-8 pre-registered
+    // RECOMMENDATION, pending operator tuning) drives the
+    // `flexcore_commands_stuck` gauge (NO labels — exactly the P11.01
+    // taxonomy name, record 01 §2 family 5; the P11.03 alert rule and the
+    // P11.09 dashboard panel bind that name verbatim and needed zero
+    // edits). The reader's port calls are synchronous adapter calls, so
+    // the scan runs under `block_in_place` on this multi-thread runtime
+    // (the recorded sync-port hosting rule); on a scan error the gauge
+    // keeps its previous value (never silently zeroed). WRITTEN-UNRUN;
+    // records/51_p11_20_stuck_state.md.
+    {
+        let stuck_reader =
+            flexcore_control_plane::metrics::PgCommandStateReader::new(store.clone());
+        tokio::spawn(flexcore_control_plane::metrics::run_stuck_state_scanner(
+            Arc::new(stuck_reader),
+            state.metrics.clone(),
+            flexcore_control_plane::metrics::STUCK_STATE_SCAN_INTERVAL,
+            signal_rx.clone(),
+        ));
+    }
+
     let drain = cfg.drain_timeout;
     let drain_rx = signal_rx.clone();
     let server = axum::serve(listener, app).with_graceful_shutdown(async move {
@@ -214,6 +271,12 @@ async fn main() {
         }
     }
     tracing::info!("control plane stopped");
+    // P11.04 — flush and shut the OTel providers down explicitly BEFORE
+    // the recorded `std::process::exit(0)` (which skips `Drop`, so a
+    // drop-only guard would never run). Best-effort batched-export flush;
+    // an abrupt exit simply loses the unflushed batch (recorded
+    // limitation, records/04_p11_04_otel_tracing_rust.md).
+    otel_guard.shutdown();
     std::process::exit(0);
 }
 

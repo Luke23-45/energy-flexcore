@@ -1,0 +1,169 @@
+{
+  "schema_note": "Field order in this artifact is NORMATIVE (deterministic field order; reviewers diff artifacts textually). A change to ANY field — an added, removed, or re-parameterised window, a new baseline version, a changed registered threshold — is a NEW version id (forecast-eval-set-v2, ...), frozen as a NEW file. This file is never edited in place after freeze (the P8.19 anti-silent-growth rule, mirrored).",
+  "set_id": "flexcore-forecast-eval-set",
+  "version_id": "forecast-eval-set-v1",
+  "frozen_date": "2026-11-14",
+  "status": "WRITTEN-UNRUN",
+  "ledger_subtask": "P15.05",
+  "ledger": "docs/phases-11-20/phase-15-forecasting-asset-intelligence/ledger_phase_15.md §P15.05",
+  "decision_record": "docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/05_p15_05_forecast_evaluation.md",
+  "mirrors": "benchmarks/research-set-v1.json (P8.19 shape; the anti-silent-growth and run-status disciplines carry over verbatim)",
+  "units": "MW, MVAr, MVA, MWh (report §10.2 canonical). P > 0 means export at the point of connection. Load series carry the caller's declared sign convention (consumption negative in the fixture convention), never normalized. Prices, when a future version evaluates price series, carry a DECLARED currency per MWh.",
+  "anti_silent_growth_rule": "An eval-set change is a NEW version. This mirrors the P8.06 frozen-baseline discipline (a baseline change is a new baseline version, never a silent edit) and the P8.19 benchmark-set rule. Every forecast evaluation that reports numbers on windows in this set cites exactly ONE version id — this one for the v1 freezes. An evaluation whose cited version differs from the artifact it claims to use is a named finding, never absorbed.",
+  "run_status_note": "NOTHING in this set has been RUN. The platform has never executed (no runtime data exists — the recorded Phase-15 constraint), so every evaluation cell is EMPTY by construction. Every run_status below is NOT_RUN, every observed_value is null, and no skill is claimed for any model. The human/lab build-and-run gate produces run evidence in evaluation records that cite this version id and carry a gate authorization — a filled run never edits this artifact.",
+  "adr_010_note": "Every evaluation result is a RECORD about forecast quality (an input, record, or proposal — program conventions 6.3). No evaluation result, score, or skill claim may construct or influence a dispatch command — structural, not conventional. No market/conformance claim rides any result.",
+  "baseline_registry": {
+    "registry_version": "flexcore-application/forecast-baselines.v1",
+    "single_home": "crates/flexcore-application/src/forecast_baselines.rs",
+    "worker_mirror": "apps/worker/python/forecast_worker/forecast_baseline_worker.py (pinned by identical hand-computed test vectors)",
+    "reference_baseline": "forecast-baseline/persistence (skill = beating this on a frozen window; until an evaluation run exists, NO model — this one included — claims skill)",
+    "baselines": [
+      {
+        "baseline_id": "forecast-baseline/persistence",
+        "version": "v1",
+        "rule": "forecast(t) = last observed value, carried forward unchanged for every horizon step",
+        "run_status": "NOT_RUN"
+      },
+      {
+        "baseline_id": "forecast-baseline/seasonal-naive",
+        "version": "v1",
+        "rule": "forecast(t) = the value exactly one declared season earlier; longer horizons wrap within the last season",
+        "run_status": "NOT_RUN"
+      },
+      {
+        "baseline_id": "forecast-baseline/degree-day-regression",
+        "version": "v1",
+        "rule": "OLS of load on (intercept, HDD, CDD); deterministic Gaussian elimination, first-max pivoting; degree days are DECLARED inputs (P15.03 seam, P15-E-1 OPEN)",
+        "run_status": "NOT_RUN"
+      }
+    ]
+  },
+  "metric_vocabulary": {
+    "note": "The X-8 pre-registration discipline: metric NAMES and threshold BOUNDS are registered here BEFORE any run that could fill them; OBSERVED values live structurally separate (an EvaluationRunRecord cannot be constructed inside the program — the run-gate type has no public constructor; crates/flexcore-application/src/forecast_evaluation.rs). A filled run never edits this artifact.",
+    "metrics": [
+      {
+        "metric": "mae_mw",
+        "unit": "MW",
+        "better_when": "lower-is-better",
+        "registered_bound": 0.0,
+        "registered_bound_note": "PLACEHOLDER-FREEZE DEFAULT: 0.0 means 'no threshold registered yet' (a bound of 0.0 MW is unachievable by construction, so it can never be silently met). Replacing it with a real bound is a NEW set version, registered BEFORE any run — never an in-place edit, never a post-hoc fit.",
+        "run_status": "NOT_RUN"
+      },
+      {
+        "metric": "rmse_mw",
+        "unit": "MW",
+        "better_when": "lower-is-better",
+        "registered_bound": 0.0,
+        "registered_bound_note": "PLACEHOLDER-FREEZE DEFAULT: 0.0 means 'no threshold registered yet'. Replacing it is a NEW set version, registered BEFORE any run.",
+        "run_status": "NOT_RUN"
+      },
+      {
+        "metric": "skill_score_vs_persistence",
+        "unit": "unitless",
+        "definition": "1 - MAE_model / MAE_persistence on the same window; defined only for a strictly positive persistence MAE",
+        "better_when": "higher-is-better",
+        "registered_bound": 0.0,
+        "registered_bound_note": "PLACEHOLDER-FREEZE DEFAULT: 0.0 means 'no threshold registered yet' (a skill score of exactly 0.0 would mean the model exactly ties persistence — a real threshold, when registered, will state the minimum skill a run must show to count, BEFORE the run).",
+        "run_status": "NOT_RUN"
+      }
+    ]
+  },
+  "backtesting_protocol": {
+    "frozen_split_rule": "a forecaster is scored only on test windows it did not see; a test window that overlaps or precedes its train window is refused (BacktestWindowError::TestOverlapsTrain, crates/flexcore-application/src/forecast_evaluation.rs)",
+    "windows": [
+      {
+        "window_id": "window/da-synthetic-fixture-v1",
+        "train_from_millis": 1780272000000,
+        "train_until_millis": 1780358400000,
+        "test_from_millis": 1780358400000,
+        "test_until_millis": 1780444800000,
+        "source_data": "scenarios/synthetic-portfolio/forecast-fixture-v1.json (v1; SYNTHETIC — the P3.31 fixture; no runtime data exists)",
+        "note": "day 2 of the fixture horizon as the test window (start-inclusive, end-exclusive, UTC millis); SYNTHETIC data only — a window over real data enters as a NEW set version after the platform has run",
+        "run_status": "NOT_RUN",
+        "observed_values": []
+      }
+    ]
+  },
+  "model_evaluation_cells": {
+    "note": "One cell per (model, window, metric). Every cell is EMPTY: observed_value null, run_status NOT_RUN. A filled cell lives in an evaluation RECORD that cites this version id and a gate authorization — never here.",
+    "cells": [
+      {
+        "model_ref": "forecast-baseline/persistence",
+        "window_id": "window/da-synthetic-fixture-v1",
+        "metric": "mae_mw",
+        "observed_value": null,
+        "run_status": "NOT_RUN"
+      },
+      {
+        "model_ref": "forecast-baseline/persistence",
+        "window_id": "window/da-synthetic-fixture-v1",
+        "metric": "rmse_mw",
+        "observed_value": null,
+        "run_status": "NOT_RUN"
+      },
+      {
+        "model_ref": "forecast-baseline/seasonal-naive",
+        "window_id": "window/da-synthetic-fixture-v1",
+        "metric": "mae_mw",
+        "observed_value": null,
+        "run_status": "NOT_RUN"
+      },
+      {
+        "model_ref": "forecast-baseline/seasonal-naive",
+        "window_id": "window/da-synthetic-fixture-v1",
+        "metric": "skill_score_vs_persistence",
+        "observed_value": null,
+        "run_status": "NOT_RUN"
+      },
+      {
+        "model_ref": "forecast-baseline/degree-day-regression",
+        "window_id": "window/da-synthetic-fixture-v1",
+        "metric": "mae_mw",
+        "observed_value": null,
+        "run_status": "NOT_RUN"
+      },
+      {
+        "model_ref": "forecast-baseline/degree-day-regression",
+        "window_id": "window/da-synthetic-fixture-v1",
+        "metric": "skill_score_vs_persistence",
+        "observed_value": null,
+        "run_status": "NOT_RUN"
+      }
+    ]
+  },
+  "designed_untrained_models": {
+    "note": "The models DESIGNED in this phase that no evaluation row may reference until they are trained AND evaluated (P15.03/P15.06): every designed model registers UNTRAINED (a first-class registered state); no skill is claimed anywhere.",
+    "models": [
+      {
+        "model_ref": "pv-model/persistence-design",
+        "training_state": "UNTRAINED",
+        "weather_inputs": [],
+        "run_status": "NOT_RUN"
+      },
+      {
+        "model_ref": "pv-model/irradiance-physics-design",
+        "training_state": "UNTRAINED",
+        "weather_inputs": ["ghi", "dni", "dhi", "air_temperature", "wind_speed"],
+        "weather_data_status": "P15-E-1 OPEN — no vendor integration; the weather port has no implementation (UNSIGNED gate)",
+        "run_status": "NOT_RUN"
+      },
+      {
+        "model_ref": "pv-model/statistical-ml-design",
+        "training_state": "UNTRAINED",
+        "weather_inputs": ["ghi", "cloud_cover", "air_temperature"],
+        "training_data_status": "no training run is claimed; data enters only through the P15.18 datasets policy (no production telemetry in simulation)",
+        "run_status": "NOT_RUN"
+      }
+    ]
+  },
+  "permission_and_authority_note": "The forecast producer permission vocabulary is telemetry.read + forecast.publish (plugins/manifests/forecast-worker.manifest.json classes; no dispatch permission). The never-granted permission set — dispatch.authorize, dispatch.issue, secret.read, network.any — stays byte-identical (crates/flexcore-kernel/src/manifest.rs::NEVER_GRANTED_PERMISSIONS).",
+  "evaluation_citations": {
+    "rule": "Every forecast evaluation that reports numbers on windows in this set cites version_id forecast-eval-set-v1 on every row, plus the gate authorization reference of the human/lab run. An evaluation row without the version id or the gate authorization is invalid and must not be entered.",
+    "expected_citing_records": {
+      "P15.05_evaluation": "docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/05_p15_05_forecast_evaluation.md — the framework record (cells EMPTY in this delivery; the run record does not exist until the first human/lab run)",
+      "P15.16_forecast_to_schedule": "the staleness/fallback integration consumes evaluated baselines only; until an evaluation fills a cell, the P3.31 fixture stays the labeled synthetic fallback source",
+      "P16_mv_and_bids": "Phase 16 consumes forecasts and evaluation records; nothing in Phase 15 bids (ADR-011 boundary unchanged)"
+    }
+  },
+  "growth_path": "A new window (e.g. one over runtime data once the platform has run), a new metric, a new model row, or a real registered threshold enters ONLY as a NEW version (forecast-eval-set-v2) frozen as a new artifact — never by editing this file. No candidate is silently promoted."
+}

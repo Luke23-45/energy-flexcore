@@ -10,11 +10,31 @@
 //   connection state) or when the worker is draining for shutdown.
 //   Removing the pod from load-balancing/routing during an outage or a
 //   shutdown is exactly what readiness is for.
+// - `/metrics` — P11.21 (Phase 11 wave 2, Agent B): the worker's FIRST
+//   metrics surface, rendering [`CommandConsumerMetrics::render`] (the
+//   P11.12 handoff seam — the record named this exact function as the
+//   wiring point). Same Prometheus text exposition as the control plane's
+//   `/metrics`; zero values always render (the always-render discipline).
+//
+// P11.21 — health-check semantics PER COMPOSE SERVICE (the semantics are
+// a documented contract, not an accident of the handlers below):
+//
+// | Service            | `/health` (liveness)                | `/ready` (readiness)                                                   | `/metrics` |
+// |---|---|---|---|
+// | `flexcore-worker`  | always 200 while the process runs   | 503 when Postgres is unreachable, the NATS client is disconnected, or the worker is draining; 200 with per-dependency detail otherwise | the `flexcore_command_consumer_*` families (P11.12) |
+// | `flexcore-control-plane` | always 200 while running (its own module, `apps/control-plane/src/probes.rs`) | 503 with the failing named checks (`database`, `broker`) or during shutdown | the P1.20/P2.21/P11.01 registry incl. `flexcore_commands_stuck` (P11.20) |
+//
+// The infrastructure services in the Compose shape (PostgreSQL, NATS, the
+// P11.06 OTel Collector) carry their OWN Compose healthchecks — they are
+// dependencies here, not probe hosts; this module documents only the two
+// FlexCore application services (the P11.21 decision record carries the
+// full per-service table).
 //
 // The probe server is deliberately tiny: no business routes, no
 // middleware stack — the worker is not a second API server (P1.19 risk
-// note). Shutdown is graceful: the server stops accepting new requests
-// when the shared shutdown watch fires, then drains open connections.
+// note); `/metrics` is an exposition endpoint, not a business route.
+// Shutdown is graceful: the server stops accepting new requests when the
+// shared shutdown watch fires, then drains open connections.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -22,11 +42,15 @@ use std::sync::Arc;
 use async_nats::client::Client;
 use async_nats::connection_state::ConnectionState;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::response::IntoResponse;
 use axum::routing::get;
-use axum::Router;
+use axum::{Json, Router};
+use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::watch;
+
+use crate::command_consumer::CommandConsumerMetrics;
 
 /// State shared with the probe handlers.
 pub struct ProbeState {
@@ -35,14 +59,26 @@ pub struct ProbeState {
     /// Set when the worker has started draining for shutdown; readiness
     /// fails from that moment on.
     draining: AtomicBool,
+    /// P11.21 — the command-consumer metrics the `/metrics` route renders.
+    /// The SAME Arc the consumer task drives (composition root wires both),
+    /// so the counters are live, not a snapshot.
+    command_metrics: Arc<CommandConsumerMetrics>,
 }
 
 impl ProbeState {
-    pub fn new(pool: PgPool, nats: Client) -> Arc<Self> {
+    /// Builds the probe state. `command_metrics` is the consumer's metric
+    /// block (P11.21 seam — the composition root passes the same Arc to
+    /// `run_command_consumer`).
+    pub fn new(
+        pool: PgPool,
+        nats: Client,
+        command_metrics: Arc<CommandConsumerMetrics>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             pool,
             nats,
             draining: AtomicBool::new(false),
+            command_metrics,
         })
     }
 
@@ -62,6 +98,8 @@ pub async fn serve_probes(
     let app = Router::new()
         .route("/health", get(liveness))
         .route("/ready", get(readiness))
+        // P11.21 — the worker's first metrics surface (see module header).
+        .route("/metrics", get(metrics))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "worker probe server listening");
@@ -80,25 +118,57 @@ async fn liveness() -> StatusCode {
     StatusCode::OK
 }
 
+/// P11.21 — the worker's Prometheus exposition endpoint: the P11.12
+/// command-consumer families (`flexcore_command_consumer_*`), rendered by
+/// [`CommandConsumerMetrics::render`] (the recorded handoff seam). The
+/// same `text/plain; version=0.0.4; charset=utf-8` content type the
+/// control plane's `/metrics` serves. Zero values always render so a
+/// scrape exposes the full inventory on an idle consumer.
+async fn metrics(State(state): State<Arc<ProbeState>>) -> impl IntoResponse {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8"),
+    );
+    (StatusCode::OK, headers, state.command_metrics.render())
+}
+
 /// Readiness: dependencies reachable AND not draining. Non-2xx otherwise.
 /// The Postgres check is a one-round-trip query on the shared pool; the
 /// NATS check is the client's own connection state (no network round
 /// trip — the async-nats client reconnects on its own, and a disconnected
 /// state is precisely what readiness must report).
-async fn readiness(State(state): State<Arc<ProbeState>>) -> StatusCode {
-    if state.draining.load(Ordering::SeqCst) {
-        return StatusCode::SERVICE_UNAVAILABLE;
-    }
-    if state.nats.connection_state() != ConnectionState::Connected {
-        return StatusCode::SERVICE_UNAVAILABLE;
-    }
-    match sqlx::query("SELECT 1").execute(&state.pool).await {
-        Ok(_) => StatusCode::OK,
+///
+/// P11.21 — the response body now names EACH dependency's status
+/// (additive: the status codes and the failure semantics are exactly the
+/// P1.19 ones; the body only stops being empty). The detail names the
+/// failing dependency so an operator sees WHICH of Postgres/NATS/drain is
+/// down without reading the logs; the log line keeps the underlying error
+/// (never a response body — and nothing secret is logged either way).
+async fn readiness(State(state): State<Arc<ProbeState>>) -> impl IntoResponse {
+    let draining = state.draining.load(Ordering::SeqCst);
+    let nats_connected = state.nats.connection_state() == ConnectionState::Connected;
+    let postgres: Result<(), String> = match sqlx::query("SELECT 1").execute(&state.pool).await {
+        Ok(_) => Ok(()),
         // The failure class is enough for a probe body; details live in
         // the logs, never in a response (and nothing secret is logged).
         Err(error) => {
             tracing::warn!(error = %error, "readiness probe: postgres unreachable");
-            StatusCode::SERVICE_UNAVAILABLE
+            Err("unreachable".to_string())
         }
+    };
+    let ready = !draining && nats_connected && postgres.is_ok();
+    let body = json!({
+        "status": if ready { "ready" } else { "not_ready" },
+        "draining": draining,
+        "dependencies": {
+            "postgres": if postgres.is_ok() { "up" } else { "down" },
+            "nats": if nats_connected { "up" } else { "down" },
+        },
+    });
+    if ready {
+        (StatusCode::OK, Json(body)).into_response()
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response()
     }
 }

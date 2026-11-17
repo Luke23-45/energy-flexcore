@@ -191,6 +191,27 @@ pub struct AppState {
     // blockers, mode lock) with every RUN fact (proposals, shadow
     // comparisons, statistics) an explicit gap — never a plausible result.
     pub research_status: Arc<dyn crate::routes_research::ResearchStatusSource>,
+    // P11.11 (Phase 11 wave 1, Agent B) — the bounded in-process
+    // stored-response replay cache for the Idempotency-Key contract on
+    // command-submission POSTs. Per-instance by recorded decision; the
+    // Redis-backed shared cache is the recorded multi-instance path,
+    // not built here. See `idempotency.rs`.
+    pub idempotency: Arc<crate::idempotency::IdempotencyReplayCache>,
+    // P11.14 (Phase 11 wave 1, Agent B) — the per-tenant token-bucket and
+    // in-flight-cap state for the rate-limit middleware. In-process by
+    // recorded decision; budgets multiply per instance until the
+    // recorded Redis-backed path lands. See `rate_limit.rs`.
+    pub rate_limit: Arc<crate::rate_limit::RateLimitState>,
+    // P13.04 (Phase 13 wave 1, Agent A; ADDITIVE, fail-closed) — the
+    // server-side step-up challenge service (single-use, time-bounded,
+    // purpose-bound challenges; the P13-E-3 DEFAULT is IdP-delegated MFA
+    // behind the injected verifier). `None` = not composed → every
+    // step-up request fails closed (a recorded denial, never a pass —
+    // the same discipline as the `edge_enrollment` seam above). The
+    // composition opts in via [`AppState::with_step_up`]; NO composition
+    // exists in this repo (no IdP is deployed; P13-E-3 stays OPEN).
+    // Decision record: phase-13 `records/04_p13_04_step_up_mfa.md`.
+    pub step_up: Option<Arc<crate::stepup::StepUpService>>,
 }
 
 impl AppState {
@@ -240,7 +261,26 @@ impl AppState {
             // Phase 8 status (run facts are explicit gaps — no research
             // run exists; proposals are EMPTY, comparisons NO_RUN).
             research_status: Arc::new(crate::routes_research::RecordedResearchStatus),
+            // P11.11/P11.14 (Agent B): one replay cache and one rate-limit
+            // state per process, created here so every variant of the
+            // backend (Postgres and Test) carries them.
+            idempotency: Arc::new(crate::idempotency::IdempotencyReplayCache::default()),
+            rate_limit: Arc::new(crate::rate_limit::RateLimitState::default()),
+            // P13.04 (Agent A): no step-up service is composed by default
+            // (no IdP exists — fail closed; see the field's doc comment).
+            step_up: None,
         }
+    }
+
+    /// P13.04 composition: wires the server-side step-up service (the
+    /// deployment's challenge store, verifier, id generator, and clock —
+    /// the P13-E-3 DEFAULT is IdP-delegated MFA behind the verifier; the
+    /// shipped default when NOT composed is a fail-closed denial on every
+    /// step-up request, never a pass). See `stepup.rs` and the phase-13
+    /// record `records/04_p13_04_step_up_mfa.md`.
+    pub fn with_step_up(mut self, service: Arc<crate::stepup::StepUpService>) -> Self {
+        self.step_up = Some(service);
+        self
     }
 
     /// P8.27 composition: wires the research-status source (the

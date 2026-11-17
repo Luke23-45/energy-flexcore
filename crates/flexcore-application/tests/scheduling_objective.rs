@@ -912,3 +912,197 @@ fn selection_validates_the_candidate_set() {
         ObjectiveError::CandidateSetInconsistent { label: "b".to_string(), expected: 2, found: 1 }
     );
 }
+
+// --- P15.08 — degradation cost-curve INPUT DATA (written UNRUN) -------------
+//
+// The P15.08 curve declarations (flexcore-optimization-api::degradation_cost)
+// enter as optimizer INPUT DATA feeding the existing C_degradation term. The
+// tests below pin the wiring: the curves travel in the term provenance, the
+// evaluated total remains the P3.06 output, unused data never passes
+// silently, out-of-scope chemistry (P15-E-3) and non-convex piecewise data
+// are refused.
+
+use flexcore_application::scheduling_objective::DEGRADATION_INPUT_DATA_SCHEMA_VERSION;
+use flexcore_optimization_api::degradation_cost::{
+    DegradationChemistryLabel, DegradationCostCurve, DegradationCostDeclaration, PwlSegment,
+};
+
+fn degradation_enabled_config() -> ObjectiveConfig {
+    ObjectiveConfig::new(
+        OBJECTIVE_SCHEMA_VERSION,
+        "SYNTHETIC_TEST_P15_08".to_string(),
+        ObjectiveProvenance::Synthetic,
+        EnergyTermConfig { enabled: false, weight: 0.0 },
+        DegradationTermConfig { enabled: true, weight: 1.0 },
+        DeviationTermConfig { enabled: false, coefficient_per_mw2_h: 0.0 },
+        CurtailmentTermConfig { enabled: false, coefficient_per_mwh: 0.0 },
+        ServiceTermConfig { enabled: false, coefficient_per_mwh: 0.0 },
+        DEFAULT_DOMINANCE_THRESHOLD,
+    )
+    .unwrap()
+}
+
+fn p306_metadata(cost: f64) -> DegradationMetadata {
+    DegradationMetadata {
+        configured: true,
+        linear_cost_per_mwh_throughput: 1.0,
+        throughput_mwh: cost,
+        cost,
+        is_placeholder: true,
+        placeholder_statement: DEGRADATION_PLACEHOLDER_STATEMENT,
+    }
+}
+
+fn linear_curve_declaration(chemistry: DegradationChemistryLabel) -> DegradationCostDeclaration {
+    DegradationCostDeclaration::new(
+        "bess-1".to_string(),
+        "p15-08-lfp-curve-v1".to_string(),
+        chemistry,
+        DegradationCostCurve::Linear { cost_per_mwh_throughput: 7.25 },
+        "ASSUMPTION: declared planning-aid rate with no measured basis".to_string(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn p15_08_curve_data_travels_in_the_term_provenance_and_note() {
+    let config = degradation_enabled_config();
+    let candidate =
+        CandidatePortfolioSchedule { label: "c".to_string(), net_export_mw: vec![0.0] };
+    let inputs = ObjectiveInputs {
+        degradation: vec![DegradationTermInput {
+            asset_id: "bess-1".to_string(),
+            metadata: p306_metadata(4.0),
+        }],
+        degradation_cost_curves: vec![linear_curve_declaration(DegradationChemistryLabel::Lfp)],
+        ..ObjectiveInputs::new(3600)
+    };
+    let evaluation = evaluate_objective(&config, &candidate, &inputs).unwrap();
+    // The evaluated C_degradation total remains the P3.06 evaluation output.
+    assert!((evaluation.totals.degradation - 4.0).abs() < 1e-12);
+    // The curve data travels in the term provenance: named source, version,
+    // chemistry, and the ADR-010 line.
+    let curve_record = evaluation
+        .term_provenance
+        .iter()
+        .find(|record| record.source.contains("P15.08 degradation cost curve"))
+        .expect("the P15.08 curve record is in the term provenance");
+    assert_eq!(curve_record.version, "p15-08-lfp-curve-v1");
+    assert!(curve_record.note.contains("chemistry = LFP"));
+    assert!(curve_record.note.contains("never authorizes or produces a dispatch command"));
+    // The degradation note names the v2 input-data contract.
+    let note = evaluation.degradation_note.expect("degradation note present");
+    assert!(note.contains("v2"), "note: {note}");
+    assert!(note.contains("optimizer INPUT DATA"), "note: {note}");
+    // The schema-version constant is the recorded v2.
+    assert_eq!(DEGRADATION_INPUT_DATA_SCHEMA_VERSION, 2);
+}
+
+#[test]
+fn p15_08_curves_with_the_term_disabled_are_refused() {
+    let config = energy_only_config("SYNTHETIC_TEST_P15_08_UNUSED");
+    let candidate =
+        CandidatePortfolioSchedule { label: "c".to_string(), net_export_mw: vec![0.0] };
+    let inputs = ObjectiveInputs {
+        degradation_cost_curves: vec![linear_curve_declaration(DegradationChemistryLabel::Lfp)],
+        ..ObjectiveInputs::new(3600)
+    };
+    let err = evaluate_objective(&config, &candidate, &inputs).unwrap_err();
+    assert!(
+        matches!(err, ObjectiveError::InvalidDegradationCostData { .. }),
+        "unused optimizer input data never passes silently: {err}"
+    );
+}
+
+#[test]
+fn p15_08_curve_for_an_asset_without_metadata_is_refused() {
+    let config = degradation_enabled_config();
+    let candidate =
+        CandidatePortfolioSchedule { label: "c".to_string(), net_export_mw: vec![0.0] };
+    let inputs = ObjectiveInputs {
+        degradation: vec![DegradationTermInput {
+            asset_id: "bess-other".to_string(),
+            metadata: p306_metadata(1.0),
+        }],
+        degradation_cost_curves: vec![linear_curve_declaration(DegradationChemistryLabel::Lfp)],
+        ..ObjectiveInputs::new(3600)
+    };
+    let err = evaluate_objective(&config, &candidate, &inputs).unwrap_err();
+    match err {
+        ObjectiveError::InvalidDegradationCostData { asset_id, detail } => {
+            assert_eq!(asset_id, "bess-1");
+            assert!(detail.contains("no P3.06 degradation metadata"), "detail: {detail}");
+        }
+        other => panic!("expected InvalidDegradationCostData, got {other:?}"),
+    }
+}
+
+#[test]
+fn p15_08_out_of_scope_chemistry_is_refused() {
+    // P15-E-3 DEFAULT (a): LFP/NMC first; an out-of-scope chemistry curve is
+    // a recorded limitation enforced — never a silent extrapolation.
+    let config = degradation_enabled_config();
+    let candidate =
+        CandidatePortfolioSchedule { label: "c".to_string(), net_export_mw: vec![0.0] };
+    let inputs = ObjectiveInputs {
+        degradation: vec![DegradationTermInput {
+            asset_id: "bess-1".to_string(),
+            metadata: p306_metadata(1.0),
+        }],
+        degradation_cost_curves: vec![linear_curve_declaration(
+            DegradationChemistryLabel::OutOfScope { name: "LTO".to_string() },
+        )],
+        ..ObjectiveInputs::new(3600)
+    };
+    let err = evaluate_objective(&config, &candidate, &inputs).unwrap_err();
+    match err {
+        ObjectiveError::InvalidDegradationCostData { detail, .. } => {
+            assert!(detail.contains("outside the P15-E-3 DEFAULT scope"), "detail: {detail}");
+        }
+        other => panic!("expected InvalidDegradationCostData, got {other:?}"),
+    }
+}
+
+#[test]
+fn p15_08_non_convex_piecewise_data_is_refused() {
+    // Conventions §6.5: a data shape that would create a new problem class
+    // is RESHAPED, never solved — the objective refuses non-convex PWL data
+    // with the reshape guidance.
+    let config = degradation_enabled_config();
+    let candidate =
+        CandidatePortfolioSchedule { label: "c".to_string(), net_export_mw: vec![0.0] };
+    let non_convex = DegradationCostDeclaration::new(
+        "bess-1".to_string(),
+        "p15-08-nonconvex-v1".to_string(),
+        DegradationChemistryLabel::Nmc,
+        DegradationCostCurve::PiecewiseLinear {
+            segments: vec![
+                PwlSegment {
+                    cumulative_throughput_limit_mwh: 100.0,
+                    marginal_cost_per_mwh: 10.0,
+                },
+                PwlSegment {
+                    cumulative_throughput_limit_mwh: 500.0,
+                    marginal_cost_per_mwh: 6.0,
+                },
+            ],
+        },
+        "ASSUMPTION: declared test curve".to_string(),
+    )
+    .unwrap();
+    let inputs = ObjectiveInputs {
+        degradation: vec![DegradationTermInput {
+            asset_id: "bess-1".to_string(),
+            metadata: p306_metadata(1.0),
+        }],
+        degradation_cost_curves: vec![non_convex],
+        ..ObjectiveInputs::new(3600)
+    };
+    let err = evaluate_objective(&config, &candidate, &inputs).unwrap_err();
+    match err {
+        ObjectiveError::InvalidDegradationCostData { detail, .. } => {
+            assert!(detail.contains("Reshape the DATA"), "detail: {detail}");
+        }
+        other => panic!("expected InvalidDegradationCostData, got {other:?}"),
+    }
+}

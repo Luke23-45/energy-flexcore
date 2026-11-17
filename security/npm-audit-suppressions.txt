@@ -1,0 +1,26 @@
+# P19.09 — npm-audit suppression manifest (NEW file; WRITTEN-UNRUN).
+# Owning record:
+# docs/phases-11-20/phase-19-security-certification-compliance/records/09_p19_09_dependency_auditing_rollout.md
+#
+# FORMAT (this program's documented convention — record 09 §2):
+#   <advisory-id> TAB <package> TAB <owner> TAB <registered-date> TAB <expiry-date> TAB <reason>
+#   one row per suppressed finding; comment lines start with '#'.
+#
+# RULES (record 09 §4 C-3 — binding):
+#   - A row without ALL six fields is invalid and the suppression is not
+#     applied.
+#   - An EXPIRED row (expiry-date < run date) is invalid; the suppressed
+#     finding reverts to an open finding at that run.
+#   - The reason must name the exploitability-in-this-deployment
+#     reasoning, not "false positive" alone.
+#   - npm audit has no per-advisory ignore flag in common versions: a
+#     suppression is recorded HERE and handled at triage (the finding is
+#     recorded with its disposition in the run record, not deleted from
+#     the tool output). The tool's raw output is never edited.
+#
+# RUN-STATUS HONESTY: npm audit has NEVER run (no console lockfile
+# exists — the P10.19 §6 precondition). Zero rows is the honest empty
+# state: there has never been a finding to suppress. It is NOT a clean
+# result.
+#
+# --- rows below ---

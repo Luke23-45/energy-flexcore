@@ -53,6 +53,29 @@
 # 6. Run instruction (human gate ONLY; never run in the writing loop):
 #      python -I apps/worker/python/drill/fault_injection.py
 #    (the pytest suite mirrors these cases in tests/test_fault_injection.py).
+# 7. P12.09 EXTENSION (written, never executed; the same honesty rules
+#    apply unchanged): the closed vocabulary gained `partial_write` (the
+#    target runs, the delivered reply is TRUNCATED to `keep_bytes` —
+#    models a torn/partial write at the seam; a reply type that cannot
+#    be sliced fails closed) and `slow_consumer` (the target runs and
+#    the reply is delivered UNCHANGED, with the injected delay carried
+#    as DATA in `CallRecord.delay_ms` — the scaffolding never sleeps,
+#    so the drill's timeout arithmetic is hand-computed against
+#    `SUPERVISION_DEFAULT_CALL_TIMEOUT_MS`, transcribed from
+#    `apps/worker/src/supervision.rs::DEFAULT_CALL_TIMEOUT_MS` = 30 000 ms).
+#    Two new injectors extend the same pure-data discipline:
+#    `PartitionInjector` (a bounded network-partition WINDOW over a call
+#    sequence — before the window: pass-through; during: the named
+#    `NetworkPartitionError`, target unreached; after: pass-through —
+#    models the NATS/Postgres outage windows C-NATS-1 drills at the
+#    transport level without any socket being opened) and
+#    `scheduled_skew_clock` (the generalization of `skewed_clock`: a
+#    PER-CALL offset schedule; call i uses offsets_ms[i] while the
+#    schedule holds, then the LAST offset persists — a drift that
+#    plateaus; negative offsets legal; no clock read of its own).
+#    Nothing real is partitioned, written, delayed, or skewed: every new
+#    fault is a transformation over the injected callable, and every new
+#    self-test expectation is hand-computed arithmetic on toy targets.
 # ══════════════════════════════════════════════════════════════════════════
 
 from __future__ import annotations
@@ -62,8 +85,19 @@ from __future__ import annotations
 # `pub const MAX_PROPOSAL_PAYLOAD_BYTES: usize = 1024 * 1024;`).
 MAX_PROPOSAL_PAYLOAD_BYTES = 1024 * 1024
 
+# The recorded supervision call timeout the `slow_consumer` drill
+# arithmetic is hand-computed against (transcribed verbatim from
+# `apps/worker/src/supervision.rs`:
+# `pub const DEFAULT_CALL_TIMEOUT_MS: u64 = 30_000;` — a COPY for the
+# drill, never a second authority; if the Rust constant changes, this
+# transcription is re-diffed and re-cited).
+SUPERVISION_DEFAULT_CALL_TIMEOUT_MS = 30_000
+
 # The closed fault vocabulary. Anything else is a construction-time
 # configuration refusal (fail-closed, like every research module).
+# P12.09 adds `partial_write`, `slow_consumer`, and `network_partition`
+# (the last one is carried ONLY by `PartitionInjector`, the window
+# injector — see the honesty header, item 7).
 FAULT_KINDS: frozenset = frozenset(
     {
         "none",
@@ -74,6 +108,9 @@ FAULT_KINDS: frozenset = frozenset(
         "scripted_reply",
         "replay_last",
         "reorder_reversed",
+        "partial_write",
+        "slow_consumer",
+        "network_partition",
     }
 )
 
@@ -107,14 +144,25 @@ class ReplayUnavailable(RuntimeError):
     replay — a duplicated message cannot exist before the first message."""
 
 
+class NetworkPartitionError(RuntimeError):
+    """The injected partition window is CLOSED at this call — no traffic
+    passes the seam (modeled data-flow loss; no socket exists)."""
+
+
+class PartialWriteUnsupported(DrillConfigurationError):
+    """A `partial_write` fault fired against a reply type that cannot be
+    sliced (not bytes/str) — refused at call time, fail-closed."""
+
+
 class Fault:
-    """ONE fault in a plan. Construct with `Fault.of(kind, **payload)` —
+    """ONE fault in a plan. Construct with `fault(kind, **payload)` —
     the constructor validates the kind and the required payload fields
     (fail-closed; an invalid plan never reaches a target)."""
 
-    __slots__ = ("kind", "error", "reply", "phase", "detail")
+    __slots__ = ("kind", "error", "reply", "phase", "detail", "keep_bytes", "delay_ms")
 
-    def __init__(self, kind: str, *, error=None, reply=None, phase: str = "", detail: str = "") -> None:
+    def __init__(self, kind: str, *, error=None, reply=None, phase: str = "", detail: str = "",
+                 keep_bytes=None, delay_ms=None) -> None:
         if kind not in FAULT_KINDS:
             raise DrillConfigurationError(
                 "fault kind %r is not one of %s" % (kind, sorted(FAULT_KINDS))
@@ -132,11 +180,27 @@ class Fault:
             raise DrillConfigurationError(
                 "the %r fault requires a crash phase" % (kind,)
             )
+        if kind == "partial_write":
+            if not isinstance(keep_bytes, int) or isinstance(keep_bytes, bool) \
+                    or keep_bytes < 0:
+                raise DrillConfigurationError(
+                    "the 'partial_write' fault requires a non-negative integer "
+                    "keep_bytes (got %r)" % (keep_bytes,)
+                )
+        if kind == "slow_consumer":
+            if not isinstance(delay_ms, int) or isinstance(delay_ms, bool) \
+                    or delay_ms < 0:
+                raise DrillConfigurationError(
+                    "the 'slow_consumer' fault requires a non-negative integer "
+                    "delay_ms (got %r)" % (delay_ms,)
+                )
         self.kind = kind
         self.error = error
         self.reply = reply
         self.phase = phase
         self.detail = detail
+        self.keep_bytes = keep_bytes
+        self.delay_ms = delay_ms
 
 
 def fault(kind: str, **payload) -> Fault:
@@ -148,16 +212,20 @@ class CallRecord:
     """The record of ONE call through the injector (the drill's evidence
     unit: which fault fired, whether the target was reached, what came
     back). `reply` is the delivered value on success; `error` is the
-    delivered exception on failure; exactly one of them is set."""
+    delivered exception on failure; exactly one of them is set.
+    `delay_ms` carries a `slow_consumer` fault's injected delay as DATA
+    (the scaffolding never sleeps); it is 0 for every other fault."""
 
-    __slots__ = ("index", "fault_kind", "target_called", "reply", "error")
+    __slots__ = ("index", "fault_kind", "target_called", "reply", "error", "delay_ms")
 
-    def __init__(self, index: int, fault_kind: str, target_called: bool, reply=None, error=None) -> None:
+    def __init__(self, index: int, fault_kind: str, target_called: bool, reply=None, error=None,
+                 delay_ms: int = 0) -> None:
         self.index = index
         self.fault_kind = fault_kind
         self.target_called = target_called
         self.reply = reply
         self.error = error
+        self.delay_ms = delay_ms
 
 
 class FaultInjector:
@@ -248,12 +316,43 @@ class FaultInjector:
             self._append(index, fault_entry, target_called=False, reply=self._last_reply)
             return self._last_reply
 
-        # reorder_reversed: scripted replies are served LAST-FIRST. The
-        # queue is seeded from the plan's scripted_reply entries in order;
-        # each reorder call pops from the END. Non-reorder calls behind a
-        # reorder entry in the plan are refused at construction — mixing
-        # reorder with other kinds in one plan would make the delivery
-        # order ambiguous, so the plan is validated instead.
+        # reorder_reversed is delivered by its own injector
+        # (`ReorderInjector` below). A `reorder_reversed` entry inside a
+        # plain FaultInjector plan is a drill-plan defect: it would reach
+        # the fail-closed guard at the end of this method, never the
+        # target.
+
+        if fault_entry.kind == "partial_write":
+            # A torn/partial write: the target DID run (its side effect
+            # happened), but only the first keep_bytes of the reply
+            # arrive. A reply type that cannot be sliced fails CLOSED
+            # (the truncation is never guessed, and the error is recorded
+            # with target_called=True — the side effect must not vanish
+            # from the record).
+            reply = self._target(*args, **kwargs)
+            if not isinstance(reply, (bytes, str)):
+                error = PartialWriteUnsupported(
+                    "partial_write fired at call %d against an unsliceable "
+                    "reply type %s" % (index, type(reply).__name__)
+                )
+                self._append(index, fault_entry, target_called=True, error=error)
+                raise error
+            delivered = reply[:fault_entry.keep_bytes]
+            self._append(index, fault_entry, target_called=True, reply=delivered)
+            return delivered
+
+        if fault_entry.kind == "slow_consumer":
+            # The worker serves — eventually. The injected delay travels
+            # as DATA (record.delay_ms); the scaffolding performs NO
+            # sleeping and reads NO clock, so the drill's timeout
+            # arithmetic (does the delay exceed the supervision call
+            # timeout?) is hand-computed by the caller against
+            # SUPERVISION_DEFAULT_CALL_TIMEOUT_MS.
+            reply = self._target(*args, **kwargs)
+            self._append(index, fault_entry, target_called=True, reply=reply,
+                         delay_ms=fault_entry.delay_ms)
+            return reply
+
         raise DrillConfigurationError(  # pragma: no cover — construction refuses this
             "unreachable: kind %r survived construction validation" % fault_entry.kind
         )
@@ -322,6 +421,87 @@ def skewed_clock(base_clock, offset_ms: int):
         return base_clock(*args, **kwargs) + offset_ms
 
     return skewed
+
+
+def scheduled_skew_clock(base_clock, offsets_ms: list):
+    """The P12.09 generalization of `skewed_clock`: a PER-CALL offset
+    schedule. Call i reads base + offsets_ms[i] while i is inside the
+    schedule; beyond the schedule the LAST offset PERSISTS (a drift that
+    plateaus — the explicit modelling choice, documented here so no
+    ambiguity hides in the drill arithmetic). Negative offsets are legal;
+    an empty schedule is a construction refusal (fail-closed, like the
+    empty reorder plan). No clock is read and no sleep is performed by
+    the scaffolding itself."""
+    if not offsets_ms:
+        raise DrillConfigurationError(
+            "a scheduled-skew drill needs at least one offset"
+        )
+    schedule = list(offsets_ms)
+    calls = {"n": 0}
+
+    def skewed(*args, **kwargs):
+        index = calls["n"]
+        calls["n"] += 1
+        offset = schedule[index] if index < len(schedule) else schedule[-1]
+        return base_clock(*args, **kwargs) + offset
+
+    return skewed
+
+
+class PartitionInjector(FaultInjector):
+    """The P12.09 network-partition fault as its own injector (the
+    `ReorderInjector` shape): a bounded partition WINDOW over the call
+    sequence. Calls before the window pass through; calls INSIDE the
+    window raise the named `NetworkPartitionError` with the target
+    UNREACHED (no traffic passes the seam — modeled data-flow loss, no
+    socket exists); calls after the window pass through again (the
+    partition healed).
+
+    Construct with `open_after_calls` (the number of healthy calls before
+    the window) and `closed_for_calls` (the window length, >= 1). The
+    window bounds are drill parameters, registered by the drill plan —
+    never derived from any runtime observation.
+    """
+
+    def __init__(self, target, open_after_calls: int, closed_for_calls: int) -> None:
+        super().__init__(target, plan=[], default=Fault("none"))
+        if not isinstance(open_after_calls, int) or isinstance(open_after_calls, bool) \
+                or open_after_calls < 0:
+            raise DrillConfigurationError(
+                "open_after_calls must be a non-negative integer (got %r)"
+                % (open_after_calls,)
+            )
+        if not isinstance(closed_for_calls, int) or isinstance(closed_for_calls, bool) \
+                or closed_for_calls < 1:
+            raise DrillConfigurationError(
+                "closed_for_calls must be a positive integer (got %r)"
+                % (closed_for_calls,)
+            )
+        self._open_after = open_after_calls
+        self._closed_for = closed_for_calls
+
+    def call(self, *args, **kwargs):
+        index = len(self.records)
+        if self._open_after <= index < self._open_after + self._closed_for:
+            error = NetworkPartitionError(
+                "injected network partition at call %d (the seam is closed: "
+                "no traffic passes)" % index
+            )
+            self._append(index, Fault("network_partition"), target_called=False, error=error)
+            raise error
+        reply = self._target(*args, **kwargs)
+        self._remember(reply)
+        self._append(index, Fault("none"), target_called=True, reply=reply)
+        return reply
+
+
+def exceeds_supervision_timeout(delay_ms: int, timeout_ms: int = SUPERVISION_DEFAULT_CALL_TIMEOUT_MS) -> bool:
+    """The hand-computed `slow_consumer` arithmetic helper: whether an
+    injected delay exceeds the supervision call timeout (transcribed from
+    `apps/worker/src/supervision.rs::DEFAULT_CALL_TIMEOUT_MS` = 30 000 ms;
+    the copy rule in the module header applies). Pure integer comparison —
+    no clock, no sleep."""
+    return delay_ms > timeout_ms
 
 
 def oversized_payload(cap_bytes: int = MAX_PROPOSAL_PAYLOAD_BYTES) -> str:
@@ -665,6 +845,167 @@ def run_self_tests() -> list:
         "empty_summary_is_honest_zeros",
         summarize([]) == {"cells": 0, "completed": 0, "errored": 0},
         "an empty drill is zero cells — never a fabricated pass",
+    )
+
+    # ---- Test 17 (P12.09): partial_write truncates a sliceable reply ---
+    # HAND CHECK: target returns b"PAYLOAD-BYTES" (13 bytes);
+    # keep_bytes=7 → the caller receives b"PAYLOAD" (7 bytes); the target
+    # WAS called (1 target call); the record carries fault_kind
+    # "partial_write" and reply of length 7.
+    def bytes_toy() -> bytes:
+        return b"PAYLOAD-BYTES"
+
+    injector17 = FaultInjector(bytes_toy, [Fault("partial_write", keep_bytes=7)])
+    delivered17 = injector17.call()
+    record17 = injector17.records[0]
+    check(
+        "partial_write_truncates_sliceable_reply",
+        delivered17 == b"PAYLOAD" and record17.target_called is True
+        and record17.fault_kind == "partial_write" and len(delivered17) == 7,
+        "the target ran, the delivered reply is the first 7 of 13 bytes "
+        "(a torn write, recorded — never silently completed)",
+    )
+
+    # ---- Test 18 (P12.09): partial_write against an unsliceable reply --
+    # HAND CHECK: a dict reply is refused AT CALL TIME with
+    # PartialWriteUnsupported, target_called=True recorded (the side
+    # effect happened — the record must not vanish it).
+    injector18 = FaultInjector(lambda: {"ok": True},
+                               [Fault("partial_write", keep_bytes=3)])
+    refused18 = None
+    try:
+        injector18.call()
+    except PartialWriteUnsupported as e:
+        refused18 = e
+    check(
+        "partial_write_unsliceable_reply_fails_closed",
+        refused18 is not None and injector18.records[0].target_called is True,
+        "an unsliceable reply is a named call-time refusal; the target "
+        "call stays in the record (fail-closed, nothing guessed)",
+    )
+
+    # ---- Test 19 (P12.09): slow_consumer carries the delay as DATA -----
+    # HAND CHECK: plan [none, slow_consumer(45_000), none] over the
+    # counting target: replies [1, 2, 3]; the target is called 3 times;
+    # record 1 (0-indexed) carries delay_ms = 45_000; the helper
+    # classifies 45_000 > 30_000 as exceeding the supervision timeout and
+    # 29_999 as not. NO sleeping happens anywhere.
+    injector19 = FaultInjector(
+        counting_toy2,
+        [Fault("none"), Fault("slow_consumer", delay_ms=45_000), Fault("none")],
+    )
+    r19 = [injector19.call() for _ in range(3)]
+    check(
+        "slow_consumer_delay_travels_as_data",
+        r19 == [1, 2, 3] and injector19.records[1].delay_ms == 45_000
+        and injector19.records[0].delay_ms == 0
+        and injector19.stats()["target_called"] == 3
+        and exceeds_supervision_timeout(45_000) is True
+        and exceeds_supervision_timeout(29_999) is False,
+        "the delay is recorded data (45_000 ms > the 30_000 ms supervision "
+        "timeout, 29_999 ms is not) — no sleeping, no clock read",
+    )
+
+    # ---- Test 20 (P12.09): partition window — closed, then healed -------
+    # HAND CHECK: PartitionInjector(open_after=2, closed_for=2) over the
+    # counting target: calls 0,1 pass (replies 1,2); calls 2,3 raise
+    # NetworkPartitionError (target unreached, fault_kind
+    # "network_partition"); call 4 passes (reply 3 — the target count is
+    # 3 total).
+    injector20 = PartitionInjector(counting_toy2, open_after_calls=2, closed_for_calls=2)
+    replies20 = [injector20.call() for _ in range(2)]
+    partition_errors = 0
+    for _ in range(2):
+        try:
+            injector20.call()
+        except NetworkPartitionError:
+            partition_errors += 1
+    healed20 = injector20.call()
+    kinds20 = {r.fault_kind for r in injector20.records}
+    check(
+        "partition_window_closes_then_heals",
+        replies20 == [1, 2] and partition_errors == 2 and healed20 == 3
+        and injector20.stats()["target_called"] == 3
+        and kinds20 == {"none", "network_partition"},
+        "calls 2-3 are the closed seam (named error, target unreached); "
+        "call 4 healed and reached the target",
+    )
+
+    # ---- Test 21 (P12.09): partition construction refusals --------------
+    def bad_window_a() -> None:
+        PartitionInjector(counting_toy2, open_after_calls=-1, closed_for_calls=1)
+
+    def bad_window_b() -> None:
+        PartitionInjector(counting_toy2, open_after_calls=0, closed_for_calls=0)
+
+    refused21 = True
+    for fn in (bad_window_a, bad_window_b):
+        try:
+            fn()
+            refused21 = False
+        except DrillConfigurationError:
+            pass
+    check(
+        "partition_construction_refusals_fail_closed",
+        refused21,
+        "a negative open_after and a zero-length window are construction "
+        "refusals (fail-closed)",
+    )
+
+    # ---- Test 22 (P12.09): scheduled skew — per-call, then plateau ------
+    # HAND CHECK: base 1000, schedule [0, 500, -250]: reads 1000, 1500,
+    # 750; the 4th read holds the LAST offset: 1000 + (-250) = 750.
+    reads = []
+    clock22 = scheduled_skew_clock(lambda: 1000, [0, 500, -250])
+    for _ in range(4):
+        reads.append(clock22())
+    check(
+        "scheduled_skew_per_call_then_plateaus",
+        reads == [1000, 1500, 750, 750],
+        "per-call offsets 0/500/-250, then the last offset persists "
+        "(the documented plateau choice)",
+    )
+
+    # ---- Test 23 (P12.09): empty skew schedule refused ------------------
+    def empty_schedule() -> None:
+        scheduled_skew_clock(lambda: 1000, [])
+
+    refused23 = False
+    try:
+        empty_schedule()
+    except DrillConfigurationError:
+        refused23 = True
+    check(
+        "empty_skew_schedule_refused",
+        refused23,
+        "an empty schedule is a construction refusal (fail-closed)",
+    )
+
+    # ---- Test 24 (P12.09): partial_write / slow_consumer construction ---
+    def negative_keep() -> None:
+        Fault("partial_write", keep_bytes=-1)
+
+    def missing_keep() -> None:
+        Fault("partial_write")
+
+    def negative_delay() -> None:
+        Fault("slow_consumer", delay_ms=-5)
+
+    def missing_delay() -> None:
+        Fault("slow_consumer")
+
+    refused24 = True
+    for fn in (negative_keep, missing_keep, negative_delay, missing_delay):
+        try:
+            fn()
+            refused24 = False
+        except DrillConfigurationError:
+            pass
+    check(
+        "partial_write_and_slow_consumer_refusals_fail_closed",
+        refused24,
+        "missing or negative keep_bytes / delay_ms are construction "
+        "refusals (fail-closed)",
     )
 
     return results

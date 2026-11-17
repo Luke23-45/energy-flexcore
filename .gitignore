@@ -21,3 +21,9 @@ desktop.ini
 .agents/skills/
 .claude/skills/
 .opencode/
+
+# P11.16 — Compose secrets floor: the file-per-host secret material is
+# NEVER committed (see deploy/compose/secrets/README.md for the required
+# files and the 0600 permission procedure). The README itself stays
+# tracked.
+deploy/compose/secrets/*.txt

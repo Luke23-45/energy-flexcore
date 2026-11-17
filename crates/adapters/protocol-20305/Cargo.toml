@@ -1,0 +1,35 @@
+# P14.02 — flexcore-protocol-20305 manifest: the IEEE 2030.5 adapter crate.
+#
+# Composition-side crate (`tools/check_dependency_rule.py`, P14.01
+# classification): adapters may use infrastructure, but this crate
+# deliberately adds NONE. Dependency justification:
+# - flexcore-protocol-ports (P14.01): the common protocol scope declaration,
+#   capability manifest, and connection lifecycle every protocol adapter
+#   implements — this crate is the IEEE 2030.5 instantiation.
+# - flexcore-domain: the protected 14-state command lifecycle
+#   (`command_state.rs`). The external-event mapping (P14.02 §5 /
+#   proposal.rs) types its output with the real frozen `CommandState` so the
+#   "external events enter at PROPOSED" rule is enforced by the frozen
+#   transition table itself, not by convention.
+# - serde / serde_json (workspace pins): the CSIP resource-tree model types
+#   (P14.02 §2) carry serde derives for the JSON-facing design surface; the
+#   wire encoding (EXI per IEEE 2030.5 — UNVERIFIED, record 02 §4) is a
+#   transport-seam concern and does not exist in this repo.
+#
+# What is deliberately absent: no HTTP server framework, no TLS library, no
+# EXI codec. The mTLS/HTTP transport is a designed, named UNRUN seam
+# (`server.rs` `AggregatorTransport`); implementing it is an
+# implementation-time human gate (record 02 §6). The entire crate is
+# WRITTEN-UNRUN model/skeleton code; no server has ever run, no device has
+# ever been reached, no message has ever been exchanged.
+[package]
+name = "flexcore-protocol-20305"
+description = "IEEE 2030.5 AggregatorServer adapter: CSIP resource-tree model types, resource addressing and query semantics, the mTLS server skeleton with a designed transport seam, and the DERControl-to-PROPOSED external-event mapping (P14.02)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-protocol-ports = { workspace = true }
+flexcore-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

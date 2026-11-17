@@ -21,9 +21,21 @@ import { useLiveEvents } from './live/useLiveEvents';
 import { WORKSPACES } from './workspaces/registry';
 import { ValueTypeLegend } from './components/ValueType';
 import { TenantBanner } from './components/tenantBanner';
+// P13.17 — the session banner with expiry display (auth hardening, wave
+// 2). ADDITIVE composition-root edit (the P7.25 precedent): the banner
+// renders next to the P5.32 TenantBanner; no existing line is modified.
+// DISPLAY only — enforcement is the resolver (P13.16); the login/
+// session endpoints it names are specified-not-implemented.
+import { SessionBanner } from './components/sessionBanner';
 import {
   AdministrationWorkspace,
 } from './workspaces/Administration';
+// P13.18 — the Administration management section (the management DESIGN
+// catalog). ADDITIVE composition-root edit (the P7.25 PluginsWorkspace
+// precedent: a wave-added panel rendered BELOW the P5.07 workspace on the
+// same route; Administration.tsx itself is not modified). The section is
+// a text catalog only — no control calls any endpoint (plan risk 6).
+import { AdminManagementSection } from './workspaces/AdminManagementSection';
 import { AssetsWorkspace } from './workspaces/Assets';
 import { AuditReportsWorkspace } from './workspaces/AuditReports';
 import { DispatchWorkspace } from './workspaces/Dispatch';
@@ -58,7 +70,9 @@ const WORKSPACE_COMPONENTS: Record<string, () => JSX.Element> = {
   'simulation-lab': SimulationLabWithResearch,
   'plugins-integrations': PluginsIntegrationsWithInventory,
   'audit-reports': AuditReportsWorkspace,
-  administration: AdministrationWorkspace,
+  // P13.18 — the Administration route composes the P5.07 workspace with
+  // the additive management-DESIGN catalog (see AdministrationWithManagement).
+  administration: AdministrationWithManagement,
 };
 
 /**
@@ -92,6 +106,23 @@ function SimulationLabWithResearch(): JSX.Element {
   );
 }
 
+/**
+ * P13.18 — the Administration route composes the P5.07 workspace
+ * (unchanged) with the P13.18 management-DESIGN catalog rendered below
+ * it. ADDITIVE: no existing workspace component is modified. The catalog
+ * names the REST endpoint each management action would call and marks
+ * every one specified-not-implemented — no write path is fabricated
+ * (plan risk 6).
+ */
+function AdministrationWithManagement(): JSX.Element {
+  return (
+    <>
+      <AdministrationWorkspace />
+      <AdminManagementSection />
+    </>
+  );
+}
+
 export function App(): JSX.Element {
   const route = useHashRoute();
   const live = useLiveEvents();
@@ -117,6 +148,9 @@ export function App(): JSX.Element {
             role, the source note, the no-switch guard statement, and the
             single-tenant note, on every workspace. */}
         <TenantBanner />
+        {/* P13.17 — the additive session banner (expiry display + the
+            honest no-session state; see the import note above). */}
+        <SessionBanner />
         <LiveStatusLine status={live.status} lastDeliveredAt={live.lastDeliveredAt} />
         {/* P5.10: the §20.2 treatment legend is a persistent shell element,
             so every workspace carries it — the legend is on screen, not

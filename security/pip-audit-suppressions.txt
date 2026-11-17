@@ -1,0 +1,27 @@
+# P19.09 — pip-audit suppression manifest (NEW file; WRITTEN-UNRUN).
+# Owning record:
+# docs/phases-11-20/phase-19-security-certification-compliance/records/09_p19_09_dependency_auditing_rollout.md
+#
+# FORMAT (this program's documented convention — record 09 §2):
+#   <vuln-id> TAB <package> TAB <owner> TAB <registered-date> TAB <expiry-date> TAB <reason>
+#   one row per suppressed finding; comment lines start with '#'.
+#
+# RULES (record 09 §4 C-3 — binding):
+#   - A row without ALL six fields is invalid and the suppression is not
+#     applied.
+#   - An EXPIRED row (expiry-date < run date) is invalid; the suppressed
+#     finding reverts to an open finding at that run.
+#   - The reason must name the exploitability-in-this-deployment
+#     reasoning, not "false positive" alone.
+#   - Suppression is applied at run time via pip-audit's documented
+#     per-vuln ignore flag, with the values copied from THIS manifest —
+#     the manifest is the record, the flag is the mechanism; a flag
+#     value absent from this manifest is an unrecorded suppression
+#     (never allowed).
+#
+# RUN-STATUS HONESTY: pip-audit has NEVER run (no resolved Python
+# environment exists — the P10.19 §1 posture). Zero rows is the honest
+# empty state: there has never been a finding to suppress. It is NOT a
+# clean result.
+#
+# --- rows below ---

@@ -931,8 +931,9 @@ fn case_read_only_structural() -> CaseResult {
 /// Case 10 — FLEXCORE-ONLY registry allowlist conformance (§9.3): every
 /// adapter id the suite exercises is registry-allowlisted with its honest
 /// status (`openems-rest` Implemented, `simulated-test` TEST-ONLY — the
-/// TEST-ONLY status travels on the record forever); a RESERVED id refuses
-/// construction.
+/// TEST-ONLY status travels on the record forever); the PLANNED Phase 14
+/// protocol ids (P14.18, record 82) refuse construction, and the REMOVED
+/// `generic-rest` placeholder id is not allowlisted at all.
 fn case_registry_allowlist() -> CaseResult {
     let mut reasons = Vec::new();
     let registry = AdapterRegistry::with_default_allowlist();
@@ -944,12 +945,20 @@ fn case_registry_allowlist() -> CaseResult {
         Ok(flexcore_edge_agent::adapters::registry::AdapterStatus::TestOnly) => {}
         other => reasons.push(format!("simulated-test status is {other:?} (expected TestOnly)")),
     }
-    // A RESERVED id never constructs (fail-closed; the honest answer).
-    let refused = registry.construct("generic-rest", &|| {
-        Err("the factory must never run for a RESERVED id".to_string())
+    // A PLANNED id never constructs (fail-closed; the honest answer —
+    // P14.18 record 82: the DEFAULT table's six Phase 14 protocol ids).
+    let refused = registry.construct("ieee-2030.5", &|| {
+        Err("the factory must never run for a PLANNED id".to_string())
     });
     if refused.is_ok() {
-        reasons.push("the RESERVED id 'generic-rest' CONSTRUCTED (must refuse)".to_string());
+        reasons.push("the PLANNED id 'ieee-2030.5' CONSTRUCTED (must refuse)".to_string());
+    }
+    // The REMOVED `generic-rest` placeholder is not allowlisted at all.
+    let refused = registry.construct("generic-rest", &|| {
+        Err("the factory must never run".to_string())
+    });
+    if refused.is_ok() {
+        reasons.push("the REMOVED id 'generic-rest' CONSTRUCTED (must refuse)".to_string());
     }
     if reasons.is_empty() {
         CaseResult::Pass

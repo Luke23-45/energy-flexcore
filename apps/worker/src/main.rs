@@ -45,13 +45,18 @@ use flexcore_domain::ids::AssetId;
 use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
 use flexcore_nats_adapter::consumer::ConsumerConfig;
 use flexcore_nats_adapter::topology::{
-    provision_durable_pull_consumer, provision_phase_1_streams, ConsumerPolicy,
-    DeploymentLimits, STREAM_REGISTRY,
+    provision_durable_pull_consumer, provision_dlq_streams, provision_phase_1_streams,
+    provision_stream, ConsumerPolicy, DeploymentLimits, StreamDefinition, STREAM_DISPATCH,
+    STREAM_REGISTRY,
 };
 use flexcore_ports::repository::{AssetRepository, TenantRepository};
 use flexcore_ports::telemetry_source::{TelemetryQuantity, TelemetryQuery, TelemetrySource};
 use flexcore_postgres_adapter::FlexCoreStore;
 use flexcore_simulator::{load_scenario, SimulatorTelemetrySource};
+use flexcore_worker::command_consumer::{
+    dispatch_consumer_policy, run_command_consumer, CommandConsumerMetrics,
+    CommandStateGateway, PgCommandStateGateway,
+};
 use flexcore_worker::config::WorkerConfig;
 use flexcore_worker::inbox::PgInboxStore;
 use flexcore_worker::probes::{serve_probes, ProbeState};
@@ -71,13 +76,17 @@ const REGISTRY_CONSUMER_DURABLE: &str = "registry-worker-v1";
 /// clustering is a per-deployment decision). The duplicate window is the
 /// broker-side courtesy only; the durable guarantees are the outbox and
 /// the inbox, never the window.
+///
+// P11.13 — bounded retention (Phase 11 wave 1, Agent B): the worker's
+// stream limits switch from the server-default `None` ceilings to the
+// registered bounded defaults ([`DeploymentLimits::bounded_simulation_defaults`]
+// — the values are REGISTERED RECOMMENDATIONS written down in the P11.13
+// record before any run that could measure against them; production values
+// remain a per-deployment decision). The dedicated per-family DLQ streams
+// take their own tighter budget
+// ([`DeploymentLimits::bounded_dlq_defaults`], provisioned below).
 fn deployment_limits() -> DeploymentLimits {
-    DeploymentLimits {
-        duplicate_window: Duration::from_secs(120),
-        max_age: None,
-        max_messages: None,
-        max_bytes: None,
-    }
+    DeploymentLimits::bounded_simulation_defaults()
 }
 
 /// The Phase 1 consumer policy: AckExplicit durable pull consumer on the
@@ -106,12 +115,28 @@ fn main() {
     // Structured tracing at the configured level. EnvFilter gets the plain
     // level (parsed, not free-form), so no filter expression can
     // accidentally capture logged secrets.
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::builder()
-                .parse_lossy(config.log_level.as_str()),
-        )
-        .init();
+    //
+    // P11.05 — OTel telemetry wiring (Phase 11 wave 1, Agent A): the
+    // subscriber composition and the optional OTLP trace provider move
+    // into `otel::init_from_env`. With
+    // `FLEXCORE_OTEL_EXPORTER_OTLP_ENDPOINT` unset the behavior is the
+    // recorded plain-`fmt` subscriber (unchanged); with it set, worker
+    // spans additionally export OTLP to the Collector gateway (P11.06
+    // Compose shape). The global W3C propagator is set either way — the
+    // publish-side header seam (`flexcore_worker::otel::
+    // trace_header_pairs`, wired in `runner.rs`) injects whatever the
+    // current context holds and nothing when there is none. WRITTEN-UNRUN:
+    // pinned SDK versions are an ASSUMPTION that compiles — verified only
+    // at the first human build (records/05_p11_05_otel_python_and_trace_headers.md).
+    let otel_config = match flexcore_worker::otel::TelemetryConfig::from_env() {
+        Ok(otel_config) => otel_config,
+        Err(error) => {
+            eprintln!("flexcore-worker: configuration error: otel telemetry ({error})");
+            std::process::exit(2);
+        }
+    };
+    let otel_guard =
+        flexcore_worker::otel::init_from_env(&otel_config, config.log_level.as_str());
     tracing::info!(?config, "flexcore-worker starting (simulation-only, 0.x)");
 
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
@@ -122,6 +147,12 @@ fn main() {
         }
     };
     let exit_code = runtime.block_on(run(config));
+    // P11.05 — flush and shut the OTel provider down explicitly BEFORE
+    // the recorded `std::process::exit` (which skips `Drop`, so a
+    // drop-only guard would never run). Best-effort batched-export
+    // flush; an abrupt exit loses the unflushed batch (recorded
+    // limitation, records/05_p11_05_otel_python_and_trace_headers.md).
+    otel_guard.shutdown();
     std::process::exit(exit_code);
 }
 
@@ -186,12 +217,68 @@ async fn run(config: WorkerConfig) -> i32 {
         "jetstream topology provisioned"
     );
 
+    // P11.13 — per-family DLQ streams + bounded retention (Phase 11 wave 1,
+    // Agent B): the eleven dedicated per-area DLQ streams provision with
+    // their own tighter budget, additive on the Phase 1 catch-all
+    // (`FLEXCORE_DLQ` on `flexcore.dlq.v1.unrouted`). Idempotent; safe on
+    // every start. Fail-fast like the rest of provisioning.
+    if let Err(error) = provision_dlq_streams(&jetstream, &DeploymentLimits::bounded_dlq_defaults())
+        .await
+    {
+        tracing::error!(error = %error, "DLQ family stream provisioning failed; aborting startup");
+        return 1;
+    }
+
+    // P11.12/P11.13 — the dispatch-command-track topology (Phase 11 wave 1,
+    // Agent B): the `FLEXCORE_DISPATCH` stream provisions here (a recorded
+    // deviation from the D-J7 "created by the phase that first publishes"
+    // rule: the P11.12 consumer requires its stream to exist, and no
+    // dispatch publisher exists in 0.x — the consumer idles at zero
+    // counters), then the `dispatch-command-track-v1` durable pull
+    // consumer. The helper config is built FROM the provisioned policy and
+    // the MaxDeliver alignment is checked (P11.13): a mismatch is a named
+    // fail-fast error, never silently corrected.
+    let dispatch_stream = StreamDefinition {
+        name: STREAM_DISPATCH,
+        subject_filter: "flexcore.v1.dispatch.>",
+        provisioned_in_phase_1: false,
+    };
+    if let Err(error) = provision_stream(&jetstream, &dispatch_stream, &limits).await {
+        tracing::error!(error = %error, "dispatch stream provisioning failed; aborting startup");
+        return 1;
+    }
+    let command_policy = dispatch_consumer_policy();
+    if let Err(error) = provision_durable_pull_consumer(&jetstream, &command_policy).await {
+        tracing::error!(
+            error = %error,
+            "dispatch durable consumer provisioning failed; aborting startup"
+        );
+        return 1;
+    }
+    let command_consumer_config = ConsumerConfig::from_policy(&command_policy);
+    if let Err(mismatch) = command_consumer_config.validate_against_policy(&command_policy) {
+        tracing::error!(error = %mismatch, "MaxDeliver alignment check failed; aborting startup");
+        return 1;
+    }
+    tracing::info!(
+        durable = %command_policy.durable_name,
+        stream = %command_policy.stream,
+        "dispatch-command-track topology provisioned (P11.12/P11.13)"
+    );
+
     // --- Background work -------------------------------------------------
 
     // Shutdown: `true` = drain now; the sender dropping means the same.
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let probe_state = ProbeState::new(store.pool().clone(), client.clone());
+    // P11.21 — the worker /metrics surface (Phase 11 wave 2, Agent B): the
+    // command-consumer metric block is created HERE, before the probe
+    // state, and the SAME Arc is shared with the consumer task below — the
+    // probe server's new `/metrics` route renders exactly
+    // `CommandConsumerMetrics::render()` (the recorded P11.12 handoff
+    // seam). WRITTEN-UNRUN; records/52_p11_21_health_checks.md.
+    let command_metrics = Arc::new(CommandConsumerMetrics::default());
+    let probe_state = ProbeState::new(store.pool().clone(), client.clone(), command_metrics.clone());
     let probe_addr = config.probe_addr;
     let probe_task = tokio::spawn({
         let state = Arc::clone(&probe_state);
@@ -213,19 +300,36 @@ async fn run(config: WorkerConfig) -> i32 {
         consumer_tasks.push(tokio::spawn(run_idempotent_consumer(
             jetstream.clone(),
             Arc::new(inbox.clone()) as Arc<dyn flexcore_nats_adapter::inbox::InboxStore>,
-            ConsumerConfig {
-                stream: policy.stream.clone(),
-                durable_name: policy.durable_name.clone(),
-                max_deliver: policy.max_deliver,
-                ..Default::default()
-            },
+            // P11.13: the helper config is built from the provisioned
+            // policy (alignment by construction; the field-by-field shape
+            // could drift).
+            ConsumerConfig::from_policy(&policy),
             Arc::clone(&side_effects),
             shutdown_rx.clone(),
         )));
     }
+
+    // P11.12 — the command consumer task (Phase 11 wave 1, Agent B): the
+    // `dispatch-command-track-v1` loop with the frozen state machine as
+    // the dedupe oracle (invalid transition on a redelivered command =
+    // no-op + duplicate-delivery metric). The lifecycle-state gateway is
+    // the real Postgres store; the metrics counter block (`command_metrics`,
+    // created above for the P11.21 probe-server `/metrics` route) is the
+    // worker-side surface — the P11.12 record's handoff note is closed by
+    // the wave-2 `/metrics` route on the probe server.
+    let command_gateway: Arc<dyn CommandStateGateway> =
+        Arc::new(PgCommandStateGateway::new(store.clone()));
+    let command_consumer_task = tokio::spawn(run_command_consumer(
+        jetstream.clone(),
+        Arc::new(inbox.clone()) as Arc<dyn flexcore_nats_adapter::inbox::InboxStore>,
+        command_gateway,
+        command_metrics,
+        command_consumer_config,
+        shutdown_rx.clone(),
+    ));
     tracing::info!(
         consumers = config.consumer_concurrency,
-        "background loops started"
+        "background loops started (registry consumers + P11.12 command consumer)"
     );
 
     // The telemetry ingestion task (P2.10): the P2.07 pipeline as a worker
@@ -356,6 +460,15 @@ async fn run(config: WorkerConfig) -> i32 {
         if finish_or_abort(task, config.shutdown_timeout).await.is_err() {
             aborted = true;
         }
+    }
+    // P11.12 — the command consumer drains in the same bounded window
+    // (an aborted delivery stays unacknowledged and JetStream redelivers;
+    // the state-machine oracle deduplicates the redelivery).
+    if finish_or_abort(command_consumer_task, config.shutdown_timeout)
+        .await
+        .is_err()
+    {
+        aborted = true;
     }
     if finish_or_abort(publisher_task, config.shutdown_timeout)
         .await

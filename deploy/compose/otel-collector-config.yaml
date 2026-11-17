@@ -1,0 +1,70 @@
+# P11.06 — OTel Collector GATEWAY configuration (Phase 11 wave 1, Agent A).
+#
+# WRITTEN-UNRUN: this config is validated structurally (and by the
+# permitted tools only); it has NEVER been loaded by a collector binary
+# (the loop bans docker pulls and docker builds). A live Collector
+# integration check is a human gate input, recorded UNRUN (plan §5 risk 5).
+#
+# Shape: the SINGLE gateway container of the Compose stack [S-64] — every
+# process (control plane, worker) exports OTLP to THIS one collector,
+# which batches and forwards. No agents, no sidecars, no second tier.
+#
+# Image pin: otel/opentelemetry-collector-contrib:0.165.0 (the latest
+# collector release at the 2026-11-14 check, v0.165.0 released
+# 2026-11-07 — recorded in records/06_p11_06_collector_gateway.md).
+#
+# Sampling policy (records/06_p11_06_collector_gateway.md): NONE here.
+# Sampling is head/parent-based at the SDKs (ParentBased/TraceIdRatioBased,
+# ratio DEFAULT 1.0) — decided once at the root span and propagated to all
+# children. Tail sampling is DEFERRED; its recorded trigger: when OTLP
+# trace volume makes the head-sampled export rate or the debug-export
+# volume an operational cost problem, the gateway gains a tail_sampling
+# processor with the policy set registered BEFORE it is enabled (X-8).
+#
+# Export: the `debug` exporter (stdout) is the recorded PLACEHOLDER —
+# no long-term metrics/trace store is deployed in Phase 11 (P11.10 is a
+# selection record; P11-E-2 stays OPEN). Replacing `debug` with the
+# selected backend's exporter is the wave-2+ wiring step once
+# P11-E-2 closes; until then the gateway's forward target is the
+# container log, never a store that does not exist.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  # PLACEHOLDER exporter — see the file header (P11-E-2 open).
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

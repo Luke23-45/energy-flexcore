@@ -1,0 +1,33 @@
+# P14.12 — CIM/CGMES network-model import adapter models: the CIM object
+# vocabulary, the RDF/XML profile-source SEAM, the declared class mapping
+# into the grid-api network IR with the EXPLICITLY_UNMAPPED discipline,
+# the IEC 61968-5 DER-group registry, and the common scope declaration.
+#
+# Dependency policy (tools/check_dependency_rule.py): ADAPTER crate
+# (composition side, like crates/adapters/nats). Minimal dependency set —
+# flexcore-protocol-ports for the COMMON protocol scope declaration and
+# capability manifest (the one scope/manifest vocabulary every Phase 14
+# protocol adapter implements), flexcore-contracts for canonical unit
+# validation at the mapping boundary, flexcore-grid-api for the network IR
+# the mapping targets (VersionedNetworkModel / BusSpec / BranchSpec /
+# TransformerSpec / ExternalGridSpec), serde for model serialization.
+#
+# NO XML/RDF parser library, NO CGMES stack: the RDF/XML profile parsing
+# is a designed seam (src/rdf_profile.rs) exactly like the wire transports
+# in the other protocol crates. NO serde_json (the profile is model data,
+# not a JSON exchange surface).
+
+[package]
+name = "flexcore-cim-adapter"
+description = "CIM/CGMES network-model import adapter models: CIM object vocabulary, RDF profile source seam, declared class mapping into the grid-api network IR with the EXPLICITLY_UNMAPPED discipline, IEC 61968-5 DER-group registry (P14.12)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-protocol-ports = { workspace = true }
+serde = { workspace = true }
+flexcore-contracts = { workspace = true }
+flexcore-grid-api = { workspace = true }
+
+[dev-dependencies]
+# Inline tests use only the crates above — no additional dev dependency.

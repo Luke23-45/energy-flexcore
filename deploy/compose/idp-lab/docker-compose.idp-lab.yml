@@ -1,0 +1,89 @@
+# P13.20 — the IdP integration LAB compose profile (WRITTEN, NEVER RUN —
+# the program loop bans docker commands and image pulls; the first human
+# `docker compose` run is the gate, and until then nothing here has ever
+# started).
+#
+# WHAT THIS IS: the P13-E-1 DEFAULT's lab target — a single-node Keycloak
+# lab IdP that the P13.02 resolver, the P13.16 session semantics, and the
+# P13.17 console login design are exercised against in the lab ONLY. It is
+# a DEV-LAB posture (`start-dev`), explicitly NOT the production identity
+# posture (no HA, no production secrets manager, no TLS termination here —
+# the production posture is the P11.16 Vault DEFAULT, consumed never
+# re-decided).
+#
+# IMAGE PIN: quay.io/keycloak/keycloak:26.8.1 — verified against
+# keycloak.org on 2026-11-14 (26.8.1 released 2026-10-13, the current
+# 26.8 patch line; Keycloak guarantees backwards compatibility across
+# minor releases from 26.0). PIN EXACT — never `latest`, never a floating
+# tag (the P1.25 discipline). Re-check the pin at run time and record the
+# resolved tag (the P1.25 README convention).
+#
+# SECRETS FLOOR (P11.16, the same file-per-host floor the developer stack
+# uses): the bootstrap admin credential is a mounted secret FILE, never an
+# environment value, never `.env`. Create ./secrets/idp_lab_bootstrap_admin_password.txt
+# with 0600 permissions (the human deployment step). The lab client secret
+# for the flexcore-control-plane client is NOT in this file and NOT in the
+# realm draft — the operator sets it at realm import time (the realm draft
+# deliberately omits it; see the P13.20 decision record §3).
+#
+# REALM IMPORT: deploy/compose/idp-lab/realm-flexcore-lab.json is mounted
+# read-only into /opt/keycloak/data/import/ (the documented Keycloak
+# import directory; with --import-realm at startup). The realm draft is a
+# checked-in CONFIG DRAFT — importing it is a human lab step, and nothing
+# in this repo has ever imported it.
+#
+# WIRING (what the lab connects, all UNRUN): the control plane composes
+# the P13.02 OidcResolver against this IdP's issuer
+# (http://localhost:8081/realms/flexcore-lab), the JWKS document at the
+# realm's jwks URL (the JwksSource port's real implementation is the
+# deployment artifact the record 02 §5 note names), and the P13.16 session
+# layer wraps it. None of this wiring exists in the repo (main.rs
+# untouched); the lab runbook is the P13.20 decision record §4.
+
+secrets:
+  # The Keycloak bootstrap admin password (file content becomes
+  # KC_BOOTSTRAP_ADMIN_PASSWORD via the *_FILE mount). DEV-LAB-ONLY
+  # placeholder value allowed in the file; 0600 permissions are the human
+  # step (the P11.16 floor).
+  idp_lab_bootstrap_admin_password:
+    file: ./secrets/idp_lab_bootstrap_admin_password.txt
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    # DEV-LAB start: --import-realm loads the checked-in realm draft on
+    # first start (an existing realm of the same name is NOT re-imported —
+    # the documented importer behavior; re-import discipline is a lab
+    # runbook step, never an automatic overwrite).
+    command: ["start-dev", "--import-realm"]
+    secrets:
+      - idp_lab_bootstrap_admin_password
+    environment:
+      # The bootstrap admin NAME is not a secret (the same convention as
+      # the developer stack's POSTGRES_USER).
+      KC_BOOTSTRAP_ADMIN_USERNAME: flexcore_lab_admin
+      # The password arrives as a mounted secret FILE (the official
+      # *_FILE convention) — never an environment value (P11.16).
+      KC_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/idp_lab_bootstrap_admin_password
+      # The lab hostname the issuer URL is built from (the console and the
+      # control plane both live on localhost in the lab).
+      KC_HOSTNAME: http://localhost:8081
+      # DEV-LAB health probes on the management interface (the Keycloak
+      # 26 management port convention; verify the exact port at run time —
+      # recorded ASSUMPTION in the P13.20 decision record §6).
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      # The checked-in realm draft, mounted read-only for --import-realm.
+      - ./realm-flexcore-lab.json:/opt/keycloak/data/import/realm-flexcore-lab.json:ro
+      # DEV-LAB persistence (the dev-file database — lab state survives a
+      # container restart but is NOT a production database posture; the
+      # production identity store decision is the human owner's, per the
+      # P13-E-1 DEFAULT's budget line).
+      - idp-lab-data:/opt/keycloak/data/h2
+    ports:
+      # Host 8081: the control plane owns 8080 in the developer stack
+      # (deploy/compose/docker-compose.yml) — the lab IdP must not collide.
+      - "8081:8080"
+
+volumes:
+  idp-lab-data:

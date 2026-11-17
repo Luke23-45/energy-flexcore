@@ -37,6 +37,19 @@ grpcio==UNPINNED-REVERIFY
 # The Protobuf runtime the generated stubs require. UNPINNED-REVERIFY.
 protobuf==UNPINNED-REVERIFY
 
+# P11.05 (Phase 11 wave 1, Agent A) — the OpenTelemetry Python SDK seam
+# (`worker_template/otel_tracing.py`). The Python SDK is STABLE for
+# traces/metrics/logs (the platform's OTel source register entry [S-63]
+# covers the project's maturity page). Versions CHECKED on PyPI on
+# 2026-11-14: opentelemetry-sdk 1.45.2 (released 2026-10-29, within the
+# 2026-11-07 research cut-off). The OTLP gRPC exporter ships in the SAME
+# coordinated release — its 1.45.2 pin is an ASSUMPTION (same-release
+# versioning), re-verified at activation per the honesty-header
+# procedure above. NEVER installed in this loop; the same UNPINNED-
+# REVERIFY replacement procedure applies at the first real run.
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-grpc==1.45.2
+
 # Test-only dependency for python/workers/tests/ (the pytest suite;
 # written, never run in this loop). Same UNPINNED-REVERIFY rule applies:
 # record the verified pytest version at the first real run.

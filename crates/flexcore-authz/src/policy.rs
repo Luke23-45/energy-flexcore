@@ -56,6 +56,17 @@ pub enum Role {
     Operator,
     /// Read-only user.
     Viewer,
+    // P13.05 (closed-enum extension rule, additive: a variant, its `id`
+    // arm, and explicit policy grants — nothing matches by default; the
+    // recorded Phase 13 grants live in `crate::phase13_policies`):
+    /// Site-scoped approver (P13.05; the LR-049 direction): carries the
+    /// APPROVAL DUTY at site/asset scope (`command.approve`, per
+    /// `crate::phase13_policies`) WITHOUT any administrative right — this
+    /// role has no registry-write, delete, API-key, or configuration grant
+    /// anywhere on the surface. It exists so "who may approve" is no
+    /// longer forced to equal "who administers the tenant" (LR-049: the
+    /// approver shared TenantAdmin with administrative rights).
+    SiteApprover,
 }
 
 impl Role {
@@ -66,6 +77,7 @@ impl Role {
             Role::TenantAdmin => "tenant-admin",
             Role::Operator => "operator",
             Role::Viewer => "viewer",
+            Role::SiteApprover => "site-approver",
         }
     }
 }

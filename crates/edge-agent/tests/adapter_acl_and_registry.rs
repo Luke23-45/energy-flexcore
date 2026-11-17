@@ -20,10 +20,11 @@
 // 4. **Unknown/unmappable fail-closed** — unmapped point, unknown unit,
 //    unit/quantity mismatch, non-finite value: each a named error.
 // 5. **Registry allow/deny** — unknown id denied; an allowlisted-but-PLANNED
-//    id refused with a named reason (exercised via the `register` seam —
-//    `openems-rest` itself is IMPLEMENTED in the DEFAULT table since P6.10);
-//    `generic-rest` RESERVED and never constructible; an `Implemented`
-//    entry constructs through its factory (the P6.10 change is a table edit).
+//    id refused with a named reason (the DEFAULT table's own PLANNED Phase 14
+//    protocol ids since P14.18, record 82); `generic-rest` REMOVED (P14.18,
+//    record 82 — an id is registered when its implementation lands, never
+//    before); an `Implemented` entry constructs through its factory (the
+//    P6.10 change is a table edit).
 
 use flexcore_contracts::quality::TelemetryQuality;
 use flexcore_contracts::time_model::IngestTime;
@@ -363,19 +364,34 @@ fn non_finite_raw_value_is_refused() {
 // --- 5. Registry allow / deny ----------------------------------------------------
 
 #[test]
-fn registry_allows_openems_rest_and_the_recorded_reserved_slot() {
+fn registry_allows_openems_rest_and_the_recorded_planned_protocol_ids() {
     // P6.10 coordinator follow-up: the DEFAULT table carries `openems-rest`
     // as Implemented (P6.13's real-protocol fault-injection pass remains
-    // open and is NOT implied by this status).
+    // open and is NOT implied by this status). P14.18 (record 82): the six
+    // Phase 14 protocol ids are PLANNED; the `generic-rest` RESERVED
+    // placeholder is REMOVED.
     let registry = AdapterRegistry::with_default_allowlist();
     assert_eq!(
         registry.status_of("openems-rest"),
         Ok(AdapterStatus::Implemented)
     );
-    assert_eq!(registry.status_of("generic-rest"), Ok(AdapterStatus::Reserved));
+    for id in [
+        "ieee-2030.5",
+        "openadr-vtn",
+        "modbus-client",
+        "dnp3-outstation",
+        "mqtt-sparkplug-uplink",
+        "cim-cgmes-import",
+    ] {
+        assert!(
+            matches!(registry.status_of(id), Ok(AdapterStatus::Planned { .. })),
+            "{id} is PLANNED"
+        );
+    }
+    // The removed placeholder is not allowlisted at all.
     assert_eq!(
-        registry.status_of("generic-rest").unwrap().describe(),
-        "RESERVED (not implemented; placeholder slot)"
+        registry.status_of("generic-rest"),
+        Err(RegistryError::NotAllowlisted { id: "generic-rest".to_string() })
     );
 }
 

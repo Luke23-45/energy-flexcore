@@ -1,0 +1,42 @@
+# P19.09 — cargo-audit configuration (NEW file; WRITTEN-UNRUN).
+# Owning record:
+# docs/phases-11-20/phase-19-security-certification-compliance/records/09_p19_09_dependency_auditing_rollout.md
+#
+# RUN-STATUS HONESTY: cargo-audit has NEVER run against this workspace
+# (no Cargo.lock exists yet — the P10.19 §1 posture). The first human
+# `cargo audit` run is the verification point and may false-fail or
+# surface findings; zero findings are never claimed from an unrun config.
+#
+# Grammar honesty: this file follows the cargo-audit config convention
+# (.audit.toml next to Cargo.toml). The exact grammar is UNVERIFIED
+# against the tool's documentation and is checked at the first human
+# run — a mismatch is a fix of THIS file, never a silent workaround of
+# a finding.
+#
+# Relationship to deny.toml: deny.toml (P6.27) stays BYTE-IDENTICAL and
+# remains the cargo-deny policy (licenses / bans / sources / advisories
+# under cargo-deny). This file configures only cargo-audit's RustSec
+# advisory scan. The two tools are complementary coverage, not a fork:
+# the deny.toml `[advisories]` posture (yanked = "deny", empty ignore
+# list) carries over here — advisories are never silenced without a
+# dated, owned record and an expiry (record 09 §4 C-3).
+
+[advisories]
+# The advisory database. The RustSec default; recorded explicitly so a
+# run cannot silently consult an unexpected mirror.
+db-urls = ["https://github.com/RustSec/advisory-db.git"]
+
+# No suppressed advisories. There has never been a scan, so there is no
+# finding to suppress. Any future entry MUST carry, as a comment beside
+# it: the date, the owner, the reason, and the expiry — an entry without
+# those four is invalid (record 09 §4 C-3; the P6.27 ignore-list
+# posture, carried).
+ignore = []
+
+# Fail-closed severities: a run with an unfixable vulnerability or a
+# yanked crate in the tree exits non-zero (matching the deny.toml
+# yanked = "deny" posture). Unmaintained crates are warnings — they are
+# recorded findings, never silences.
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "deny"

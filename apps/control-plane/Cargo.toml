@@ -29,6 +29,34 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# P11.04 — OpenTelemetry SDK + OTLP export (Phase 11 wave 1, Agent A).
+# Signal maturity per [S-63]: metrics + logs Stable, traces Beta. Versions
+# checked against crates.io / the opentelemetry-rust releases page on
+# 2026-11-14 (opentelemetry 0.33.1 is the latest release tag; the SDK and
+# OTLP crates ship in coordinated 0.33.x waves; tracing-opentelemetry
+# 0.34.0 published 2026-09-23 depends on opentelemetry ^0.33.0 and
+# tracing ^0.1.35 — compatible with the workspace's tracing 0.1.44 /
+# tracing-subscriber 0.3.23). ASSUMPTION (recorded, records/
+# 04_p11_04_otel_tracing_rust.md): this pinned set compiles together —
+# verified ONLY at the first human build, which has never run.
+opentelemetry = { version = "0.33.1", features = ["trace"] }
+opentelemetry_sdk = { version = "0.33" }
+opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic", "logs"] }
+tracing-opentelemetry = "0.34.0"
+opentelemetry-appender-tracing = "0.33.1"
+# P13.02 — JWT validation for the OIDC identity resolver (oidc.rs, Phase 13
+# wave 1, Agent A). Pin: jsonwebtoken 11.1.0 — verified to exist on
+# crates.io on 2026-11-14 (published 2026-09-16; a 12.0.0 was published
+# 2026-11-13, one day before this edit, and was deliberately NOT taken:
+# a same-week 0.x→12 major line jump is not a reviewed pin). ASSUMPTION
+# (recorded, phase-13 records/02_p13_02_oidc_token_validation.md): this
+# pin compiles together with the workspace (MSRV 1.88 per the crate page)
+# and the API surface the resolver uses (decode_header, Validation
+# set_issuer/set_audience/leeway, DecodingKey::from_jwk, JwkSet::find) —
+# verified ONLY at the first human build, which has never run. No other
+# new dependency was added: the JWKS fetch is an injected port (no HTTP
+# client in the resolver), keeping network behavior out of this repo.
+jsonwebtoken = "11.1.0"
 flexcore-contracts = { workspace = true }
 flexcore-domain = { workspace = true }
 flexcore-ports = { workspace = true }

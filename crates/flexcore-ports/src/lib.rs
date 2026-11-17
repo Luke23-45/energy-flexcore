@@ -23,6 +23,8 @@
 //! | [`telemetry_ingest`] | P2.09/P2.10 | The ingest-side write port: `TelemetryIngestStore` (batch insert with the P2.09 exact-vs-conflicting duplicate classification, quarantine evidence writes, latest-by-`event_time` current-state snapshot) and `IngestionInbox` (the P1.16 inbox pattern split into check/record halves for consumer-side idempotency) |
 //! | [`telemetry_read`] | P2.12/P2.17/P2.18 | The `TelemetryReader` port — the read side of the canonical telemetry store: keyset-paginated time-range query (cursor decided once: the `(event_time, asset_id, quantity)` sort key), the P2.18 latest-by-`event_time` current state, and the P2.07 quarantine read. Tenant-scoped by construction. The Postgres implementation on the unit-of-work adapter is the recorded P2.06-adjacent gap; until it lands the only implementation is the test fake |
 //! | [`tenant_context_source`] | P0.16 rule 5 | The `TenantContextSource` port — the documented integration point for the P1.06 claims boundary (no implementation can exist until the domain exposes a claims constructor) |
+//! | [`weather_data`] | P15.03; §6.3 (ADR-010 extension) | The `WeatherDataProvider` port — site-scoped weather/irradiance observations and forecast series ingested as DATA with a closed quantity vocabulary (declared units), closed provenance classes, and the six-state quality vocabulary; vendor-neutral by construction (P15-E-1 names the vendor in deployment configuration, never in this port) |
+//! | [`price_signal`] | P15.04; §6.3 (ADR-010 extension) | The `PriceSignalSource` port — day-ahead/intra-day price series ingested as DATA with declared currency and full provenance; actual vs vendor-forecast kinds never conflated; READ-ONLY ingestion surface (no bid/offer/order or dispatch vocabulary anywhere — prices are inputs for later phases, never commands or bid inputs) |
 //! | [`fakes`] | P1.07 step 5 | In-memory test fakes: tenant-scoped repositories, outbox, fixed clock, counting ID generator, and the shared write journal used to evidence §6.3 ordering |
 //!
 //! # Rules this crate encodes
@@ -63,6 +65,7 @@ pub mod clock;
 pub mod event_outbox;
 pub mod fakes;
 pub mod id_generator;
+pub mod price_signal;
 pub mod repository;
 pub mod state_change;
 pub mod telemetry_ingest;
@@ -70,6 +73,7 @@ pub mod telemetry_read;
 pub mod telemetry_source;
 pub mod telemetry_source_contract;
 pub mod tenant_context_source;
+pub mod weather_data;
 
 #[cfg(test)]
 mod tests {
@@ -90,14 +94,16 @@ mod tests {
     // P2.27 note: this table must list EVERY source file of the crate. The
     // array length was 11 while twelve files were listed (a pre-existing
     // compile-blocking mismatch found while wiring telemetry_source_contract);
-    // the length is now 13 with the new module added.
-    const SOURCES: [(&str, &str); 13] = [
+    // the length is now 13 with the new module added, and 15 with the two
+    // Phase 15 ports (P15.03/P15.04).
+    const SOURCES: [(&str, &str); 15] = [
         ("lib.rs", include_str!("lib.rs")),
         ("backend_error.rs", include_str!("backend_error.rs")),
         ("clock.rs", include_str!("clock.rs")),
         ("event_outbox.rs", include_str!("event_outbox.rs")),
         ("fakes.rs", include_str!("fakes.rs")),
         ("id_generator.rs", include_str!("id_generator.rs")),
+        ("price_signal.rs", include_str!("price_signal.rs")),
         ("repository.rs", include_str!("repository.rs")),
         ("state_change.rs", include_str!("state_change.rs")),
         ("telemetry_ingest.rs", include_str!("telemetry_ingest.rs")),
@@ -108,6 +114,7 @@ mod tests {
         ),
         ("telemetry_read.rs", include_str!("telemetry_read.rs")),
         ("tenant_context_source.rs", include_str!("tenant_context_source.rs")),
+        ("weather_data.rs", include_str!("weather_data.rs")),
     ];
 
     #[test]
@@ -138,7 +145,11 @@ mod tests {
         use crate::telemetry_read::TelemetryReader;
         use crate::telemetry_ingest::{IngestionInbox, TelemetryIngestStore};
         use crate::tenant_context_source::TenantContextSource;
+        use crate::weather_data::WeatherDataProvider;
+        use crate::price_signal::PriceSignalSource;
 
+        fn takes_dyn_weather(_: &dyn WeatherDataProvider) {}
+        fn takes_dyn_price(_: &dyn PriceSignalSource) {}
         fn takes_dyn_clock(_: &dyn Clock) {}
         fn takes_dyn_ids(_: &dyn IdGenerator) {}
         fn takes_dyn_outbox(_: &dyn EventOutbox) {}
@@ -151,6 +162,8 @@ mod tests {
         fn takes_dyn_telemetry_ingest(_: &dyn TelemetryIngestStore) {}
         fn takes_dyn_ingest_inbox(_: &dyn IngestionInbox) {}
         fn takes_dyn_context(_: &dyn TenantContextSource) {}
+        let _ = takes_dyn_weather;
+        let _ = takes_dyn_price;
 
         // Referencing the functions keeps them compiled; the assertions hold
         // because the mere declarations above fail to compile if any trait

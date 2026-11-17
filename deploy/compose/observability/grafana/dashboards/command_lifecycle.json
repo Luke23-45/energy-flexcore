@@ -1,0 +1,88 @@
+{
+  "uid": "flexcore-command-lifecycle",
+  "title": "FlexCore — command lifecycle SLIs",
+  "description": "P11.09 dashboard-as-code (Phase 11 wave 1, Agent B). The command-lifecycle service's SLIs over the frozen 14-state lifecycle: every panel queries a family named in the P11.01 taxonomy record — no panel invents a metric, and no query invents a state (state names come from the frozen vocabulary only). WRITTEN-UNRUN.",
+  "tags": ["flexcore", "phase-11", "command-lifecycle"],
+  "schemaVersion": 39,
+  "editable": false,
+  "graphTooltip": 1,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Transitions by target state (flexcore_command_state_transitions_total)",
+      "description": "Only the 27 legal frozen edges render (the label pair is bounded by construction); VALIDATED and FEASIBLE never appear as targets (no event exists and none may be invented).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (to) (rate(flexcore_command_state_transitions_total[5m]))",
+          "legendFormat": "-> {{to}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Transitions by source state (flexcore_command_state_transitions_total)",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (from) (rate(flexcore_command_state_transitions_total[5m]))",
+          "legendFormat": "{{from}} ->"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Terminal-state ratio (derived, 1h)",
+      "description": "Transitions INTO the five frozen terminal states (COMPLETED, REJECTED, CANCELLED, SUPERSEDED, FALLBACK) over transitions to APPROVED — the P11.02 register's SLO 4 definition (APPROVED is the last gate a command cannot bypass), derived in the query per the P11.01 record, never stored as a second metric. FAILED and EXPIRED are NOT terminal (they exit only via FALLBACK).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(flexcore_command_state_transitions_total{to=~\"COMPLETED|REJECTED|CANCELLED|SUPERSEDED|FALLBACK\"}[1h])) / sum(rate(flexcore_command_state_transitions_total{to=\"APPROVED\"}[1h]))",
+          "legendFormat": "terminal ratio"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Accept latency — p95 (flexcore_command_accept_duration_milliseconds)",
+      "description": "The accept-latency SLI histogram from the P11.01 record (registered bucket set; le=\"500\" is the registered good-event threshold candidate, RECOMMENDATION).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(flexcore_command_accept_duration_milliseconds_bucket[5m])))",
+          "legendFormat": "p95 ms"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Stuck commands (flexcore_commands_stuck)",
+      "description": "Named in the P11.01 taxonomy record; the family is implemented in wave 2 (P11.20) and until then this panel renders no data — written honestly, never faked.",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "flexcore_commands_stuck",
+          "legendFormat": "stuck"
+        }
+      ]
+    }
+  ]
+}

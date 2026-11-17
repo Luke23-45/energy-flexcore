@@ -1,0 +1,42 @@
+# P17.01 — flexcore-ocpp-adapter manifest: the OCPP CSMS adapter crate.
+#
+# Composition-side crate (`tools/check_dependency_rule.py`, P14.01
+# classification): adapters may use infrastructure, but this crate
+# deliberately adds NONE. Dependency justification:
+# - flexcore-protocol-ports (P14.01): the common protocol scope declaration,
+#   capability manifest, and connection lifecycle every protocol adapter
+#   implements — this crate is the OCPP-CSMS instantiation.
+# - flexcore-domain: the protected 14-state command lifecycle
+#   (`command_state.rs`), the EVSE registry extension (`evse_registry.rs`,
+#   P17.04), and the smart-charging composer plan types
+#   (`ev_charging_composer.rs`, P17.05). The external-event mapping types its
+#   output with the real frozen `CommandState` (external input enters at
+#   PROPOSED only) and the relay mapping is typed so a charging profile can
+#   only be built from an ISSUED lifecycle state — the command-relay-only
+#   rule is enforced by types, not by convention (phase-17 context §3
+#   constraint 1; plan §7.4).
+# - serde / serde_json (workspace pins): the OCPP-J JSON framing codec and
+#   the message payload model types. The wire encoding is plain JSON over
+#   WebSocket per the OCPP-J rules [S-121] — every field name and message
+#   shape below carries an UNVERIFIED label naming the implementation-time
+#   check against the OCA specification text.
+#
+# What is deliberately absent: no WebSocket library (tokio-tungstenite-class
+# is NOT added), no TLS stack, no HTTP server framework. The WebSocket/OCPP-J
+# transport is a designed, named UNRUN seam (`csms.rs` `CsmsTransport`), like
+# the P14 adapter transports; implementing it is an implementation-time human
+# gate (decision record 01_p17_01_ocpp_csms_adapter_architecture.md §7). The
+# entire crate is WRITTEN-UNRUN model/skeleton code; no server has ever run,
+# no charge point has ever connected, no OCPP message has ever been exchanged
+# with a real device, and no conformance or certification claim is made.
+[package]
+name = "flexcore-ocpp-adapter"
+description = "OCPP CSMS adapter: OCPP-J JSON framing model types and codec, subprotocol negotiation, connection/session state machine, security Profile 3 onboarding types, boot/status/transaction mapping into the domain EVSE registry extension, and the SetChargingProfile payload mapping for the smart-charging composer (P17.01-P17.05)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-protocol-ports = { workspace = true }
+flexcore-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

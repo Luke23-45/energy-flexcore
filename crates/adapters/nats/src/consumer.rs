@@ -21,7 +21,9 @@
 // Poison path (P1.16 step 4, P1.14 §5.2): when a handler fails on a
 // delivery whose delivery count has reached the consumer's `max_deliver`,
 // the original message plus failure metadata is published to
-// `flexcore.dlq.v1.<area>.<event_slug>` (captured by `FLEXCORE_DLQ`), the
+// `flexcore.dlq.v1.<area>.<event_slug>` (captured by that area's
+// dedicated DLQ stream — P11.13 `topology::DLQ_STREAMS`; the unrouted
+// catch-all is `FLEXCORE_DLQ` on `flexcore.dlq.v1.unrouted`), the
 // original delivery is terminated (`+TERM`), and the quarantine is logged
 // at ERROR level and counted in [`ProcessReport`] (the P1.20 metric
 // hookup). **A poison message is never silently dropped.** A message
@@ -66,7 +68,7 @@ use async_nats::{client::Client, header::HeaderMap, header::NATS_MESSAGE_ID};
 use tokio::sync::watch;
 
 use crate::inbox::InboxStore;
-use crate::topology::{dlq_subject_for, DLQ_SUBJECT_PREFIX};
+use crate::topology::{dlq_subject_for, ConsumerPolicy, DLQ_SUBJECT_PREFIX};
 
 /// The JetStream pull API subject prefix (`$JS.API.CONSUMER.MSG.NEXT.
 /// <stream>.<consumer>`) — the documented pull protocol endpoint.
@@ -88,6 +90,21 @@ pub struct DeliveredMessage {
     /// The `Nats-Msg-Id` header value (the idempotency key, P1.15). `None`
     /// if absent — such a message is quarantined, never processed.
     pub idempotency_key: Option<String>,
+    /// The `flexcore-schema-version` header value (P11.13: the publisher
+    /// sets it on every publish via
+    /// [`crate::topology::published_message_headers`]). `None` when absent
+    /// — older messages published before the hardening package carry no
+    /// header; absence is surfaced, never guessed. Delivery metadata only:
+    /// the envelope's own `schema_version` field stays the authority.
+    pub schema_version: Option<String>,
+    /// The W3C `traceparent` header value (P11.05: the publisher's
+    /// trace-context seam injects it when a span context exists). Read
+    /// for the P11.12 consumer per the record 05 handoff: the value is
+    /// carried OPAQUELY — an absent or unparseable header means "no
+    /// inherited context" and is NEVER synthesized into a trace id here.
+    /// NATS message header names are case-insensitive, matching the W3C
+    /// lookup convention.
+    pub traceparent: Option<String>,
     /// The message payload (the serialized event, verbatim).
     pub payload: Vec<u8>,
     /// The delivery count (1-based, from the ack-reply subject layout).
@@ -147,7 +164,7 @@ pub enum ProcessOutcome {
     /// The handler failed below `max_deliver`; the message was NAKed for
     /// prompt redelivery.
     RetryScheduled,
-    /// The message was quarantined to `FLEXCORE_DLQ` and terminated —
+    /// The message was quarantined to the DLQ family streams and terminated —
     /// logged at ERROR and counted, never silently dropped.
     Quarantined,
 }
@@ -213,7 +230,58 @@ impl ConsumerConfig {
             ..Default::default()
         }
     }
+
+    /// P11.13 — MaxDeliver alignment check (the hardening package's first
+    /// item [S-65]): the helper's redelivery budget MUST equal the
+    /// provisioned consumer policy's. A mismatch means either the server
+    /// terminates the final delivery first (the
+    /// `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>` advisory stream
+    /// becomes the only signal) or this helper terminates deliveries the
+    /// server would have retried. Callers that build the config through
+    /// [`Self::from_policy`] are aligned by construction; callers that
+    /// assemble the config field-by-field (the composition root's explicit
+    /// style) MUST call this before the consumer starts, and the
+    /// composition root fails fast on the error.
+    pub fn validate_against_policy(
+        &self,
+        policy: &ConsumerPolicy,
+    ) -> Result<(), MaxDeliverMismatch> {
+        if self.max_deliver != policy.max_deliver {
+            return Err(MaxDeliverMismatch {
+                durable_name: self.durable_name.clone(),
+                helper_max_deliver: self.max_deliver,
+                provisioned_max_deliver: policy.max_deliver,
+            });
+        }
+        Ok(())
+    }
 }
+
+/// P11.13 — the named alignment error. Fail-fast input for the
+/// composition root; never silently corrected here (a silent correction
+/// would hide a provisioning drift).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaxDeliverMismatch {
+    /// The durable consumer whose budgets disagree.
+    pub durable_name: String,
+    /// The helper config's redelivery budget.
+    pub helper_max_deliver: i64,
+    /// The provisioned policy's redelivery budget.
+    pub provisioned_max_deliver: i64,
+}
+
+impl std::fmt::Display for MaxDeliverMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "MaxDeliver mismatch for consumer {}: helper config {}, provisioned policy {} — \
+             align the two budgets (helper and provisioned policy must agree)",
+            self.durable_name, self.helper_max_deliver, self.provisioned_max_deliver
+        )
+    }
+}
+
+impl std::error::Error for MaxDeliverMismatch {}
 
 // VERIFY-BUILD: two async-nats 0.50.0 behaviours this module relies on,
 // both checked against the 0.50.0 docs and to be re-confirmed mechanically
@@ -292,6 +360,22 @@ impl<'a> IdempotentConsumer<'a> {
             .as_ref()
             .and_then(|h| h.get(NATS_MESSAGE_ID))
             .map(|value| value.as_str().to_string());
+        // P11.13: read the schema-version delivery header when present. An
+        // unparsable value is surfaced verbatim (the quarantining caller
+        // decides); nothing here fails on it.
+        let schema_version = message
+            .headers
+            .as_ref()
+            .and_then(|h| h.get(crate::topology::SCHEMA_VERSION_HEADER))
+            .map(|value| value.as_str().to_string());
+        // P11.05 handoff (record 05 §1): the W3C traceparent header is
+        // carried opaquely — no parse, no synthesis; NATS header lookup
+        // is case-insensitive (the W3C convention).
+        let traceparent = message
+            .headers
+            .as_ref()
+            .and_then(|h| h.get("traceparent"))
+            .map(|value| value.as_str().to_string());
         let reply = message.reply.as_ref().map(|s| s.to_string());
         let delivery_count = message
             .reply
@@ -300,6 +384,8 @@ impl<'a> IdempotentConsumer<'a> {
         DeliveredMessage {
             subject: message.subject.to_string(),
             idempotency_key,
+            schema_version,
+            traceparent,
             payload: message.payload.to_vec(),
             delivery_count,
             reply,
@@ -400,7 +486,8 @@ impl<'a> IdempotentConsumer<'a> {
     }
 
     /// The poison path: original message + failure metadata →
-    /// `flexcore.dlq.v1.<area>.<event_slug>` (captured by `FLEXCORE_DLQ`),
+    /// `flexcore.dlq.v1.<area>.<event_slug>` (captured by the area's
+    /// dedicated DLQ stream, P11.13),
     /// then `+TERM` the original delivery, then log at ERROR. Returns
     /// [`ProcessOutcome::Quarantined`].
     ///
@@ -426,6 +513,9 @@ impl<'a> IdempotentConsumer<'a> {
             "original_subject": message.subject,
             "idempotency_key": idempotency_key,
             "delivery_count": message.delivery_count,
+            // P11.13: the schema-version delivery header, surfaced verbatim
+            // (`None` when the message predates the hardening package).
+            "schema_version": message.schema_version,
             "last_error": last_error,
             "quarantined_at_unix_millis": quarantined_at_millis,
             // The serialized event, verbatim (lossy UTF-8 — events are
@@ -467,7 +557,7 @@ impl<'a> IdempotentConsumer<'a> {
             idempotency_key = idempotency_key.unwrap_or("<none>"),
             delivery_count = message.delivery_count,
             last_error = %last_error,
-            "POISON MESSAGE quarantined to FLEXCORE_DLQ (never silently dropped)"
+            "POISON MESSAGE quarantined to the DLQ family streams (never silently dropped)"
         );
         Ok(ProcessOutcome::Quarantined)
     }
@@ -570,6 +660,36 @@ fn parse_delivery_count(reply: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::topology::ConsumerPolicy;
+
+    /// P11.13 — the alignment check accepts the from_policy construction
+    /// by definition and rejects a field-by-field drift by name.
+    #[test]
+    fn max_deliver_alignment_is_checked_against_the_policy() {
+        let policy = ConsumerPolicy {
+            durable_name: "registry-worker-v1".to_string(),
+            stream: crate::topology::STREAM_REGISTRY.to_string(),
+            filter_subject: "flexcore.v1.registry.>".to_string(),
+            ack_wait: Duration::from_secs(30),
+            max_deliver: 5,
+            max_ack_pending: 100,
+        };
+        let aligned = ConsumerConfig::from_policy(&policy);
+        assert_eq!(aligned.validate_against_policy(&policy), Ok(()));
+
+        let drifted = ConsumerConfig {
+            max_deliver: 3,
+            ..ConsumerConfig::from_policy(&policy)
+        };
+        assert_eq!(
+            drifted.validate_against_policy(&policy),
+            Err(MaxDeliverMismatch {
+                durable_name: "registry-worker-v1".to_string(),
+                helper_max_deliver: 3,
+                provisioned_max_deliver: 5,
+            })
+        );
+    }
 
     #[test]
     fn delivery_count_parses_from_ack_reply_layout() {

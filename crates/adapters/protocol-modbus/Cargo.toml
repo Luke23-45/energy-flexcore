@@ -1,0 +1,28 @@
+# P14.07 — SunSpec Modbus client adapter models: information-model types
+# (101/103 inverters, 201/203 meters, 80x battery models), a register-map
+# registry keyed per device model, gateway polling budgets, unit conversion
+# at the adapter boundary, and the Modbus TCP/RTU transport SEAM.
+#
+# Dependency policy (tools/check_dependency_rule.py): ADAPTER crate
+# (composition side, like crates/adapters/nats). Minimal dependency set —
+# flexcore-contracts for the canonical unit types (MW/MVAr/MWh/SOC with the
+# declared reactive sign convention; the conversion lives in src/units_map.rs
+# and its tests), serde for model serialization. NO Modbus stack library,
+# NO serial/TCP runtime: the wire transport is a designed seam
+# (src/transport.rs) — the model layers are real code, the transports are
+# never connected in this program.
+
+[package]
+name = "flexcore-modbus-adapter"
+description = "SunSpec Modbus client adapter models: information models, register-map registry, polling budgets, unit conversion, transport seam (P14.07)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-protocol-ports = { workspace = true }
+serde = { workspace = true }
+flexcore-contracts = { workspace = true }
+
+[dev-dependencies]
+# The conversion tests (tests/register_conversion.rs) use only the crates
+# above — no additional dev dependency is permitted.

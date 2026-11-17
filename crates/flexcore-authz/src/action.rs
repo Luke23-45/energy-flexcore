@@ -146,6 +146,69 @@ pub enum Action {
     /// records, tenant-scoped like every record they derive from; there is
     /// NO alarm acknowledge, create, or delete action on this surface).
     AlarmRead,
+
+    // --- Phase 13 additions (P13.08/P13.05; closed-enum extension rule: a
+    // variant, its `id` arm, its `parse` arm, and explicit policy grants —
+    // nothing matches by default; the recorded Phase 13 grants live in
+    // `crate::phase13_policies`. Evaluated at TENANT scope only: API keys
+    // are tenant-scoped credentials, and no tenant-level approval grant is
+    // implied by any of these — `command.approve`'s recorded grant set is
+    // untouched) --------------------------------------------------------------
+    /// Create (issue) a per-tenant API key (P13.08). Tenant scope.
+    ApiKeyCreate,
+    /// Rotate (re-issue) a per-tenant API key (P13.08: the old secret is
+    /// superseded with a recorded overlap window). Tenant scope.
+    ApiKeyRotate,
+    /// Revoke a per-tenant API key — immediate (P13.08). Tenant scope.
+    ApiKeyRevoke,
+    /// Read API-key metadata — key id, scopes, state, rotation and
+    /// last-used evidence; NEVER the secret (P13.08: the secret is shown
+    /// once at issuance/rotation and is not stored retrievable). Tenant
+    /// scope.
+    ApiKeyRead,
+
+    // --- Phase 16 additions (P16.19/P16.22; closed-enum extension rule: a
+    // variant, its `id` arm, its `parse` arm, and explicit policy grants —
+    // nothing matches by default; the recorded Phase 16 market grants live
+    // in `crate::phase16_market_policies`. Evaluated at TENANT scope only:
+    // market participation is a per-tenant, jurisdiction-named posture, and
+    // the `market.*` set authorizes RECORD and GRANT-ADMINISTRATION work —
+    // it NEVER touches dispatch. The P14.16 command-relay-only rule is
+    // consumed by citation (see `phase16_market_policies`): a market
+    // adapter reaches dispatch ONLY through the command lifecycle, so no
+    // `market.dispatch.*` action exists on this surface and none may be
+    // added. The per-market bid grant is the P16.06 `MarketBidGrant` RECORD
+    // (flexcore-application::bid_composition), checked by the composer —
+    // these actions authorize grant ADMINISTRATION, they never replace
+    // that record-level check) ---------------------------------------------
+    /// Read ingested market price records (P16.07 record layer). Tenant
+    /// scope. A price record is ingested data — never a command (ADR-010).
+    MarketPriceRead,
+    /// Compose an aggregation-level bid RECORD from asset envelopes (the
+    /// P16.06 composition service). Tenant scope. Composing is a RECORD
+    /// action — no bid is submitted and none can be (`NO_BID_SUBMITTED_
+    /// STATEMENT`); submission would additionally require a jurisdiction
+    /// adapter (ADR-011) and a named counterparty (D1, OPEN). The
+    /// composer separately requires operator-approved mode plus an ACTIVE
+    /// `MarketBidGrant` (P16.06).
+    MarketBidCompose,
+    /// Issue an explicit per-market bid grant — a NEW `MarketBidGrant`
+    /// record (P16.06's grant model). Tenant scope. Grant administration
+    /// is an administrative action (PlatformAdmin/TenantAdmin by the
+    /// recorded default grants).
+    MarketGrantIssue,
+    /// Revoke an explicit per-market bid grant (record the REVOKED state
+    /// — the supersede model; the old grant row is retained). Tenant
+    /// scope.
+    MarketGrantRevoke,
+    /// Read per-market grant records (state, validity, market-structure
+    /// coverage). Tenant scope.
+    MarketGrantRead,
+    /// Read ingested settlement statement records and reconciliation
+    /// reports (P16.09/P16.12 record layer). Tenant scope. Reading
+    /// settlement evidence never adjusts, settles, or writes back — the
+    /// engine's only output is dispute evidence.
+    MarketSettlementRead,
 }
 
 impl Action {
@@ -182,6 +245,16 @@ impl Action {
             Action::FeasibilityRead => "feasibility.read",
             Action::AuditEventRead => "audit.event.read",
             Action::AlarmRead => "alarm.read",
+            Action::ApiKeyCreate => "apikey.create",
+            Action::ApiKeyRotate => "apikey.rotate",
+            Action::ApiKeyRevoke => "apikey.revoke",
+            Action::ApiKeyRead => "apikey.read",
+            Action::MarketPriceRead => "market.price.read",
+            Action::MarketBidCompose => "market.bid.compose",
+            Action::MarketGrantIssue => "market.grant.issue",
+            Action::MarketGrantRevoke => "market.grant.revoke",
+            Action::MarketGrantRead => "market.grant.read",
+            Action::MarketSettlementRead => "market.settlement.read",
         }
     }
 
@@ -220,6 +293,16 @@ impl Action {
             "feasibility.read" => Some(Action::FeasibilityRead),
             "audit.event.read" => Some(Action::AuditEventRead),
             "alarm.read" => Some(Action::AlarmRead),
+            "apikey.create" => Some(Action::ApiKeyCreate),
+            "apikey.rotate" => Some(Action::ApiKeyRotate),
+            "apikey.revoke" => Some(Action::ApiKeyRevoke),
+            "apikey.read" => Some(Action::ApiKeyRead),
+            "market.price.read" => Some(Action::MarketPriceRead),
+            "market.bid.compose" => Some(Action::MarketBidCompose),
+            "market.grant.issue" => Some(Action::MarketGrantIssue),
+            "market.grant.revoke" => Some(Action::MarketGrantRevoke),
+            "market.grant.read" => Some(Action::MarketGrantRead),
+            "market.settlement.read" => Some(Action::MarketSettlementRead),
             _ => None,
         }
     }
@@ -266,6 +349,21 @@ mod tests {
             Action::AuditEventRead,
             // P5.31 addition (the /alarms read resource).
             Action::AlarmRead,
+            // P13.08 additions (the API-key administration surface; tenant
+            // scope only; the secret is never readable).
+            Action::ApiKeyCreate,
+            Action::ApiKeyRotate,
+            Action::ApiKeyRevoke,
+            Action::ApiKeyRead,
+            // P16.19 additions (the market surface; tenant scope only; the
+            // record + grant-administration actions — no dispatch, no
+            // submission).
+            Action::MarketPriceRead,
+            Action::MarketBidCompose,
+            Action::MarketGrantIssue,
+            Action::MarketGrantRevoke,
+            Action::MarketGrantRead,
+            Action::MarketSettlementRead,
         ] {
             assert_eq!(Action::parse(action.id()), Some(action));
         }
@@ -289,10 +387,29 @@ mod tests {
         assert_eq!(Action::parse("alarm.write"), None);
         assert_eq!(Action::parse("alarm.acknowledge"), None);
         assert_eq!(Action::parse(""), None);
+        // P13.08: the API-key surface has no secret-read action (the
+        // never-granted `secret.read` name stays off the surface — the
+        // apikey.* set administers keys, it never reads key material) and
+        // no approval action (approvals are `command.approve`'s alone).
+        assert_eq!(Action::parse("apikey.secret"), None);
+        assert_eq!(Action::parse("apikey.approve"), None);
+        assert_eq!(Action::parse("apikey.issue"), None);
         // The §5.7 capability names that must never enter this surface parse
         // to nothing, so they can only ever produce Deny(UnknownAction).
         assert_eq!(Action::parse("command.issue"), None);
         assert_eq!(Action::parse("command.auto_approve"), None);
         assert_eq!(Action::parse("commands.approve"), None);
+        // P16.19: the market surface is RECORD + GRANT-ADMINISTRATION only.
+        // There is no bid-submission action (no bid is submitted — none can
+        // be), no market dispatch action (the P14.16 command-relay-only
+        // rule: a market adapter reaches dispatch ONLY through the command
+        // lifecycle), and no market approval action (approvals are
+        // `command.approve`'s alone).
+        assert_eq!(Action::parse("market.bid.submit"), None);
+        assert_eq!(Action::parse("market.dispatch.relay"), None);
+        assert_eq!(Action::parse("market.dispatch.authorize"), None);
+        assert_eq!(Action::parse("market.bid.approve"), None);
+        assert_eq!(Action::parse("market.settlement.write"), None);
+        assert_eq!(Action::parse("market.settlement.adjust"), None);
     }
 }

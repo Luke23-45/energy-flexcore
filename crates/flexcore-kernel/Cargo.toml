@@ -36,3 +36,14 @@ edition.workspace = true
 
 [dependencies]
 serde_json = { workspace = true }
+# P14.16 — the adapter permission model (additive): the kernel consumes the
+# wave-1 common protocol-adapter port layer (`flexcore-protocol-ports`,
+# P14.01) to wire per-adapter capability manifests into kernel profiles and
+# re-enforce the command-relay-only rule at the kernel boundary (decision
+# record docs/phases-11-20/phase-14-protocol-device-connectivity/records/
+# 64_p14_16_adapter_permission_model.md). The kernel is a COMPOSITION crate
+# (`tools/check_dependency_rule.py`): core crates never depend on it, so
+# this edge composes the core protocol-ports layer without changing any
+# core crate's allowed-edge set. The never-granted permission set in
+# `src/manifest.rs` is untouched and stays byte-identical.
+flexcore-protocol-ports = { workspace = true }

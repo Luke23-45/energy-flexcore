@@ -205,6 +205,80 @@ pub mod shadow_evaluation;
 // file-ownership agreement.
 pub mod dispatch_security;
 
+// P15.01 — the forecasting architecture record: the forecasts-as-inputs
+// boundary (ADR-010 extension as an architecture record), the forecast
+// artifact types (load/PV/price, per site/portfolio) and horizons
+// (DA/intra-day), the producer permission gate
+// (`telemetry.read`/`forecast.publish` only — no dispatch permission),
+// and the provenance + signing mirror of the P8.32 model-artifact signing
+// layer (typed; fail-closed default verifier). Appended additively per
+// the phase subtask file-ownership agreement.
+pub mod forecast_architecture;
+
+// P15.02 — the load forecasting service design: persistence,
+// seasonal-naive, and degree-day regression baselines as deterministic,
+// registry-frozen references (the P8.06 freeze discipline applied to
+// forecasting); EXPLICIT no-skill claims until an evaluation run (P15.05);
+// the P3.10 SYNTHETIC_BASELINE_DISCLAIMER superseded only by evaluated
+// baselines, never silently. Appended additively per the same agreement.
+pub mod forecast_baselines;
+
+// P15.03 — the PV generation forecasting design: weather-input
+// requirements against the vendor-neutral weather port
+// (flexcore-ports::weather_data), UNTRAINED model declarations, and the
+// P15-E-1 build-vs-buy binding (vendor naming is a RECOMMENDATION label,
+// never a register source; no vendor integration without the
+// E-decision). Appended additively per the same agreement.
+pub mod forecast_pv;
+
+// P15.05 — the forecast evaluation framework (the X-8 extension): the
+// metric vocabulary (MAE, RMSE, skill score vs persistence), the frozen
+// backtesting protocol, pre-registered thresholds, and the STRUCTURAL
+// emptiness of every result cell (the run-gate type has no public
+// constructor — a filled record is unconstructable in-program). Appended
+// additively per the same agreement.
+pub mod forecast_evaluation;
+
+// P15.06 — the model registry and forecast-artifact versioning:
+// append-only + digest-chained, model→artifact lineage validated at
+// registration, replay determinism (BTreeMap, injected timestamps),
+// UNTRAINED as a first-class registered state, and
+// registry-change-is-a-new-version. Appended additively per the same
+// agreement.
+pub mod model_registry;
+
+// P15.12 — fleet health scoring: deviation-from-normal models per asset
+// class, alarm normalization into prioritized issues, and availability
+// KPIs independent of O&M (the Nispera pattern [S-53] as a DESIGN
+// reference). Scores are RECORDS feeding operator views — never dispatch
+// inputs (ADR-010 extension). Appended additively per the phase subtask
+// file-ownership agreement (wave 2, Agent A).
+pub mod fleet_health;
+
+// P15.13 — telemetry-drift detection: reporting-rate expectations and
+// value plausibility bounds per asset class (twin-lite — explicitly NOT
+// grid state estimation [S-168]); every input is a NormalizedTelemetry
+// record from the EXISTING Phase-2 TelemetrySource port — no parallel
+// ingestion path; drift verdicts never rewrite quality states.
+// Appended additively per the same agreement.
+pub mod telemetry_drift;
+
+// P15.14 — per-asset calibrated model records: declared thermal and
+// efficiency model RECORDS with provenance (never fitted claims); the
+// Phase 2 simulator profile's recorded absence ("no temperature,
+// degradation, or state-of-health model") superseded AS RECORDED
+// PARAMETERS — the profile file itself is untouched. Appended additively
+// per the same agreement.
+pub mod calibrated_model_records;
+
+// P15.16 — forecast-to-schedule integration: envelopes and
+// rolling-horizon scheduling consume real forecasts with the P3.13
+// staleness discipline (composed, never restated), falling back LOUDLY
+// to the P15.02 persistence baseline on staleness; the P3.31 fixture
+// stays the labeled synthetic fallback source. Appended additively per
+// the same agreement.
+pub mod forecast_integration;
+
 mod event_assembly;
 
 pub use availability::{
@@ -376,3 +450,244 @@ pub use shadow_evaluation::{
     ShadowEvaluationError, ShadowOverallVerdict, ShadowReport, NOTHING_ISSUED_STATEMENT,
     SHADOW_EVIDENCE_STATUS, SHADOW_LIMITS_STATEMENT, SHADOW_METHOD_STATEMENT,
 };
+
+// P15.01–P15.06 — the forecasting core (wave 1, Agent A), appended
+// additively per the phase subtask file-ownership agreement.
+pub use forecast_architecture::{
+    validate_forecast_producer_permissions, verify_forecast_artifact, ForecastArtifactKind,
+    ForecastArtifactProvenance, ForecastDigestVerdict,
+    ForecastHorizon, ForecastPermissionError, ForecastProvenanceError, ForecastProvenanceVerdict,
+    ForecastScope, NoForecastVerifier, UnsafeTestOnlyForecastDigest,
+    FORECAST_DIGEST_ALGORITHMS, FORECAST_DIGEST_ALGORITHM_SHA256, FORECAST_PRODUCER_PERMISSIONS,
+    FORECAST_PROVENANCE_SCHEMA_ID, FORECAST_REFUSAL_ALGORITHM_MISMATCH,
+    FORECAST_REFUSAL_DIGEST_MISMATCH, FORECAST_REFUSAL_REF_MISMATCH,
+    FORECAST_REFUSAL_UNSIGNED, FORECAST_REFUSAL_VERIFIER_REFUSED, FORECASTING_ARCHITECTURE_STATEMENT,
+    KERNEL_PERMISSION_ALIGNMENT_SEAM, NEVER_GRANTED_PERMISSIONS_MIRROR,
+};
+pub use forecast_baselines::{
+    degree_day_predict, fit_degree_day_regression, persistence_forecast, seasonal_naive_forecast,
+    forecast_baseline_registry, DegreeDayFit, DegreeDaySample, ForecastBaselineError,
+    ForecastBaselineKind, ForecastBaselineRecord, ForecastFreezeError, FrozenForecastBaseline,
+    BASELINE_SUPERSESSION_RULE, FORECAST_BASELINE_REGISTRY_VERSION, NO_SKILL_STATEMENT,
+    P3_10_SYNTHETIC_BASELINE_DISCLAIMER_MIRROR,
+};
+pub use forecast_evaluation::{
+    mean_absolute_error, pointwise_errors, root_mean_squared_error, skill_score_vs_persistence,
+    BacktestWindow, BacktestWindowError, EvaluationRunGate, EvaluationRunRecord, ForecastMetric,
+    ForecastMetricError, RegisteredThreshold, ThresholdDirection, ThresholdError,
+    EVALUATION_STATEMENT, FORECAST_EVAL_SET_ID, FORECAST_EVAL_SET_VERSION,
+};
+pub use forecast_pv::{
+    pv_model_design_registry, PvDeclarationError, PvForecastModelDeclaration, PvModelDesignTrainingState,
+    PvScopeClass, PvWeatherInput, NO_VENDOR_FIELD_STATEMENT, P15_E_1_STATUS,
+    PV_FORECAST_DESIGN_STATEMENT,
+};
+pub use model_registry::{
+    registry_content_digest, ModelRegistry, RegistryEntry, RegistryEntryKind, RegistryError,
+    TrainingState, EMPTY_CHAIN_HEAD_DIGEST, MODEL_REGISTRY_STATEMENT, MODEL_REGISTRY_VERSION,
+};
+
+// P15.12–P15.14, P15.16 — the wave-2 Agent A application modules
+// (health/records/integration), appended additively per the phase
+// subtask file-ownership agreement.
+pub use fleet_health::{
+    availability_kpi, base_priority, evaluate_deviation, normalize_alarms,
+    AvailabilityKpiRecord, DeviationObservation, FleetHealthError, HealthDeviationRecord,
+    IssuePriority, NormalExpectation, PrioritizedIssue,
+    AVAILABILITY_KPI_INDEPENDENCE_STATEMENT, HEALTH_SCORE_IS_A_RECORD_STATEMENT,
+    NISPERA_PATTERN_STATEMENT, NORMAL_REFERENCE_IS_DECLARED_STATEMENT,
+};
+pub use telemetry_drift::{
+    evaluate_plausibility, evaluate_plausibility_run, evaluate_reporting_rate,
+    DriftError, PlausibilityBounds, PlausibilityViolation, RateDriftKind,
+    RateDriftVerdict, ReportingRateDriftRecord, ReportingRateExpectation,
+    DRIFT_RECORD_IS_NOT_A_COMMAND_STATEMENT, NO_PARALLEL_INGESTION_STATEMENT,
+    QUALITY_NON_INTERFERENCE_STATEMENT, TWIN_LITE_NOT_STATE_ESTIMATION_STATEMENT,
+};
+pub use calibrated_model_records::{
+    DeclaredConstantEfficiency, DeclaredEfficiencyCurve, DeclaredParameter,
+    DeclaredThermalModel, EfficiencyBreakpoint, ModelRecordError,
+    CALIBRATED_MODEL_RECORD_SCHEMA_VERSION, DECLARED_NOT_FITTED_STATEMENT,
+    MODEL_RECORD_IS_NOT_A_COMMAND_STATEMENT, SIMULATOR_PROFILE_SUPERSESSION_STATEMENT,
+};
+pub use forecast_integration::{
+    roll_trigger_for_fallback, select_forecast_source, fixture_fallback_reference,
+    FallbackReason, ForecastSourceConfig, ForecastSourceDecision, PublishedForecastRef,
+    DEFAULT_FORECAST_MAX_AGE_MILLIS, FALLBACK_IS_NOT_A_COMMAND_STATEMENT,
+    FORECAST_TO_SCHEDULE_STATEMENT, STALENESS_REUSE_STATEMENT,
+};
+
+// P16.07 — price-signal ingestion RECORD layer (Agent B, wave 1): the
+// DA/RT market price records over the P15.04 seam (consumed, never
+// redefined), the two-copies discipline (analytics f64 vs
+// settlement-adjacent decimal — never merged), the ISO
+// price-publication SEAM (declared, unwired, [S-94] class), and the
+// exact fixed-decimal money type every settlement-adjacent record
+// shares (no float money — plan §4). Prices are inputs, never commands
+// (ADR-010). Appended additively per the phase subtask file-ownership
+// agreement.
+pub mod fixed_decimal;
+pub mod market_price_records;
+
+// P16.08 — telemetry export pipeline DESIGN record (Agent B, wave 1):
+// per-market export postures (ERCOT 2-second ICCP [S-100][S-101], NYISO
+// 6-second SCADA + SOC [S-105][S-106], PJM ≥10 MW posture [S-90]),
+// declared cadence budgets, the net-consumer normalization and
+// capacity-weighted ramp-rate aggregation as DECLARED formulas, and the
+// unwired export sink. No pipeline transmits; certification is a
+// human-gated lab process. Appended additively per the same agreement.
+pub mod telemetry_export_design;
+
+// P16.09 — settlement ingestion (Agent B, wave 1): jurisdiction
+// statement model types and parser SPECIFICATIONS with synthetic-fixture
+// grammars (PJM Manual 29 CSV/XML + MSRS/BLI [S-93]; CAISO 5-minute
+// SQMD [S-97]; EBGL Art. 52–55 15-minute ISP [S-107][S-108][S-109]) and
+// the statement→expected reconciliation engine with the dispute queue.
+// No real statement is parsed — none exists here. Appended additively
+// per the same agreement.
+pub mod settlement_models;
+pub mod settlement_reconciliation;
+
+// P16.10 — settlement-quality meter data (Agent B, wave 1): ANSI
+// C12.19/C12.20 class-0.2/0.5 expectations as DECLARED meter records
+// [S-31][S-33], the meter-device-resource mapping, and the dual-stream
+// rule — settlement-interval meter data and seconds-level telemetry are
+// distinct types with no conversion path [S-59][S-104]. Appended
+// additively per the same agreement.
+pub mod settlement_meter_data;
+
+// P16.11 — performance evidence capture (Agent B, wave 1): the evidence
+// RECORD types (signal-following, response timestamps, mileage as
+// published, SOC traces, precision-score inputs with the UNVERIFIED
+// RegUp/RegDn date marked [S-94][S-95]; German FCR 30 s / aFRR 5 min
+// evidence classes [S-119]). Evidence only — no score is claimed.
+// Appended additively per the same agreement.
+pub mod performance_evidence;
+
+// P16.12 — dispute workflow (Agent B, wave 1): line-item challenges
+// against the P16.09 reconciliation queue, chain-linked evidence-bundle
+// assembly (every entry carries a P11 chain-digest reference; the chain
+// is consumed, never redefined), and resolution records. No dispute
+// exists. Appended additively per the same agreement.
+pub mod dispute_workflow;
+
+// P16.01–P16.06 — the wave-1 Agent A market modules (the market-records
+// store lives in flexcore-storage; the domain model in flexcore-domain;
+// the three modules below are the application-layer engines). Appended
+// additively per the phase-16 wave-1 file-ownership agreement.
+// P16.04 — the program-configurable baseline engine (CBL 10-in-10 /
+// 5-in-10 / day-matching with day-type + weather filters and the capped
+// symmetric SDA, CAISO ≤20% [S-30]): the method is the PROGRAM'S declared
+// configuration (LR-073) — an unsupported method is a RECORDED GAP ROW,
+// never a silent approximation; determinism via the injected Clock and
+// BTreeMap ordering.
+pub mod baseline_engine;
+// P16.05 — M&V event reports: event performance against the program's
+// baseline, the same-day feedback pattern [S-43], evidence assembly from
+// interval data with the §10.4 quality states; every number is a
+// settlement-adjacent financial record (the P11 chain link is REQUIRED).
+pub mod mv_event_report;
+// P16.06 — the bid composition service: asset envelopes → aggregation-
+// level bids per market structure (PJM single aggregation node [S-90];
+// CAISO PDR two-ID load-shift [S-96]; ISO-NE DAM Asset tab [S-103]).
+// The envelope remains the physical truth layer; operator-approved mode
+// + an explicit per-market grant are REQUIRED before any bid is
+// composed; no bid is submitted — none can be.
+pub mod bid_composition;
+
+// P16.13–P16.18 — the wave-2 Agent A market modules (billing, payment
+// lifecycle, program events, capacity records, UK/EU LFM, jurisdiction
+// register). Appended additively per the phase-16 wave-2 file-ownership
+// agreement (records 41–47 under the phase records directory).
+// P16.13 — revenue-share billing basics: contract-configurable splits
+// (declared decimal-text shares summing to EXACTLY 100%), exact
+// pooled-revenue disaggregation per asset (checked integer mantissa
+// arithmetic — no division, no rounding, no float money), owner-
+// statement DRAFT/RECONCILED records (no ISSUED/SENT/DELIVERED state
+// exists), invoicing RECORDS (data only), and reconciliation back to
+// the ISO/DSO statements with the P16.09 queue reason codes. NOT a
+// retail CIS (plan §4; ADR-011).
+pub mod revenue_share_billing;
+// P16.14 — payment lifecycle transparency: the closed FORECASTED →
+// EARNED → PAID vocabulary per asset/program (the Voltus pattern
+// [S-47]), the frozen two-edge transition table, and every transition
+// chain-linked (the P11 audit-chain LINK + the previous-transition
+// identity; one currency per chain).
+pub mod payment_lifecycle;
+// P16.15 — program event management: the OpenADR event ↔ command-
+// lifecycle linkage (external events become PROPOSED commands per
+// asset, NEVER issued commands — the P14.05 mapping consumed by
+// citation; the entry state is a constant, not a field), fail-closed
+// opt-in/out handling (no decision = no candidate; the latest opt-out
+// wins), and the closed two-state M&V report-delivery records
+// [S-116][S-117].
+pub mod program_event_management;
+// P16.16 — capacity-market participation records, RECORD-ONLY depth:
+// qualification-evidence checklists for PJM RPM / ISO-NE FCA19 /
+// ISO-NE DECR, every date a SourcedDate (the re-verify-at-use rule is
+// structurally mandatory), and the LR-075 PJM date conflict resolved
+// BY RECORD (both sourced dates carried, neither selected). No
+// qualification is claimed — no QUALIFIED state exists anywhere.
+pub mod capacity_market_records;
+// P16.17 — UK/EU LFM integration design records: the Piclo
+// registration/tender/utilization/settlement flow DESIGNS (DECLARED
+// status only — no stage executes), availability- and utilization-
+// payment RECORD types (exact fixed-decimal money, currency as data;
+// no payment exists), and P483 dual-participation stacking records
+// naming the P16.02 stacking rule (the refusal lives in the
+// enrollment store, consumed by citation — R-P16-7).
+pub mod uk_lfm_records;
+// P16.18 — the market jurisdiction register (types): per-tenant
+// market enablement (NONE enabled by default; ENABLED_BY_D1 is
+// constructable ONLY with the human owner's decision reference and
+// the P11 audit-chain link), the closed enablement/posture
+// vocabularies, and the sourced-timeline rows. The checked-in data
+// lives in jurisdiction_register_data.
+pub mod jurisdiction_register;
+// P16.18 — the jurisdiction-register DATA file: ten checked-in
+// jurisdiction rows (CAISO, ISO-NE, NYISO, PJM, MISO, SPP, ERCOT
+// ADER, GB LFM, EU EBGL, FERC 2222 calendar) with sourced dates
+// verified as of the research cut-off, the NYISO/PJM conflicts
+// carried with notes on both sides, and ZERO enablement rows —
+// no market is enabled by default.
+pub mod jurisdiction_register_data;
+
+// P17.06 (application assembly) — vehicle-proposal ingestion: the mapping
+// of the adapter-relayed OCPP proposal messages (NotifyEVChargingNeeds /
+// NotifyEVChargingSchedule / NotifyChargingLimit / ClearedChargingLimit —
+// spellings UNVERIFIED [S-124][S-125]) onto the domain constraint records.
+// Proposals are inputs and records, NEVER auto-commands (the
+// ADR-010-EXT-01 pattern; the lifecycle entry state is structurally
+// PROPOSED). The OCPP CSMS adapter is Agent A's P17.01
+// `crates/adapters/protocol-ocpp/` inbound path — consumed BY CITATION
+// (decision record docs/phases-11-20/phase-17-ev-fleet-charging/records/
+// 21_p17_06_vehicle_proposal_ingestion.md).
+pub mod ev_proposal_ingest;
+// P17.07 (application mapping) — MeterValues ingestion: the per-quantity
+// reporting-cadence configuration, the MeterValuesSign hooks (the
+// Eichrecht-grade path; block letters UNVERIFIED against the OCA text;
+// the seam records OPAQUE signed values and NEVER verifies a signature or
+// claims compliance [S-135][S-136]), the adapter-boundary quality mapping
+// onto the FROZEN six-state vocabulary (undeclared codes are named
+// errors; hold-or-lower; the non-silencing rule intact), and the
+// measurand→quantity mapping. The worker wiring feeds the EXISTING P2.07
+// pipeline (apps/worker/src/ev_ingest.rs) — no parallel ingestion path
+// (decision record docs/phases-11-20/phase-17-ev-fleet-charging/records/
+// 22_p17_07_meter_values_ingestion.md).
+pub mod ev_meter_values_ingest;
+// P18.06 (phase 18, wave 1, Agent A) — the device-fleet STAGED ROLLOUT
+// ORCHESTRATOR (control plane): cohorts (canary first, declared order,
+// no skipping), pre-registered abort thresholds on cohort failure rates
+// (X-8 structural: a plan without registered parameters is refused at
+// plan time; the 5–10% canary band is a DEFAULT RECOMMENDATION, not a
+// sourced figure), per-device attestation before authorization, and
+// fleet-state visualization data. A NEW, separately-argued mechanism —
+// the kernel plugin-rollout policy (P7.38) stays cohort/percentage-free
+// BY CONSTRUCTION and byte-identical (scope-distinction record
+// docs/phases-11-20/phase-18-edge-fleet-lifecycle-ota/records/
+// 06_p18_06_rollout_orchestrator_scope_distinction.md). Cohort
+// membership and attestation verdicts are CONSUMED by citation from
+// Agent B's P18.12 fleet registry and P18.13 attestation policy through
+// injected ports (the dependency rule forbids core→composition edges).
+// No rollout has ever run; no cohort exists; no device was authorized.
+pub mod rollout_orchestrator;

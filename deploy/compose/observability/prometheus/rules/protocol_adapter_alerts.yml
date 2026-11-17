@@ -1,0 +1,106 @@
+# P14.21 — Protocol-adapter observability rules (Phase 14 wave 3, Agent A).
+#
+# ADDITIVE rule file (the P11 wave-1 rule files are the pattern; the
+# P11.09/P11.03/P11.13 files are untouched). Every metric family queried
+# below is defined EXACTLY ONCE, in
+# `crates/flexcore-protocol-ports/src/observability.rs` (the shared
+# P14.20/P14.21 vocabulary, decision records 83/84) — no rule invents a
+# metric, and no rule invents a label value:
+# - `adapter_id` label values are the composition registry's allowlisted
+#   adapter ids (the edge-agent registry's reviewed set);
+# - `state` label values are EXACTLY `ConnectionState::name()` (the
+#   five-state vocabulary of `flexcore-protocol-ports::connection` —
+#   CLOSED/CONNECTING/CONNECTED/DEGRADED/UNREACHABLE — consumed, never
+#   redefined);
+# - `direction` values are `inbound`/`outbound` (the shared closed set);
+# - `reason` values are the shared `RateRefusal` closed set;
+# - `policy` values are `fail_closed`/`drop_oldest_audited` (the shared
+#   closed set).
+#
+# WRITTEN-UNRUN: no live Prometheus has evaluated these rules in this
+# program, and NO adapter has ever rendered any of these families — the
+# 0–10 base is WRITTEN-UNRUN and no protocol connection exists (the
+# families render only when a real adapter composition lands and its
+# transport wires exist). Until then these rules are WRITTEN BUT CANNOT
+# FIRE — recorded honestly per the P11.03 pattern. The live evaluation
+# check and the alert-routing dry run are human gate inputs, recorded
+# UNRUN. Routing: the severity→channel mapping is operator configuration
+# (the P11-E-3 rule carries over; page/ticket labels only, unbranded).
+#
+# Every threshold below is a REGISTERED RECOMMENDATION (X-8 pre-
+# registration, written before any run that could measure against it)
+# pending operator sign-off; no capacity or normality claim attaches to
+# any value. The connection-state alarms bind the five-state vocabulary
+# because that vocabulary IS the connection honesty surface: UNREACHABLE
+# is page-class (a fleet protocol surface that cannot reach its peer is
+# an operational incident), DEGRADED is ticket-class (up but impaired;
+# the reason travels in the structured log, never in a label).
+groups:
+  - name: flexcore_protocol_adapter_connection_alerts
+    rules:
+      - alert: FlexCoreProtocolAdapterUnreachable
+        expr: sum by (adapter_id) (flexcore_protocol_adapter_connections{state="UNREACHABLE"}) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "A protocol adapter cannot reach its peer"
+          description: "Adapter {{ $labels.adapter_id }} reports the UNREACHABLE connection state (the five-state vocabulary of flexcore-protocol-ports::connection — consumed, never redefined). Page-class: a protocol surface that cannot reach its peer is an operational incident. RECOMMENDATION threshold > 0; the human-safe reason travels in the adapter's structured log line (adapter_id + trace_id, the P11.07 schema), never in a label."
+
+      - alert: FlexCoreProtocolAdapterDegraded
+        expr: sum by (adapter_id) (flexcore_protocol_adapter_connections{state="DEGRADED"}) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "A protocol adapter is up but impaired"
+          description: "Adapter {{ $labels.adapter_id }} reports the DEGRADED connection state. Ticket-class: the association is up but impaired; investigate via the adapter's structured log line. RECOMMENDATION threshold > 0."
+
+  - name: flexcore_protocol_adapter_backpressure_alerts
+    rules:
+      - alert: FlexCoreProtocolAdapterBudgetRefusals
+        expr: sum by (adapter_id) (rate(flexcore_protocol_adapter_messages_refused_total[15m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "A protocol adapter's declared budget is refusing messages"
+          description: "Adapter {{ $labels.adapter_id }} refused messages over the last 15m (reason labels come from the shared closed RateRefusal set — rate_exceeded / connection_limit_reached / queue_at_capacity / budget_not_declared). A budget refusal on a correctly-provisioned deployment is rare by design: budgets are declared per deployment and sized before operation. RECOMMENDATION threshold > 0/s sustained; investigate the named reason class, not the raw count."
+
+      - alert: FlexCoreProtocolAdapterQueueDrops
+        expr: sum by (adapter_id) (increase(flexcore_protocol_adapter_queue_dropped_total[1h])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "A protocol adapter's bounded queue dropped entries (audited)"
+          description: "Adapter {{ $labels.adapter_id }} dropped queue entries under its DECLARED drop_oldest_audited policy (fail-closed queues refuse instead and surface as budget refusals — the two policies never blur). The dropped entries are OLDEST-first and audited; at-least-once delivery downstream is unaffected by this alert, but sustained drops mean the declared queue capacity is undersized. RECOMMENDATION threshold > 0/h."
+
+      - alert: FlexCoreProtocolAdapterQueueDepthGrowing
+        expr: max by (adapter_id) (flexcore_protocol_adapter_queue_depth) > 1000
+        labels:
+          severity: ticket
+        annotations:
+          summary: "A protocol adapter's bounded queue is near its declared capacity"
+          description: "Adapter {{ $labels.adapter_id }}'s bounded queue depth exceeds the registered review depth of 1000 entries (each queue's hard capacity is its adapter's DECLARED BoundedQueuePolicy.capacity). Ticket-class: capacity review before the queue's overflow policy starts refusing or dropping. RECOMMENDATION threshold; the per-policy consequences are the two alerts above."
+
+  - name: flexcore_protocol_adapter_message_rate_budgets
+    rules:
+      # Message-rate budgets, bound to the P11 alert-rule shape: the
+      # recording aggregate computes each adapter's observed message rate
+      # against its DECLARED MessageRateBudget (the declared rate lives
+      # in the adapter's backpressure module — the fleet budget registry
+      # is the composition's reviewed data; Prometheus cannot read Rust
+      # constants, so the budget line below is a REGISTERED PLACEHOLDER
+      # the composition's budget declaration must confirm or mechanically
+      # update when the first real adapter lands — recorded honestly, the
+      # same caveat class as the P11.13 exporter-family names).
+      - record: flexcore:sli:protocol_adapter_message_rate_5m
+        expr: sum by (adapter_id) (rate(flexcore_protocol_adapter_messages_total[5m]))
+      - record: flexcore:sli:protocol_adapter_inbound_rate_5m
+        expr: sum by (adapter_id) (rate(flexcore_protocol_adapter_messages_total{direction="inbound"}[5m]))
+      - record: flexcore:sli:protocol_adapter_outbound_rate_5m
+        expr: sum by (adapter_id) (rate(flexcore_protocol_adapter_messages_total{direction="outbound"}[5m]))
+      - alert: FlexCoreProtocolAdapterMessageRateOverBudget
+        expr: flexcore:sli:protocol_adapter_message_rate_5m > 10
+        labels:
+          severity: ticket
+        annotations:
+          summary: "A protocol adapter's message rate exceeds the registered budget placeholder"
+          description: "Adapter {{ $labels.adapter_id }}'s 5m message rate exceeds the REGISTERED PLACEHOLDER budget of 10 msg/s (RECOMMENDATION — the real budget is each deployment's declared MessageRateBudget in the composition's fleet budget registry; the placeholder must be confirmed or mechanically updated when the first real adapter composition lands). Ticket-class: a rate over budget means the deployment's declared budget is stale or the peer is misbehaving — never a capacity guarantee."

@@ -29,6 +29,12 @@ ENV_MAX_INFLIGHT = "FLEXCORE_WORKER_MAX_INFLIGHT"
 ENV_DETERMINISTIC = "FLEXCORE_WORKER_DETERMINISTIC"
 ENV_DRAIN_GRACE_MS = "FLEXCORE_WORKER_DRAIN_GRACE_MS"
 ENV_LOG_LEVEL = "FLEXCORE_WORKER_LOG_LEVEL"
+# P11.05 (Phase 11 wave 1, Agent A) — the OTel tracing seam
+# (`otel_tracing.py`): the OTLP endpoint (blank/unset = export DISABLED,
+# the honest no-op) and the parent-based head-sampling ratio (the P11.06
+# sampling policy record).
+ENV_OTEL_EXPORTER_OTLP_ENDPOINT = "FLEXCORE_WORKER_OTEL_EXPORTER_OTLP_ENDPOINT"
+ENV_OTEL_TRACE_SAMPLE_RATIO = "FLEXCORE_WORKER_OTEL_TRACE_SAMPLE_RATIO"
 
 # Recorded DEFAULTs (each DEFAULT is a decision recorded in
 # `ledger/phase-07-plugin-sdk/17_18_workers_supervision.md`):
@@ -37,6 +43,12 @@ DEFAULT_MAX_INFLIGHT = 4  # DEFAULT: bounded in-flight cap (backpressure, P7.18)
 DEFAULT_DETERMINISTIC = True  # DEFAULT: deterministic mode ON (P7.42 posture).
 DEFAULT_DRAIN_GRACE_MS = 30_000  # DEFAULT: 30 s drain grace (mirrors the kernel's DEFAULT_DRAIN_DEADLINE_MS).
 DEFAULT_LOG_LEVEL = "info"  # DEFAULT: info; never debug in a deployed worker.
+# P11.05 DEFAULTs (recorded in the phase-11 record
+# `records/05_p11_05_otel_python_and_trace_headers.md`): export disabled
+# until a deployment opts in; sample-everything until an operator tunes
+# the ratio on real traffic (a RECOMMENDATION, never a tuned value).
+DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT = ""  # DEFAULT: OTel export DISABLED.
+DEFAULT_OTEL_TRACE_SAMPLE_RATIO = 1.0  # DEFAULT: parent-based, sample everything.
 
 _LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error"})
 
@@ -71,6 +83,12 @@ class WorkerConfig:
     deterministic: bool
     drain_grace_ms: int
     log_level: str
+    # P11.05 (ADDITIVE): the OTel seam configuration. A blank endpoint
+    # means OTel export is DISABLED (`otel_tracing.init_tracing` returns
+    # None and the worker runs exactly as before); the ratio is the
+    # parent-based head-sampling ratio in [0.0, 1.0].
+    otel_exporter_otlp_endpoint: str = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT
+    otel_trace_sample_ratio: float = DEFAULT_OTEL_TRACE_SAMPLE_RATIO
     contract_version: str = CONTRACT_VERSION
 
 
@@ -90,6 +108,19 @@ def _parse_positive_int(value: str, key: str) -> int:
         raise ConfigError(f"{key}: expected a positive integer, got {value!r}") from exc
     if parsed <= 0:
         raise ConfigError(f"{key}: expected a positive integer, got {value!r}")
+    return parsed
+
+
+def _parse_ratio(value: str, key: str) -> float:
+    """The parent-based head-sampling ratio: a float in [0.0, 1.0],
+    fail-closed (the P11.05 record; same convention as the other keys —
+    an INVALID value is a fatal error, never a silent fallback)."""
+    try:
+        parsed = float(value.strip())
+    except ValueError as exc:
+        raise ConfigError(f"{key}: expected a number, got {value!r}") from exc
+    if not 0.0 <= parsed <= 1.0:
+        raise ConfigError(f"{key}: must be within [0.0, 1.0], got {parsed!r}")
     return parsed
 
 
@@ -151,6 +182,15 @@ def from_mapping(env: dict[str, str]) -> WorkerConfig:
             f"got {log_level!r}"
         )
 
+    # P11.05: the OTel seam keys. A blank/unset endpoint keeps export
+    # DISABLED (the DEFAULT); a ratio present must parse fail-closed.
+    otel_endpoint = env.get(ENV_OTEL_EXPORTER_OTLP_ENDPOINT, DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT).strip()
+    otel_ratio_raw = env.get(ENV_OTEL_TRACE_SAMPLE_RATIO, "").strip()
+    if otel_ratio_raw:
+        otel_ratio = _parse_ratio(otel_ratio_raw, ENV_OTEL_TRACE_SAMPLE_RATIO)
+    else:
+        otel_ratio = DEFAULT_OTEL_TRACE_SAMPLE_RATIO
+
     return WorkerConfig(
         worker_id=worker_id,
         bind_addr=bind_addr,
@@ -158,6 +198,8 @@ def from_mapping(env: dict[str, str]) -> WorkerConfig:
         deterministic=deterministic,
         drain_grace_ms=drain_grace_ms,
         log_level=log_level,
+        otel_exporter_otlp_endpoint=otel_endpoint,
+        otel_trace_sample_ratio=otel_ratio,
     )
 
 

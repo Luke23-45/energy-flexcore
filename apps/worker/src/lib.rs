@@ -69,8 +69,30 @@
 // supervisory orchestration layer.
 
 pub mod config;
+// P11.12 (Phase 11 wave 1, Agent B) — the command consumer: consumer
+// idempotency keyed on command_id with the frozen lifecycle state machine
+// as the dedupe oracle (no-op + duplicate-delivery metric on invalid
+// transitions); see the module header and the P11.12 decision record.
+pub mod command_consumer;
+// P11.05 (Phase 11 wave 1, Agent A) — OTel wiring for the worker: the
+// W3C trace-context header carrier for the JetStream publish seam and
+// the optional OTLP trace export. WRITTEN-UNRUN; see the phase-11
+// record `records/05_p11_05_otel_python_and_trace_headers.md`.
+pub mod otel;
 pub mod inbox;
 pub mod ingestion;
+// P17.06/P17.07 (Phase 17 wave 1, Agent B) — the EV ingest bridge: the
+// inbound-path extension routing the OCPP CSMS adapter's frames onto their
+// seams — MeterValues frames into the EXISTING P2.07 pipeline's bounded
+// channel (no parallel ingestion path), proposal messages onto the
+// constraint-record path (NEVER auto-commands, ADR-010-EXT-01 pattern),
+// signed meter values onto the opaque evidence-record hooks. The
+// `protocol-ocpp` adapter is Agent A's P17.01 inbound path — consumed BY
+// CITATION; see the module header and the phase-17 records
+// `docs/phases-11-20/phase-17-ev-fleet-charging/records/
+// 21_p17_06_vehicle_proposal_ingestion.md` and
+// `22_p17_07_meter_values_ingestion.md`. WRITTEN-UNRUN.
+pub mod ev_ingest;
 pub mod maintenance;
 pub mod probes;
 pub mod runner;

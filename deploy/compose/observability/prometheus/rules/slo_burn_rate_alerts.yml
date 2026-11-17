@@ -1,0 +1,128 @@
+# P11.03 / P11.09 — Multi-window multi-burn-rate alert rules (Phase 11
+# wave 1, Agent B).
+#
+# Ownership note (recorded): P11.03 is Agent A's plan-range subtask, but
+# Agent A's P11.01 record §4 explicitly hands the burn-rate rule
+# implementation to Agent B ("The burn-rate window pattern ... is B's
+# implementation"), and the ops tree is Agent B's exclusive wave-1
+# ownership. This file implements the handed-off pattern; the SLO TARGETS
+# remain P11.02's (Agent A's) authority — the values below are REGISTERED
+# RECOMMENDATION pre-registrations (X-8) and carry no operator approval.
+#
+# The pattern implemented is the multi-window multi-burn-rate scheme of
+# the Google SRE Workbook's alerting-on-SLOs chapter [S-61]:
+#   - fast burn  14.4x over 1h AND 5m  -> page
+#   - slow burn   6x over 6h AND 30m   -> page
+#   - low burn    1x over 3d           -> ticket
+# Windows are paired (long-window burn AND short-window burn both over
+# the threshold) exactly as [S-61] prescribes, to suppress flapping.
+#
+# WRITTEN-UNRUN: no live Prometheus has evaluated these rules (the live
+# evaluation and the alert-routing dry run are human gate inputs,
+# recorded UNRUN). No PagerDuty/Slack/vendor conformance claim attaches
+# to any label — the routing channel is P11-E-3 (OPEN; DEFAULT: generic
+# operator-configured webhook, explicitly unbranded).
+#
+# Page-class alerts bind to the `page` severity, ticket-class to
+# `ticket`; the mapping of severity to an actual channel is operator
+# configuration (P11-E-3), not platform code.
+groups:
+  - name: flexcore_slo_api_availability_burn
+    # Availability SLO over the API error SLI. REGISTERED RECOMMENDATION
+    # target 99.9% (error budget 0.1%) — pre-registration placeholder
+    # pending the P11.02 SLO register; no observed distribution exists.
+    rules:
+      - alert: FlexCoreApiAvailabilityFastBurn
+        expr: |
+          (
+            flexcore:sli:api_error_ratio_5m > (14.4 * 0.001)
+            and
+            sum(rate(flexcore_http_errors_total[1h])) / sum(rate(flexcore_http_requests_total[1h])) > (14.4 * 0.001)
+          )
+        labels:
+          severity: page
+        annotations:
+          summary: "API availability SLO fast burn (14.4x, 1h+5m windows)"
+          description: "The API error ratio burns the availability error budget at >= 14.4x over both the 1h and 5m windows [S-61]. RECOMMENDATION threshold; P11-E-3 routes the page."
+
+      - alert: FlexCoreApiAvailabilitySlowBurn
+        expr: |
+          (
+            flexcore:sli:api_error_ratio_5m > (6 * 0.001)
+            and
+            sum(rate(flexcore_http_errors_total[6h])) / sum(rate(flexcore_http_requests_total[6h])) > (6 * 0.001)
+          )
+        labels:
+          severity: page
+        annotations:
+          summary: "API availability SLO slow burn (6x, 6h+30m windows)"
+          description: "The API error ratio burns the availability error budget at >= 6x over both the 6h and 30m windows [S-61]. RECOMMENDATION threshold."
+
+      - alert: FlexCoreApiAvailabilityLowBurn
+        expr: |
+          (
+            sum(rate(flexcore_http_errors_total[3d])) / sum(rate(flexcore_http_requests_total[3d])) > 0.001
+            or
+            flexcore:sli:api_error_ratio_5m > 0.001
+          )
+        labels:
+          severity: ticket
+        annotations:
+          summary: "API availability SLO low burn (1x, 3d window)"
+          description: "The API error ratio burns the availability error budget at >= 1x over the 3d window [S-61]. Ticket-class: budget exhaustion is a capacity review, not a page."
+
+  - name: flexcore_slo_api_latency_burn
+    # Latency SLO over the API latency good-event ratio (the registered
+    # 1000 ms bucket, RECOMMENDATION). Same [S-61] window pattern.
+    rules:
+      - alert: FlexCoreApiLatencyFastBurn
+        expr: |
+          (
+            (1 - flexcore:sli:api_latency_good_ratio_5m) > (14.4 * 0.01)
+            and
+            (1 - (sum(rate(flexcore_api_request_duration_milliseconds_bucket{le="1000"}[1h])) / sum(rate(flexcore_api_request_duration_milliseconds_count[1h])))) > (14.4 * 0.01)
+          )
+        labels:
+          severity: page
+        annotations:
+          summary: "API latency SLO fast burn (14.4x, 1h+5m windows)"
+          description: "Requests slower than the registered 1000 ms bucket burn the latency error budget at >= 14.4x over both windows [S-61]. RECOMMENDATION threshold."
+
+      - alert: FlexCoreApiLatencySlowBurn
+        expr: |
+          (
+            (1 - flexcore:sli:api_latency_good_ratio_5m) > (6 * 0.01)
+            and
+            (1 - (sum(rate(flexcore_api_request_duration_milliseconds_bucket{le="1000"}[6h])) / sum(rate(flexcore_api_request_duration_milliseconds_count[6h])))) > (6 * 0.01)
+          )
+        labels:
+          severity: page
+        annotations:
+          summary: "API latency SLO slow burn (6x, 6h+30m windows)"
+          description: "Requests slower than the registered 1000 ms bucket burn the latency error budget at >= 6x over both windows [S-61]. RECOMMENDATION threshold."
+
+      - alert: FlexCoreApiLatencyLowBurn
+        expr: |
+          (1 - flexcore:sli:api_latency_good_ratio_5m) > 0.01
+        labels:
+          severity: ticket
+        annotations:
+          summary: "API latency SLO low burn (1x)"
+          description: "The latency bad-event ratio exceeds 1x the registered budget fraction [S-61]. Ticket-class."
+
+  - name: flexcore_command_lifecycle_alerts
+    # The stuck-state alarm input the P11.01 record names. The
+    # `flexcore_commands_stuck` family is implemented in wave 2 (P11.20);
+    # until it renders, this rule is WRITTEN BUT CANNOT FIRE — recorded
+    # honestly per the P11.01 record's own instruction. The registered
+    # threshold (RECOMMENDATION, X-8) is 0 for a page, 5 for a ticket:
+    # zero stuck commands is the only acceptable steady state on a
+    # frozen lifecycle with a FALLBACK exit for FAILED/EXPIRED.
+    rules:
+      - alert: FlexCoreCommandsStuck
+        expr: flexcore_commands_stuck > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "Commands parked beyond the registered stuck threshold"
+          description: "flexcore_commands_stuck (wave 2, P11.20) counts commands in non-terminal states beyond the registered threshold (FAILED and EXPIRED included — they exit only via FALLBACK). RECOMMENDATION threshold pending operator sign-off; the family does not render until wave 2, so this rule cannot fire today."

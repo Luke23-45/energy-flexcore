@@ -34,7 +34,7 @@
 // | [`buffer_file`] | P6.09: the DURABLE store-and-forward buffer — append-only CRC-checked journal, truncate-and-audit recovery, audited drop-oldest overflow, age retention, at-least-once commit semantics | encryption at rest (§18.3 — recorded open item); health surfacing (P6.17) |
 // | [`enrollment`] | P6.06: `EnrollmentClient`/`CredentialStore`/`RevocationChecker` ports, `TokenEnrollmentAdapter`, filesystem credential store, expiry monitor (certificate issuance + OCSP/CRL are DEPLOYMENT REQUIREMENTS — recorded, not implemented) | the deployment's CA + OCSP/CRL adapters |
 // | [`uplink_mtls`] | P6.07: the outbound mTLS `UplinkChannel` over rustls — edge-initiated, no inbound listener (structural), pinned TLS minimum (DEFAULT 1.3), reconnect/backoff/keepalive, ack-confirmed at-least-once | telemetry payload encoder (P6.08/P6.09) |
-// | [`adapters`] | The protocol-adapter port (`EmsAdapter`), the anti-corruption layer (EMS-native → canonical), the adapter registry (allowlist), and the `simulated-test` TEST-ONLY scenario fixture (P6.08 — never a real EMS) | `openems-rest` (P6.10/P6.13); `generic-rest` is a RESERVED id, never implemented in this phase |
+// | [`adapters`] | The protocol-adapter port (`EmsAdapter`), the anti-corruption layer (EMS-native → canonical), the adapter registry (allowlist), the `simulated-test` TEST-ONLY scenario fixture (P6.08 — never a real EMS), and the edge-to-cloud mapping (`edge_to_cloud`, P14.18) | `openems-rest` (P6.10/P6.13); the six Phase 14 protocol ids registered PLANNED (P14.18, record 82 — `generic-rest` REMOVED) |
 //
 // Dependency direction (§8.2, enforced by `tools/check_dependency_rule.py`,
 // which classifies this crate as COMPOSITION): this crate depends on
@@ -177,3 +177,93 @@ pub mod enrollment_ceremony;
 // NO update has ever been built or applied; secure boot is NOT established
 // here (the P6.34 position stands).
 pub mod update_verification;
+// P18.08 (phase 18, wave 1, Agent B) — the device identity LIFECYCLE
+// formalization: the IDevID/LDevID model mapped onto the P9.33 ceremony
+// (the ceremony enrolls/rotates/revokes the LDevID; the factory IDevID is
+// only ever verification/attestation input, never a ceremony subject), the
+// credential rotation schedule (pure assessment over the injected clock; a
+// due rotation is a NORMAL ceremony re-run with a fresh platform-authority
+// token — no second token path), and the revocation-propagation plan
+// (registry evidence → protocol trust chains → the gates; the kernel P7.38
+// plugin-revocation register stays BYTE-IDENTICAL — consumption only, no
+// percentage-canary reinterpretation, no un-revoke). [S-165][S-166]; the
+// 802.1AR/FDO specifics are UNVERIFIED against the standard texts.
+pub mod identity_lifecycle;
+// P18.09 (phase 18, wave 1, Agent B) — the ZERO-TOUCH onboarding DESIGN:
+// the FDO-pattern analog (ownership-voucher register with an append-only
+// event history, the rendezvous SEAM the deployment implements or not) and
+// the closed claim-flow state machine whose handoff ISSUES NOTHING — the
+// P9.33 ceremony's challenge and platform-side approval gate run unchanged
+// after handoff. The shipped rendezvous is the fail-closed
+// `NoRendezvousConfigured` (zero-touch structurally OFF): the manual P9.33
+// path stays the default AND the fallback. [S-165][S-166]; FDO specifics
+// UNVERIFIED. No device is claimed; no voucher exists.
+pub mod zero_touch;
+// P18.12 (phase 18, wave 1, Agent B) — the FLEET device-state schema types
+// keyed to migration `0023_edge_fleet_registry_p18_12` (the 0018 registry
+// extension as an append-only state journal): the closed
+// firmware-state/cohort-membership/last-seen-health vocabularies, the
+// validated journal-row shape, and the BTreeMap current-state projection
+// the P18.06 rollout orchestrator CONSUMES (it never redefines a value).
+// No fleet exists; no journal row has ever been written.
+pub mod fleet_registry;
+// P18.11 (phase 18, wave 1, Agent B) — the eSIM/CELLULAR lifecycle DATA
+// MODEL only: the closed, deliberately coarse profile-state vocabulary and
+// the carrier-AGNOSTIC observation record riding the migration-0023
+// ESIM_PROFILE_STATE journal rows (carrier specifics — activation codes,
+// SM-DP+ endpoints — are out of scope). [S-167] overview basis; the
+// SGP.22/SGP.32 semantics are UNVERIFIED. No SIM exists; no profile state
+// was ever recorded.
+pub mod esim_lifecycle;
+// P18.13 (phase 18, wave 1, Agent B) — the ATTESTATION design: the
+// boot-time evidence shape, the verification policy the platform applies
+// BEFORE authorizing an update (named, ordered, fail-closed refusals:
+// absent evidence → revoked device → device mismatch → stale evidence →
+// counter regression → measurement check → anchor requirement), and the
+// honest hardware-absent fallback (P18-E-2 registered OPEN, DEFAULT (a)
+// hardware-optional, assumption set PENDING PILOT HARDWARE SPEC per the
+// P6.34 posture — a claimed anchor is a device REPORT this platform does
+// not verify; software-only evidence is consistency-checked
+// self-attestation that cannot detect a compromised reporter). [S-166].
+// No evidence was ever collected or verified; no attestation ran.
+pub mod attestation;
+// P18.02 (phase 18, wave 1, Agent A) — the VERSIONED UPDATE-BUNDLE FORMAT
+// for the fleet OTA pipeline (ADR-1801, records/01): the
+// `flexcore-edge-update-manifest-v2` manifest extending the P9.34
+// `UpdateManifest` (composed, not forked) with SUIT-shaped applicability
+// metadata and sequence-number anti-rollback [S-162], per-payload
+// digests, size caps, and the device-side monotonic anti-rollback counter
+// register (append-only CRC-32 framing, truncate-and-audit). The
+// strictly-ahead sequence semantics are UNVERIFIED against the TUF/SUIT
+// spec texts (the implemented rule is the strictly-safer reading). No
+// bundle has ever been produced, signed, staged, or applied.
+pub mod update_bundle;
+// P18.04 + P18.05 (phase 18, wave 1, Agent A) — the device update FLOW
+// state machine (download → verify → install → health-check → active,
+// with explicit failure states and auto-rollback edges; updates BLOCKED
+// while commands are ISSUED/TRACKING — the P18.15 rule consumed by
+// citation) and the EXTENDED UPDATE GATE behind the P9.34 seam: the
+// fail-closed `NoUpdateVerifier` default is PRESERVED verbatim, and the
+// real SHA-256 verifier (the P11.15 std-only implementation, consumed
+// from flexcore-audit — never duplicated) is an injected OPTION plus the
+// v2 manifest checks composed AROUND the untouched P9.34 gate. No update
+// has ever been applied; no fleet exists; every hardware determination
+// is PENDING PILOT HARDWARE SPEC (P6.34).
+pub mod update_session;
+// P18.15 (phase 18, wave 2, Agent B) — the UPDATE/COMMAND-LIFECYCLE
+// INTERLOCK: updates are BLOCKED while any command on the device is in a
+// non-terminal frozen §14.1 lifecycle state (a strict SUPERSET of the
+// recorded ISSUED/TRACKING citation — ACKNOWLEDGED/FAILED/EXPIRED also
+// block, the drain gap, record 28 §2), fail-closed when the device command
+// state is unknown (a device-state check consumed from the command path's
+// recorded §14.1 states), the report §5.6 drain-before-update procedure
+// (OBSERVER-only — the interlock never transitions a command state), and
+// the post-update conformance re-check (the P6.13 harness consumed, never
+// reimplemented; a clean §19.2(6) report required after every activation
+// before further updates are authorized; a FAILED re-check is terminal
+// until a recorded override — the P9.34 RollbackOverride pattern). The
+// frozen 14-state/27-edge set is CITED, never forked; the P6.14 command
+// receiver and the P18.04 session semantics are untouched (additive
+// composition only). No command exists; no update has ever been applied;
+// no fleet exists.
+pub mod update_command_interlock;

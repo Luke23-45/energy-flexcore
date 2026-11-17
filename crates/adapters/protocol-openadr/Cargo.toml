@@ -1,0 +1,33 @@
+# P14.05 — OpenADR 3.0 VTN adapter models: event/report/registration
+# endpoint DESIGN (a designed seam — no HTTP framework dependency), VEN
+# management, and the event -> PROPOSED command-lifecycle mapping.
+#
+# Dependency policy (tools/check_dependency_rule.py): this is an ADAPTER
+# crate (composition side, like crates/adapters/nats). It carries a minimal
+# dependency set — serde/serde_json for the REST/JSON payload model types,
+# flexcore-contracts for the canonical unit and time types, flexcore-domain
+# for the frozen command-state vocabulary. NO HTTP framework, NO OpenADR
+# stack library, NO async runtime: endpoint serving is a designed seam
+# (record 21) and the wire protocol is never connected in this program.
+#
+# flexcore-domain is used only for the frozen 14-state lifecycle vocabulary
+# (`command_state`) and the typed ids — the mapping enters the lifecycle at
+# PROPOSED and can never construct a later state (ADR-010 extended; plan.md
+# §7 note 4).
+
+[package]
+name = "flexcore-openadr-adapter"
+description = "OpenADR 3.0 VTN adapter models: events, VEN registry, endpoint design seam, PROPOSED mapping (P14.05)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-protocol-ports = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }
+
+[dev-dependencies]
+# The mapping tests (tests/event_mapping.rs) use only the crates above —
+# no additional dev dependency is permitted.

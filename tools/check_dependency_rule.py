@@ -58,6 +58,14 @@ CORE_CRATES = {
     "flexcore-authz",
     "flexcore-optimization-api",
     "flexcore-grid-api",
+    # P14.01 — the common protocol-adapter port layer (scope declaration,
+    # capability manifest, connection lifecycle) that every
+    # crates/adapters/protocol-* crate implements. Core: adapters depend on
+    # it; no core crate depends on it. serde-only dependency line — no
+    # transport, no runtime (decision record
+    # docs/phases-11-20/phase-14-protocol-device-connectivity/records/
+    # 01_p14_01_adapter_architecture.md).
+    "flexcore-protocol-ports",
 }
 
 # Allowed internal edges (from -> set of to). Anything else between core
@@ -77,6 +85,10 @@ ALLOWED_INTERNAL_EDGES: dict[str, set[str]] = {
     "flexcore-authz": {"flexcore-contracts", "flexcore-domain"},
     "flexcore-optimization-api": {"flexcore-contracts"},
     "flexcore-grid-api": {"flexcore-contracts"},
+    # P14.01 — the protocol-ports layer depends on NO other workspace crate
+    # (the scope declaration mirrors flexcore-grid-api's self-contained
+    # scope.rs; serde sits outside the internal-edge check).
+    "flexcore-protocol-ports": set(),
 }
 
 # Exceptions granted by ADR: (from_crate, to_identifier) -> ADR reference.
@@ -121,6 +133,59 @@ COMPOSITION_CRATES = {
     # ledger/phase-08-advanced-coordination/05_06_harness_baselines.md §3
     # for the recorded placement rationale).
     "flexcore-research",
+    # P14.02 — the IEEE 2030.5 AggregatorServer adapter (composition side,
+    # like crates/adapters/*: it may use infrastructure, but deliberately
+    # adds none — the mTLS/HTTP transport is a designed UNRUN seam; decision
+    # record 02_p14_02_aggregator_server.md). Nothing depends ON it except
+    # future composition roots.
+    "flexcore-protocol-20305",
+    # P14.05 — the OpenADR 3.0 VTN adapter (composition side, like
+    # crates/adapters/*: no HTTP framework, no transport dependency — the
+    # endpoint serving is a designed seam; decision record
+    # 21_p14_05_openadr_vtn.md). It depends on the CORE protocol-ports
+    # layer and flexcore-domain; nothing depends ON it except future
+    # composition roots.
+    "flexcore-openadr-adapter",
+    # P14.07 — the SunSpec Modbus client adapter (composition side: no
+    # Modbus stack, no serial/TCP runtime — the TCP/RTU transport is a
+    # designed UNWIRED seam; decision record 23_p14_07_sunspec_modbus_
+    # client.md). Nothing depends ON it except future composition roots.
+    "flexcore-modbus-adapter",
+    # P14.08 — the DNP3 IEEE 1815.2-2025 DER-profile adapter (composition
+    # side: no DNP3 stack — the wire transport is a designed UNWIRED seam;
+    # decision record 24_p14_08_dnp3_der_profile.md). Nothing depends ON it
+    # except future composition roots.
+    "flexcore-dnp3-adapter",
+    # P14.11 — the MQTT 5 + Sparkplug B edge-transport adapter (composition
+    # side: no MQTT client, no broker runtime, no TLS stack — the wire
+    # transport is a designed UNWIRED seam; decision record
+    # 43_p14_11_mqtt_sparkplug_b_uplink.md). Nothing depends ON it except
+    # future composition roots.
+    "flexcore-mqtt-adapter",
+    # P14.12 — the CIM/CGMES network-model import adapter (composition
+    # side: no XML/RDF parser dependency — the profile parsing is a
+    # designed UNWIRED seam; decision record 44_p14_12_cim_cgmes_import.md).
+    # It depends on the CORE protocol-ports layer, flexcore-contracts, and
+    # flexcore-grid-api (the network IR the mapping targets); nothing
+    # depends ON it except future composition roots.
+    "flexcore-cim-adapter",
+    # P15.04 — the ENTSO-E Transparency Platform price-signal ingestion
+    # adapter (composition side, like crates/adapters/*: zero external
+    # dependencies — the XML navigation and the REST transport are
+    # designed UNWIRED seams; decision record
+    # docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/
+    # 04_p15_04_price_ingestion_entsoe.md). Nothing depends ON it except
+    # future composition roots.
+    "flexcore-entsoe-adapter",
+    # P17.01-P17.05 — the OCPP CSMS adapter (composition side, like
+    # crates/adapters/*: no WebSocket library, no TLS stack, no HTTP
+    # framework — the WebSocket/OCPP-J transport is a designed UNRUN seam;
+    # decision record
+    # docs/phases-11-20/phase-17-ev-fleet-charging/records/
+    # 01_p17_01_ocpp_csms_adapter_architecture.md). It depends on the CORE
+    # protocol-ports layer and flexcore-domain; nothing depends ON it
+    # except future composition roots.
+    "flexcore-ocpp-adapter",
 }
 
 MEMBER_DIRS = [
@@ -140,6 +205,31 @@ MEMBER_DIRS = [
     "crates/edge-agent",
     "crates/flexcore-kernel",
     "crates/flexcore-research",
+    # P14.01/P14.02 — protocol adapter crates (member notes in the root
+    # Cargo.toml; decision records under
+    # docs/phases-11-20/phase-14-protocol-device-connectivity/records/).
+    "crates/flexcore-protocol-ports",
+    "crates/adapters/protocol-20305",
+    # P14.05/P14.07/P14.08 (wave 1, Agent B) — protocol adapter crates
+    # (member notes in the root Cargo.toml; decision records under
+    # docs/phases-11-20/phase-14-protocol-device-connectivity/records/).
+    "crates/adapters/protocol-openadr",
+    "crates/adapters/protocol-modbus",
+    "crates/adapters/protocol-dnp3",
+    # P14.11/P14.12 (wave 2, Agent A) — protocol adapter crates
+    # (member notes in the root Cargo.toml; decision records under
+    # docs/phases-11-20/phase-14-protocol-device-connectivity/records/).
+    "crates/adapters/protocol-mqtt",
+    "crates/adapters/protocol-cim",
+    # P15.04 — the ENTSO-E price-signal ingestion adapter crate (member
+    # note in the root Cargo.toml; decision record
+    # docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/
+    # 04_p15_04_price_ingestion_entsoe.md).
+    "crates/adapters/protocol-entsoe",
+    # P17.01-P17.05 — the OCPP CSMS adapter crate (member note in the root
+    # Cargo.toml; decision records under
+    # docs/phases-11-20/phase-17-ev-fleet-charging/records/).
+    "crates/adapters/protocol-ocpp",
     "apps/control-plane",
     "apps/sim-runner",
     "apps/worker",

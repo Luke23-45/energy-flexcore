@@ -44,3 +44,12 @@ pub mod envelope;
 pub mod events;
 pub mod outbox;
 pub mod subject;
+// P16.22 (Phase 16 wave 2, Agent B; WRITTEN-UNRUN) — the ADDITIVE market
+// event vocabulary v2 (the P16-E-2 PROPOSAL, REGISTERED OPEN; closer: the
+// human owner). A separately versioned vocabulary: its own enum, its own
+// `"market_event_type"` tag, and the `flexcore.v2.market.<slug>` subject
+// scheme. The frozen 26-event vocabulary in `events` is NEVER edited in
+// place and stays byte-identical (pinned by test in both modules); no v2
+// event has a producer wired in this program. Decision record: phase-16
+// `records/64_p16_22_market_v2_vocabulary_and_market_actions.md`.
+pub mod market_events_v2;

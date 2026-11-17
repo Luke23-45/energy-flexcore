@@ -21,6 +21,18 @@ async-nats = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# P11.05 (Phase 11 wave 1, Agent A) — OpenTelemetry SDK + OTLP export for
+# the worker's trace propagation seam and optional span export. Signal
+# maturity per [S-63]: metrics + logs Stable, traces Beta. Versions
+# checked against crates.io / the opentelemetry-rust releases page on
+# 2026-11-14 (same pinned set as apps/control-plane, P11.04).
+# ASSUMPTION (recorded, records/05_p11_05_otel_python_and_trace_headers.md):
+# this pinned set compiles together — verified ONLY at the first human
+# build, which has never run.
+opentelemetry = { version = "0.33.1", features = ["trace"] }
+opentelemetry_sdk = { version = "0.33" }
+opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.34.0"
 
 # Internal crates.
 flexcore-contracts = { workspace = true }
@@ -28,6 +40,11 @@ flexcore-domain = { workspace = true }
 flexcore-events = { workspace = true }
 flexcore-application = { workspace = true }
 flexcore-ports = { workspace = true }
+# P11.12 (Phase 11 wave 1, Agent B) — the command consumer reads the
+# command lifecycle through the storage port (`CommandRecordStore`);
+# workspace-catalogued crate, no new version pin. Recorded in the P11.12
+# decision record.
+flexcore-storage = { workspace = true }
 # P2.10 step 5 composition: the simulator source is the first
 # TelemetrySource implementation, wired HERE (composition root) only —
 # the ingestion pipeline itself compiles against the port (port-only

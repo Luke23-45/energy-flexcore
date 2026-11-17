@@ -1,0 +1,31 @@
+# P11.17 — Pre-commit hook configuration. WRITTEN-UNRUN.
+#
+# This file is CONFIGURATION ONLY. The `pre-commit` framework, the
+# gitleaks binary, and every hook below were NEVER installed or executed
+# in this program (the loop bans of
+# docs/phases-11-20/01_PROGRAM_CONVENTIONS.md §1 forbid tool installs and
+# runs). A developer enables it locally with `pre-commit install` — that
+# install, and every finding any hook produces, is a HUMAN gate input.
+#
+# The hook set is deliberately minimal: secret scanning only. Lint and
+# format gates already exist in CI (the `static-checks` job runs
+# `cargo fmt --check` and `clippy -D warnings`); duplicating them here
+# would add a second config surface with no recorded need.
+#
+# UNVERIFIED external behavior: hook resolution, the pinned rev, and the
+# `args:` passthrough are third-party tool behaviors NOT executed here —
+# the first human run confirms them.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    # The release-index latest tag at the 2026-11-14 check (v8.30.1);
+    # UNPINNED-REVERIFY at the first human run (the same discipline as
+    # the compose image tags). Must match the CI scan's target version
+    # so local and CI findings agree.
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        # Use the checked-in repo config (.gitleaks.toml at the root)
+        # rather than hook defaults, so local and CI scans share one
+        # allowlist and one rule set.
+        args: ["--config", ".gitleaks.toml"]

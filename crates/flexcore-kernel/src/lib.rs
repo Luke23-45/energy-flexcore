@@ -55,6 +55,18 @@
 // "implemented, awaiting human build/test". No `unwrap`/`expect` exists on
 // untrusted input anywhere in `src/`; test files may unwrap.
 
+// P14.16 — the adapter permission model (additive): the kernel-side
+// consumption of the wave-1 `flexcore-protocol-ports` capability-manifest
+// tier — per-adapter bindings, the command-relay-only rule re-checked at
+// the kernel boundary, the never-granted review (the set in [`manifest`]
+// stays byte-identical; see
+// `adapter_permissions::never_granted_review_statement`), and
+// profile-side adapter wiring (decision record
+// docs/phases-11-20/phase-14-protocol-device-connectivity/records/
+// 64_p14_16_adapter_permission_model.md; ADR-010 extended — adapters hold
+// no dispatch authority). No plugin-schema surface changes: adapter
+// manifests travel beside the profile, never inside it.
+pub mod adapter_permissions;
 pub mod lifecycle;
 pub mod manifest;
 pub mod plugin_config;

@@ -88,4 +88,23 @@ pub mod schedule_store;
 // comparison-record storage (P3.23) is appended to `schedule_store`
 // additively.
 pub mod schedule_revision;
+// P15.15 — the interconnection-record persistence contract
+// (`InterconnectionRecordStore` trait + row/receipt/error types): the
+// per-DEVICE-MODEL catalog of immutable interconnection documents
+// (migration 0021; INSERT + SELECT only, NO tenant RLS — certification
+// is a property of the equipment model, not of a tenant's instance; the
+// recorded tenancy decision is in the module header). Same recorded home
+// deviation as `schedule_store` (D-P3.21-4).
+pub mod interconnection_store;
+// P16.01 — the market-records persistence contract (`MarketRecordsStore`
+// trait + row/receipt/error types): the tenant-scoped financial-record
+// store for programs, contracts, enrollments, market events, deliveries,
+// settlements, and the retention-configuration rows (migration 0022;
+// INSERT + SELECT only on the record tables — the supersede model is a
+// NEW row; every row carries the P11 audit-chain LINK, the chain itself
+// is consumed, never redefined; settlement amounts are decimal TEXT with
+// currency as DATA). Same recorded home deviation as `schedule_store`
+// (D-P3.21-4). Closes the LR-074/190 gap at DESIGN level only: no market
+// is connected and no record exists anywhere.
+pub mod market_records_store;
 pub mod unit_of_work;

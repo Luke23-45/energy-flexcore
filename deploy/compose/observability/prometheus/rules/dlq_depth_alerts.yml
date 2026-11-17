@@ -1,0 +1,53 @@
+# P11.13 — DLQ-depth alert rules (Phase 11 wave 1, Agent B).
+#
+# The JetStream hardening package's DLQ-depth alerting item [S-65]: an
+# alarm when a dead-letter family accumulates poison copies, scoped PER
+# SUBJECT FAMILY (the dedicated per-area DLQ streams this phase adds in
+# crates/adapters/nats/src/topology.rs — FLEXCORE_DLQ_<AREA> on
+# flexcore.dlq.v1.<area>.>, plus the FLEXCORE_DLQ unrouted catch-all).
+#
+# HONEST METRIC-NAME CAVEAT (recorded in the P11.13 record): the queries
+# reference the stream-monitoring metric families of a NATS Prometheus
+# exporter (`jetstream_stream_messages{stream=...}`). The NATS JetStream
+# documentation [S-65] describes the stream-monitoring API surface these
+# families mirror, but NO exporter is deployed in this program and the
+# exact exported family names are UNVERIFIED against a live exporter.
+# The names below are an ASSUMPTION bound to the NATS Prometheus
+# exporter's documented stream metrics; the human gate that first
+# deploys an exporter must confirm or mechanically rename the families
+# (the stream names in the labels are the authoritative constants —
+# they come from crates/adapters/nats/src/topology.rs, not from this
+# file).
+#
+# Thresholds are REGISTERED RECOMMENDATIONS (X-8) pending operator
+# sign-off: any nonzero poison depth on a small deployment is worth
+# looking at (the consumer's poison path is an anomaly path, never a
+# steady-state flow), so the page threshold is > 0 and the ticket
+# threshold flags growth. No capacity or normality claim attaches to
+# any value. WRITTEN-UNRUN: no Prometheus has evaluated these rules.
+groups:
+  - name: flexcore_dlq_depth_alerts
+    rules:
+      - alert: FlexCoreDlqPoisonPresent
+        expr: sum by (stream) (jetstream_stream_messages{stream=~"FLEXCORE_DLQ_.*|FLEXCORE_DLQ"}) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "Poison copies present in a DLQ family stream"
+          description: "The DLQ family stream {{ $labels.stream }} holds quarantined poison messages (the consumer quarantine path never silently drops — presence is always an anomaly to investigate). Registered RECOMMENDATION threshold > 0."
+
+      - alert: FlexCoreDlqDepthGrowing
+        expr: sum by (stream) (jetstream_stream_messages{stream=~"FLEXCORE_DLQ_.*|FLEXCORE_DLQ"}) > 100
+        labels:
+          severity: ticket
+        annotations:
+          summary: "DLQ family depth above the registered review threshold"
+          description: "The DLQ family stream {{ $labels.stream }} exceeds the registered review depth of 100 copies — a poison storm is exhausting the family's bounded retention (max 10,000 messages / 64 MiB / 72h, registered RECOMMENDATIONS in the P11.13 record). Ticket-class: capacity review of the family's retention and the underlying failure."
+
+      - alert: FlexCoreDlqUnroutedQuarantine
+        expr: sum(jetstream_stream_messages{stream="FLEXCORE_DLQ"}) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "Unrouted quarantine copies present (non-conforming subjects)"
+          description: "The FLEXCORE_DLQ catch-all holds quarantined copies whose original subject did not conform to the P1.14 §3 scheme (flexcore.dlq.v1.unrouted only) — a routing/producer defect, always investigated."

@@ -101,12 +101,20 @@ impl IdentityResolver for DevAuthResolver {
 }
 
 /// Parses the dev role token into the closed [`Role`] enum.
+///
+/// P13.05 (additive, closed-enum extension rule): the P13.02 OIDC
+/// resolver's group→role mapping (`crate::oidc::map_role_claims`) uses
+/// this same parser, so the dev path and the production path map role ids
+/// through ONE closed vocabulary. The new `site-approver` id maps to the
+/// P13.05 approval-duty role; the recorded grants live in
+/// `flexcore_authz::phase13_policies`.
 pub fn parse_role(id: &str) -> Option<Role> {
     match id {
         "platform-admin" => Some(Role::PlatformAdmin),
         "tenant-admin" => Some(Role::TenantAdmin),
         "operator" => Some(Role::Operator),
         "viewer" => Some(Role::Viewer),
+        "site-approver" => Some(Role::SiteApprover),
         _ => None,
     }
 }

@@ -17,13 +17,15 @@
 //   allowlist, so an unregistered adapter id cannot be introduced by a
 //   config edit alone.
 //
-// Recorded adapter ids (D5 OPEN — ENTRY_NOTE boundary 1; decision doc §3):
+// Recorded adapter ids (D5 OPEN — ENTRY_NOTE boundary 1; decision doc §3;
+// P14.18 decision record 82 updated the table):
 //
 // | id | status | meaning |
 // |---|---|---|
 // | `openems-rest` | **AVAILABLE (P6.10)** in the DEFAULT table | the RECOMMENDED default (OpenEMS first, report §2.3 priority). P6.10 landed the concrete EdgeConfig-discovery/read adapter (`adapters::openems`) against the UNVERIFIED OpenEMS REST API shape (RESEARCH.md §1 — never executed; the P6.11 lab run must verify it), so the id constructs through the registry. Coordinator follow-up: the DEFAULT table now carries `Implemented` directly and the pre-existing integration test `tests/adapter_acl_and_registry.rs` was updated in the same reviewed pass (decision record: `ledger/phase-06-edge-protocol/10_11_openems.md`). P6.13 (fault-injection tests against the real protocol) remains open. |
-// | `generic-rest` | RESERVED | a recorded placeholder SLOT for a second adapter. It is deliberately NOT implemented and NOT constructible — recording a slot does not imply an API exists (AGENTS.md rule 1: no hallucinated APIs). |
+// | `generic-rest` | **REMOVED (P14.18, record 82)** | the Phase 6 RESERVED placeholder slot is GONE: the protocol-adapter tier (P14.01) now names concrete protocol ids, and the extension rule is "an id is registered when its implementation lands, never before". A permanent never-constructible placeholder was scaffolding without an owner (AGENTS.md §1: no crates/slots to be ready). History: it was RESERVED and refused construction through Phase 6–13. |
 // | `simulated-test` | TEST-ONLY (P6.08) | the deterministic in-process scenario fixture (`adapters::simulated`). Constructible, but NEVER a real EMS and never presentable as one: its id names itself, its samples carry the id in their `source_id`, and a production composition root must not wire it for a real site. It exists so the read path (P6.08), the store-and-forward drills (P6.09), and the later failure-injection waves (P6.13/P6.28) have an executable test source without OpenEMS. |
+// | `ieee-2030.5`, `openadr-vtn`, `modbus-client`, `dnp3-outstation`, `mqtt-sparkplug-uplink`, `cim-cgmes-import` | PLANNED (P14.18, record 82) | the Phase 14 protocol adapter ids, registered as PLANNED exactly per the P14.02 contract ("registered as PLANNED in the edge-agent registry only when the edge seam wave (P14.18) lands" — `protocol-20305` lib.rs). Each id's canonical spelling is its own crate's `ADAPTER_ID` constant; the concrete edge-side implementations are NOT built (construction is refused with the named wave reference, the honest fail-closed answer), and a PLANNED id never becomes Implemented by config edit — only by a reviewed code landing. |
 
 use std::collections::BTreeMap;
 
@@ -106,23 +108,59 @@ pub struct AdapterRegistry {
 }
 
 impl AdapterRegistry {
-    /// The default Phase 6 allowlist: `openems-rest` (**IMPLEMENTED** —
-    /// P6.10 landed the concrete EdgeConfig-discovery/read adapter
-    /// `adapters::openems`; P6.13's fault-injection pass against the real
-    /// protocol remains open and is NOT implied by this status),
-    /// `generic-rest` (RESERVED), and `simulated-test` (TEST-ONLY, P6.08).
-    /// Extending the allowlist is an explicit reviewed change (a new id
-    /// needs a mapping-table plan and, per P6.02, a dependency-audit note
-    /// for its new dependencies).
+    /// The default allowlist (P14.18 record 82 edition):
+    /// `openems-rest` (**IMPLEMENTED** — P6.10 landed the concrete
+    /// EdgeConfig-discovery/read adapter `adapters::openems`;
+    /// P6.13's fault-injection pass against the real protocol remains
+    /// open and is NOT implied by this status), `simulated-test`
+    /// (TEST-ONLY, P6.08), and the six Phase 14 protocol adapter ids as
+    /// PLANNED (their canonical spellings are the crates' own
+    /// `ADAPTER_ID` constants; the concrete edge-side implementations
+    /// are not built, so construction is refused with the named wave
+    /// reference). The Phase 6 `generic-rest` RESERVED placeholder is
+    /// REMOVED (record 82): ids are registered when their
+    /// implementation lands, never before. Extending the allowlist is
+    /// an explicit reviewed change (a new id needs a mapping-table plan
+    /// and, per P6.02, a dependency-audit note for its new
+    /// dependencies).
     pub fn with_default_allowlist() -> Self {
         let mut entries = BTreeMap::new();
         entries.insert("openems-rest".to_string(), AdapterStatus::Implemented);
-        entries.insert("generic-rest".to_string(), AdapterStatus::Reserved);
         // P6.08: the deterministic in-process scenario fixture. TEST-ONLY:
         // never a real EMS, never presentable as one (see AdapterStatus::
         // TestOnly and the simulated module header). No production
         // composition root may wire this id for a real site.
         entries.insert("simulated-test".to_string(), AdapterStatus::TestOnly);
+        // P14.18 (record 82): the Phase 14 protocol adapter ids,
+        // registered PLANNED per the P14.02 contract. Canonical
+        // spellings: each crate's `ADAPTER_ID` constant
+        // (`crates/adapters/protocol-*/src/lib.rs`). Construction is
+        // refused until the concrete edge-side implementation lands in a
+        // reviewed change.
+        entries.insert(
+            "ieee-2030.5".to_string(),
+            AdapterStatus::Planned { implementing_wave: "P14 (record 02; edge implementation unlanded)" },
+        );
+        entries.insert(
+            "openadr-vtn".to_string(),
+            AdapterStatus::Planned { implementing_wave: "P14 (record 21; edge implementation unlanded)" },
+        );
+        entries.insert(
+            "modbus-client".to_string(),
+            AdapterStatus::Planned { implementing_wave: "P14 (record 23; edge implementation unlanded)" },
+        );
+        entries.insert(
+            "dnp3-outstation".to_string(),
+            AdapterStatus::Planned { implementing_wave: "P14 (record 24; edge implementation unlanded)" },
+        );
+        entries.insert(
+            "mqtt-sparkplug-uplink".to_string(),
+            AdapterStatus::Planned { implementing_wave: "P14 (record 43; edge implementation unlanded)" },
+        );
+        entries.insert(
+            "cim-cgmes-import".to_string(),
+            AdapterStatus::Planned { implementing_wave: "P14 (record 44; edge implementation unlanded)" },
+        );
         Self { entries }
     }
 
@@ -224,10 +262,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_allowlist_records_openems_reserved_and_testonly_slots() {
+    fn default_allowlist_records_openems_testonly_and_the_planned_protocol_ids() {
         let registry = AdapterRegistry::with_default_allowlist();
         assert!(registry.is_allowlisted("openems-rest"));
-        assert!(registry.is_allowlisted("generic-rest"));
         // P6.08: the simulated fixture is allowlisted, explicitly TEST-ONLY.
         assert!(registry.is_allowlisted("simulated-test"));
         assert_eq!(registry.status_of("simulated-test"), Ok(AdapterStatus::TestOnly));
@@ -239,8 +276,32 @@ mod tests {
             registry.status_of("openems-rest"),
             Ok(AdapterStatus::Implemented)
         );
-        assert_eq!(registry.status_of("generic-rest"), Ok(AdapterStatus::Reserved));
-        assert_eq!(registry.allowlist().len(), 3);
+        // P14.18 (record 82): the six Phase 14 protocol ids are PLANNED
+        // (registered, never constructible until their edge-side
+        // implementations land).
+        for id in [
+            "ieee-2030.5",
+            "openadr-vtn",
+            "modbus-client",
+            "dnp3-outstation",
+            "mqtt-sparkplug-uplink",
+            "cim-cgmes-import",
+        ] {
+            assert!(registry.is_allowlisted(id), "{id} is allowlisted");
+            assert!(
+                matches!(registry.status_of(id), Ok(AdapterStatus::Planned { .. })),
+                "{id} is PLANNED"
+            );
+        }
+        // P14.18 (record 82): the `generic-rest` RESERVED placeholder is
+        // REMOVED — it is no longer allowlisted at all (an id is
+        // registered when its implementation lands, never before).
+        assert!(!registry.is_allowlisted("generic-rest"));
+        assert_eq!(
+            registry.status_of("generic-rest"),
+            Err(RegistryError::NotAllowlisted { id: "generic-rest".to_string() })
+        );
+        assert_eq!(registry.allowlist().len(), 8);
     }
 
     #[test]
@@ -289,6 +350,8 @@ mod tests {
     #[test]
     fn unknown_id_is_not_allowlisted_named_error() {
         let registry = AdapterRegistry::with_default_allowlist();
+        // `modbus-tcp` is NOT the registered Modbus id (the registered
+        // one is `modbus-client`, PLANNED since P14.18).
         assert!(!registry.is_allowlisted("modbus-tcp"));
         assert_eq!(
             registry.status_of("modbus-tcp"),
@@ -296,6 +359,8 @@ mod tests {
                 id: "modbus-tcp".to_string()
             })
         );
+        // The removed `generic-rest` placeholder is not allowlisted either.
+        assert!(!registry.is_allowlisted("generic-rest"));
     }
 
     #[test]
@@ -317,9 +382,14 @@ mod tests {
         // A PLANNED id: allowlisted → named refusal, factory NOT called.
         let error = registry.construct("legacy-planned", &factory).unwrap_err();
         assert!(error.to_string().contains("P6.10/P6.13"));
-        // generic-rest: allowlisted, RESERVED → named refusal.
-        let error = registry.construct("generic-rest", &factory).unwrap_err();
-        assert!(error.to_string().contains("RESERVED"));
+        // The DEFAULT table's own PLANNED ids refuse the same way (P14.18:
+        // the six Phase 14 protocol ids are registered but unlanded).
+        let registry_default = AdapterRegistry::with_default_allowlist();
+        let error = registry_default.construct("ieee-2030.5", &factory).unwrap_err();
+        assert!(error.to_string().contains("P14"), "the refusal names the wave");
+        // The REMOVED `generic-rest` id is not allowlisted at all.
+        let error = registry_default.construct("generic-rest", &factory).unwrap_err();
+        assert!(error.to_string().contains("not in the allowlist"));
         // An unknown id: named refusal before any factory would run.
         let error = registry.construct("modbus-tcp", &factory).unwrap_err();
         assert!(error.to_string().contains("not in the allowlist"));

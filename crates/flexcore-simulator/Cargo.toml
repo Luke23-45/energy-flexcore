@@ -43,3 +43,45 @@ flexcore-ports = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
+# P14.17 (decision record 81): the simulated protocol counterparts land IN
+# this crate, ON the adapter crates' named transport seams. The dependency
+# rule is the arbiter and allows every edge below: flexcore-simulator is a
+# COMPOSITION crate in tools/check_dependency_rule.py (composition crates
+# are not edge-restricted; only CORE crates are checked, and nothing may
+# depend ON a composition crate except apps). flexcore-protocol-ports is
+# CORE (adapters depend on ports); the six protocol adapters and
+# flexcore-kernel are COMPOSITION — composition→composition edges, the
+# same classification the kernel itself records for flexcore-research.
+# No transport/stack dependency is added by any of these lines: every
+# adapter crate is model-only (its wire seams stay UNWIRED).
+flexcore-protocol-ports = { workspace = true }
+flexcore-protocol-20305 = { workspace = true }
+flexcore-openadr-adapter = { workspace = true }
+flexcore-modbus-adapter = { workspace = true }
+flexcore-dnp3-adapter = { workspace = true }
+flexcore-mqtt-adapter = { workspace = true }
+flexcore-cim-adapter = { workspace = true }
+# P14.17 — the simulated adapters pass the SAME kernel-side permission
+# checks their real counterparts pass (flexcore_kernel::adapter_permissions;
+# the wave-2 handoff, record 63 §6). Composition→composition edge.
+flexcore-kernel = { workspace = true }
+# P16.20 (Phase 16 wave 2, Agent B; decision record 62): the paper-trading
+# market simulator composes the wave-1 application engines (the P16.06 bid
+# composer, the P16.07 price-record layer + unwired IsoPricePublication
+# seam, the P16.08 unwired TelemetryExportSink seam, the P16.09 fixture
+# grammars + reconciliation engine) — CONSUMED, never redefined.
+# flexcore-simulator is a COMPOSITION crate in tools/check_dependency_rule.py,
+# so the composition→application edge is legal with NO checker change
+# (only CORE crates are edge-checked, and nothing may depend ON this crate
+# except apps/composition roots). No new external dependency: the
+# application crate is an existing workspace member.
+flexcore-application = { workspace = true }
+# P17.15 (phase-17 wave 2, Agent A; decision record 44): the simulated OCPP
+# charge points speak OCPP-J to the CSMS adapter THROUGH the adapter's named
+# `CsmsTransport` seam — the same classification argument as the P14.17
+# lines above (flexcore-simulator is COMPOSITION; flexcore-ocpp-adapter is
+# COMPOSITION; composition→composition edges are legal with NO checker
+# change). No new EXTERNAL dependency: the adapter crate is an existing
+# workspace member and is model-only (its WebSocket seam stays UNWIRED —
+# this module is the in-process loopback, not a transport implementation).
+flexcore-ocpp-adapter = { workspace = true }

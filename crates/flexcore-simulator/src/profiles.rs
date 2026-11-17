@@ -29,6 +29,17 @@
 //   `charging_power_mw × EV_FULL_CHARGE_HOURS` of energy (2 hours at
 //   rated charge) — the scenario does not parameterise battery size, and
 //   this assumption is deterministic and stated, not measured.
+//
+//   P17.15 linkage note (wave 2 Agent A; decision record 44 under
+//   docs/phases-11-20/phase-17-ev-fleet-charging/records/): the EVSE
+//   profile above stays CHARGING-ONLY — "no V2G" is unchanged and no
+//   discharge behaviour was added to this module. The P17.15 simulated
+//   V2G behaviour profile lives in `adapters::sim_ocpp`
+//   (`SimulatedV2gProfile`), CONSUMES this profile's declared shape
+//   (`scenario::EvseParams`), attaches ONLY through the frozen
+//   five-condition `V2xConfig` gate, and is honestly labelled SYNTHETIC
+//   (stated fixture data — never a validated physical model, never
+//   evidence about real vehicles, never a dispatch authorization).
 // - Site meter: the aggregated SUM of the site's assets' net active power
 //   — a consistency fixture. **Losses = 0 and non-modelled load = 0 by
 //   construction**; a real PCC meter would include both (P2.13 §5.5).

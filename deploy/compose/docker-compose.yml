@@ -6,9 +6,20 @@
 # migrate service is unnecessary because FlexCoreStore::run_migrations
 # runs embedded migrations on boot), worker.
 #
-# DEV-ONLY credentials below — clearly marked, never production. The
-# production secrets path is a secrets manager (P0.16/P1.21); these values
-# exist so a developer checkout starts with no manual steps.
+# P11.16 — THE COMPOSE SECRETS FLOOR (WRITTEN, NEVER RUN — the loop bans
+# forbid docker commands in this program; the first human run is the
+# gate). Credentials no longer live in THIS file: each Compose host that
+# needs a secret reads it from a FILE under ./secrets/ (gitignored; each
+# host gets its own file — the file-per-host floor), mounted through the
+# Compose `secrets:` mechanism, never through `.env` or environment
+# values. RESTRICTED PERMISSIONS ARE A HUMAN DEPLOYMENT STEP: create the
+# files with `chmod 600` (owner read/write only) — see
+# ./secrets/README.md for the exact procedure and the production posture
+# (a secrets manager with dynamic short-lived credentials [S-74][S-75] is
+# the recorded Vault DEFAULT; this floor is the Compose-shape minimum,
+# not the production answer). NATS remains unauthenticated in the DEV
+# stack: NATS credential deployment is part of the Vault DEFAULT
+# recommendation (P11.16 record), deliberately not faked here.
 #
 # Image tags are pinned EXACT versions — never `latest`, never `x`
 # wildcards (P1.25 acceptance). NATS 2.15.2 was the latest 2.15 patch at
@@ -19,14 +30,29 @@
 # (REGISTRY/STATE/AUDIT + FLEXCORE_DLQ) on first use per the P1.14 design
 # (§4); no manual stream setup is required.
 
+secrets:
+  # The password the Postgres SERVER initializes its dev superuser with
+  # (file content becomes POSTGRES_PASSWORD_FILE). DEV-ONLY placeholder
+  # values are allowed in these files; the files themselves are
+  # gitignored and must be 0600.
+  postgres_server_password:
+    file: ./secrets/postgres_server_password.txt
+  # The password the control plane and worker present to Postgres
+  # (composed into FLEXCORE_DATABASE_URL by the service entrypoint shim).
+  postgres_app_password:
+    file: ./secrets/postgres_app_password.txt
+
 services:
   postgres:
     image: postgres:18.6
+    secrets:
+      - postgres_server_password
     environment:
-      # DEV-ONLY credential — not a production secret.
+      # DEV-ONLY role name — not a secret.
       POSTGRES_USER: flexcore_dev
-      # DEV-ONLY credential — not a production secret.
-      POSTGRES_PASSWORD: flexcore_dev_password
+      # P11.16: the password arrives as a mounted secret FILE (the
+      # official image's *_FILE convention) — never an environment value.
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_server_password
       POSTGRES_DB: flexcore
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -53,15 +79,58 @@ services:
       timeout: 3s
       retries: 20
 
+  # P11.06 — the OTel Collector GATEWAY (Phase 11 wave 1, Agent A): the
+  # single gateway container shape [S-64]; control plane and worker
+  # export OTLP here. Config: ./otel-collector-config.yaml in this
+  # directory (head/parent-based sampling at the SDKs; NO tail sampling —
+  # deferred with its recorded trigger; the `debug` exporter is the
+  # recorded placeholder until P11-E-2 closes). WRITTEN-UNRUN: never
+  # pulled or built in this program (the loop bans docker pulls) — the
+  # tag is pinned from the release index, checked 2026-11-14 (v0.165.0,
+  # released 2026-11-07), re-verify at first build.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      # Loopback-only host exposure: the OTLP receivers are for the
+      # Compose services; a host tool may inspect them from localhost.
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+
   control-plane:
     build:
       context: ../..
       dockerfile: deploy/compose/control-plane.Dockerfile
+    secrets:
+      - postgres_app_password
     environment:
-      FLEXCORE_DATABASE_URL: postgres://flexcore_dev:flexcore_dev_password@postgres:5432/flexcore
+      # P11.16: FLEXCORE_DATABASE_URL is composed by the entrypoint shim
+      # below from the mounted secret file — the URL with its credential
+      # never appears in this file, in .env, or in `docker inspect`
+      # environment output (the shim composes it in-process and execs the
+      # binary). The URL embeds the dev role name and host; only the
+      # password comes from the secret.
       FLEXCORE_NATS_URL: nats://nats:4222
       FLEXCORE_BIND_ADDR: 0.0.0.0:8080
       FLEXCORE_LOG_LEVEL: info
+      # P11.04 (Phase 11 wave 1, Agent A) — OTLP export to the gateway
+      # (unset would keep the plain P1.20 JSON subscriber).
+      FLEXCORE_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      FLEXCORE_OTEL_SERVICE_NAME: flexcore-control-plane
+      FLEXCORE_OTEL_TRACE_SAMPLE_RATIO: "1.0"
+    # P11.16 entrypoint shim: composes the database URL from the mounted
+    # secret file, exports it for the real ENTRYPOINT binary, and execs it
+    # (PID 1 stays the control plane, so signals and the healthcheck are
+    # unchanged). WRITTEN-UNRUN (no docker command runs in this program).
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        FLEXCORE_DATABASE_URL="postgres://flexcore_dev:$$(cat /run/secrets/postgres_app_password)@postgres:5432/flexcore"
+        export FLEXCORE_DATABASE_URL
+        exec /usr/local/bin/flexcore-control-plane
     ports:
       - "8080:8080"
     depends_on:
@@ -69,6 +138,11 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+      # service_started (not healthy): an OTLP exporter build does not
+      # dial the gateway, and export failures are retried by the SDK —
+      # the collector is a forwarder, not a liveness dependency.
+      otel-collector:
+        condition: service_started
     healthcheck:
       # /health is liveness (process up); /ready requires the dependencies.
       test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/ready || exit 1"]
@@ -81,15 +155,34 @@ services:
     build:
       context: ../..
       dockerfile: deploy/compose/worker.Dockerfile
+    secrets:
+      - postgres_app_password
     environment:
-      FLEXCORE_DATABASE_URL: postgres://flexcore_dev:flexcore_dev_password@postgres:5432/flexcore
+      # P11.16: same entrypoint-shim pattern as the control plane — the
+      # database URL with its credential is composed from the mounted
+      # secret file at start, never stored in this file.
       FLEXCORE_NATS_URL: nats://nats:4222
       FLEXCORE_LOG_LEVEL: info
+      # P11.05 (Phase 11 wave 1, Agent A) — OTLP export to the gateway.
+      FLEXCORE_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      FLEXCORE_OTEL_SERVICE_NAME: flexcore-worker
+      FLEXCORE_OTEL_TRACE_SAMPLE_RATIO: "1.0"
+    # P11.16 entrypoint shim (see the control-plane service note).
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        FLEXCORE_DATABASE_URL="postgres://flexcore_dev:$$(cat /run/secrets/postgres_app_password)@postgres:5432/flexcore"
+        export FLEXCORE_DATABASE_URL
+        exec /usr/local/bin/flexcore-worker
     depends_on:
       postgres:
         condition: service_healthy
       nats:
         condition: service_healthy
+      # service_started: same forwarder-not-dependency note as above.
+      otel-collector:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- http://localhost:8081/ready || exit 1"]
       interval: 10s

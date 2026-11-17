@@ -69,6 +69,31 @@ rustls-pemfile = { version = "2", default-features = false, features = ["std"] }
 # Internal crates.
 flexcore-contracts = { workspace = true }
 flexcore-ports = { workspace = true }
+# P14.18/P14.20 (decision record 82/83) — the shared protocol-adapter
+# observability vocabulary (the fleet uplink budget maps onto the shared
+# `MessageRateBudget` shape; one rate vocabulary, never two). CORE crate;
+# composition→core edge (the normal direction).
+flexcore-protocol-ports = { workspace = true }
+# P14.18 (decision record 82) — the edge-to-cloud protocol mapping module
+# consumes the MQTT/Sparkplug uplink adapter's declared mapping
+# (`SparkplugUplinkPlan`) and its wire SEAM trait (`MqttUplinkTransport`):
+# the composition point record 43 §2 names as "wave 3's wiring". A
+# composition→composition edge (checker-legal); no MQTT client/broker
+# dependency exists in the adapter crate (the seam stays UNWIRED), so this
+# line adds no transport either.
+flexcore-mqtt-adapter = { workspace = true }
+
+# P18.05 (decision record
+# docs/phases-11-20/phase-18-edge-fleet-lifecycle-ota/records/
+# 05_p18_05_edge_agent_update_extension.md) — the real SHA-256 update
+# digest verifier CONSUMES the P11.15 std-only SHA-256/HMAC
+# implementation (`flexcore-audit/src/chain.rs`): the workspace's
+# existing crypto approach, reused not duplicated (program conventions
+# §6.6; the loop bans forbid new crypto-crate additions). A
+# composition→core edge (the normal direction; checker-legal — edge-agent
+# is a COMPOSITION crate). The verifier is an injected OPTION: the
+# fail-closed `NoUpdateVerifier` default is untouched.
+flexcore-audit = { workspace = true }
 
 [[bin]]
 name = "edge-agent"

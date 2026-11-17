@@ -89,6 +89,22 @@ pub mod partition_maintenance;
 // on the PgUnitOfWork transaction pattern (record + ScheduleProposed
 // outbox row in ONE transaction, §15.5).
 pub mod schedule_store;
+// P15.15 — the interconnection-record store (migration 0021): the
+// PostgreSQL implementation of flexcore-storage's
+// InterconnectionRecordStore, on the PgUnitOfWork transaction pattern.
+// A platform-global per-device-model catalog: NO tenant RLS (the
+// recorded tenancy decision), INSERT + SELECT only (immutable records),
+// catalog-name validation on insert against the P14.13 vocabularies.
+pub mod interconnection_store;
+// P16.01 — the market-records store (migration 0022): the PostgreSQL
+// implementation of flexcore-storage's MarketRecordsStore, on the
+// PgUnitOfWork transaction pattern. Tenant-scoped financial records
+// (RLS, the 0016 pattern), INSERT + SELECT only on the record tables
+// (the supersede model is a NEW row), payload-shape validation on
+// insert, decimal-text amounts with currency as DATA (no numeric money
+// conversion anywhere). The audit-chain LINK is stored per row; the P11
+// chain itself is consumed, never redefined.
+pub mod market_records_store;
 pub mod store;
 pub mod telemetry;
 pub mod unit_of_work;

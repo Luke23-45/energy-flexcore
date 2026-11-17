@@ -20,9 +20,12 @@
 //   is UNVERIFIED (never executed; RESEARCH.md §1) — the port above is
 //   deliberately protocol-agnostic so the concrete adapter implements
 //   whatever the verified API requires without touching this interface.
-// - `generic-rest` is a RESERVED placeholder id — recorded, never
-//   implemented, and never constructible (no hallucinated APIs; AGENTS.md
-//   rule 1).
+// - `generic-rest` was a RESERVED placeholder id — REMOVED in P14.18
+//   (decision record 82): the protocol-adapter tier names concrete
+//   protocol ids, and the extension rule is "an id is registered when its
+//   implementation lands, never before". The six Phase 14 protocol ids
+//   are registered PLANNED (never constructible until their edge-side
+//   implementations land).
 //
 // Placement note (recorded in the decision doc): ledger P6.12 step 3
 // places the concrete adapter crate at `crates/adapters/<protocol>/` per
@@ -32,6 +35,12 @@
 // ACL types — adapters depend on ports, never the reverse.
 
 pub mod acl;
+// P14.18 (decision record 82) — the edge-to-cloud protocol mapping and
+// the fleet uplink budgets: the composition point record 43 §2 named
+// (canonical edge samples → Sparkplug metrics over an INJECTED
+// `MqttUplinkTransport`, shipped default refusing), plus the declared
+// fleet bandwidth budgets. No wire, no broker, no command path.
+pub mod edge_to_cloud;
 // P6.10 — the `openems-rest` adapter (EdgeConfig discovery, versioned
 // channel-mapping profile, unmapped/ambiguous-channel register, read-only
 // GET client; see the module header for the UNVERIFIED-ASSUMPTION register

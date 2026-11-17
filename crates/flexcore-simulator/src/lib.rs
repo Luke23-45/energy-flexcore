@@ -66,6 +66,29 @@
 //! layer and performs no primary frequency response, synthetic inertia,
 //! relay protection, inverter inner-loop control, or sub-cycle control.
 
+// P14.17 (decision record 81) — the simulated protocol counterparts: the
+// device/peer fixtures that land ON the adapter crates' named transport
+// seams so every adapter is testable with no hardware. Additive module
+// tree; the crate's Phase 2 responsibilities are unchanged.
+pub mod adapters;
+// P14.17 (decision record 81; the recorded P14.15 handoff, record 63 §5)
+// — the DOE behaviour profile consuming the domain's
+// `doe_envelope` semantics (never redefining them). Additive module.
+pub mod doe_profile;
+
+// P16.20 (Phase 16 wave 2, Agent B; WRITTEN-UNRUN) — the paper-trading
+// market simulator: the simulated ISO price feed ON the unwired
+// IsoPricePublication seam, the synthetic settlement fixtures ON the
+// P16.09 fixture grammars, the in-memory bounded export sink ON the
+// unwired TelemetryExportSink seam, and the deterministic paper loop
+// (signal → bid → dispatch → evidence → statement → reconciliation →
+// payment-state reference) composed from the wave-1 application engines.
+// RECORDS ONLY, never a connection; every identity carries the
+// `sim://market` / `sim-export://` prefix; no money arithmetic in floats;
+// nothing has ever run. Decision record: phase-16
+// `records/62_p16_20_market_simulator.md`.
+pub mod market;
+
 pub mod scenario;
 pub mod source;
 

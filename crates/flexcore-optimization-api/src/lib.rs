@@ -82,6 +82,14 @@ pub mod backend;
 pub mod clarabel_provider;
 pub mod config;
 pub mod conic_fixture;
+// P15.08 — the degradation cost-curve data contract (additive): linear or
+// piecewise-linear degradation cost as optimizer INPUT DATA per asset,
+// feeding the existing `C_degradation` term (P3.14 closed vocabulary).
+// Solver-tier guards and the MISOCP refusal are untouched — the guard tests
+// in `problem.rs` prove it (decision record
+// docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/
+// 22_p15_08_degradation_cost_curve.md).
+pub mod degradation_cost;
 pub mod determinism;
 pub mod fixture;
 pub mod highs_provider;

@@ -87,18 +87,28 @@ pub struct PgUnitOfWork {
     runtime: Arc<Runtime>,
     unit: UnitOfWork,
     finalized: AtomicBool,
+    /// The deployment-supplied audit-chain namespace key, when configured
+    /// (P11.15). `None` = the honest un-keyed state; audit appends then
+    /// leave the chain columns NULL.
+    audit_chain_key: Option<Arc<flexcore_audit::chain::ChainKey>>,
 }
 
 impl PgUnitOfWork {
     /// Assembles the unit of work around an open native transaction
     /// (called by [`crate::FlexCoreStore::begin`], which also set the
-    /// tenant context when a `TenantContext` was supplied).
-    pub(crate) fn assemble(tx: Tx, runtime: Arc<Runtime>) -> Self {
+    /// tenant context when a `TenantContext` was supplied and passes the
+    /// configured audit-chain key through).
+    pub(crate) fn assemble(
+        tx: Tx,
+        runtime: Arc<Runtime>,
+        audit_chain_key: Option<Arc<flexcore_audit::chain::ChainKey>>,
+    ) -> Self {
         Self {
             tx: Arc::new(AsyncMutex::new(Some(tx))),
             runtime,
             unit: UnitOfWork::begin_labelled("flexcore-postgres"),
             finalized: AtomicBool::new(false),
+            audit_chain_key,
         }
     }
 
@@ -1050,13 +1060,30 @@ impl AuditSink for PgUnitOfWork {
     /// writable through the owner/ops path (P1.12 §5.2). The port exposes
     /// append only — no update, no delete (P1.10; the database trigger is
     /// layer 2 of the append-only enforcement, this port layer 3).
+    ///
+    /// P11.15: when the deployment configured a chain key, the append also
+    /// advances the record's TENANT-NAMESPACE keyed HMAC-SHA-256 chain
+    /// (`crate::audit::append_audit_record_with_chain`) inside this same
+    /// transaction — the chain advance is atomic with the evidence row and
+    /// with the use case's state change. Without a key the chain columns
+    /// stay NULL (the honest un-keyed state — DEPLOYMENT REQUIREMENT,
+    /// P11.15; the test-grade FNV-1a edge chain is the only fallback and
+    /// is never a release signature).
     fn append(&self, record: AuditRecord) -> Result<(), AuditError> {
+        let chain_key = self.audit_chain_key.clone();
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(|backend| AuditError::Rejected {
                 reason: backend.message().to_string(),
             })?;
-            crate::audit::insert_audit_record(&mut *tx, &record).await
+            match &chain_key {
+                Some(key) => {
+                    let namespace = key.chain_key_for_namespace(record.tenant_id);
+                    crate::audit::append_audit_record_with_chain(&mut *tx, &record, &namespace)
+                        .await
+                }
+                None => crate::audit::insert_audit_record(&mut *tx, &record, None).await,
+            }
         })
     }
 }

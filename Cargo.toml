@@ -71,6 +71,84 @@ members = [
     # transport, no async runtime (the placement rationale is recorded in
     # ledger/phase-08-advanced-coordination/05_06_harness_baselines.md).
     "crates/flexcore-research",
+    # P14.01 — the common protocol-adapter port layer (scope declaration,
+    # capability manifest, connection lifecycle) that every
+    # crates/adapters/protocol-* crate implements. A CORE crate in
+    # tools/check_dependency_rule.py (allowed internal edges: none);
+    # serde-only dependency line (decision record
+    # docs/phases-11-20/phase-14-protocol-device-connectivity/records/
+    # 01_p14_01_adapter_architecture.md).
+    "crates/flexcore-protocol-ports",
+    # P14.02 — the IEEE 2030.5 AggregatorServer adapter: CSIP resource-tree
+    # model types, declared addressing/query semantics, the mTLS server
+    # skeleton with a designed (UNRUN) transport seam, and the
+    # DERControl-to-PROPOSED external-event mapping. A COMPOSITION crate in
+    # tools/check_dependency_rule.py; no transport dependency (the seam is
+    # an implementation-time human gate, decision record 02).
+    "crates/adapters/protocol-20305",
+    # P14.05 (wave 1, Agent B) — the OpenADR 3.0 VTN adapter: event/report/
+    # registration endpoint DESIGN as data (no HTTP framework), the VEN
+    # registry + delivery planner, and the event-to-PROPOSED lifecycle
+    # mapping. A COMPOSITION crate in tools/check_dependency_rule.py; no
+    # transport dependency (endpoint serving is a designed seam, decision
+    # record 21).
+    "crates/adapters/protocol-openadr",
+    # P14.07 (wave 1, Agent B) — the SunSpec Modbus client adapter:
+    # information-model types (101/103, 201/203, 80x), the register-map
+    # registry keyed per device model, gateway polling budgets, unit
+    # conversion at the adapter boundary, and the UNWIRED TCP/RTU transport
+    # seam. A COMPOSITION crate in tools/check_dependency_rule.py (decision
+    # record 23).
+    "crates/adapters/protocol-modbus",
+    # P14.08 (wave 1, Agent B) — the DNP3 IEEE 1815.2-2025 DER-profile
+    # adapter: DER data-object types, the OUTSTATION-role model (controls
+    # arriving from the master enter the lifecycle at PROPOSED), the
+    # master-role assessment (DEFER record), and the secure-transport
+    # posture note (no claims). A COMPOSITION crate in
+    # tools/check_dependency_rule.py (decision record 24).
+    "crates/adapters/protocol-dnp3",
+    # P14.11 (wave 2, Agent A) — the MQTT 5 + Sparkplug B edge-transport
+    # adapter: the declared topic namespace, the Sparkplug B payload model,
+    # the BIRTH/DEATH session state machine, per-device credential bindings
+    # (no secret field — the never-granted rule), the edge-agent uplink
+    # OPTION design, and the UNWIRED MQTT wire seam. A COMPOSITION crate in
+    # tools/check_dependency_rule.py; no MQTT client / broker / async
+    # runtime dependency (decision record 43).
+    "crates/adapters/protocol-mqtt",
+    # P14.12 (wave 2, Agent A) — the CIM/CGMES network-model import
+    # adapter: the CIM object vocabulary, the RDF/XML profile-source SEAM
+    # (no XML parser dependency), the declared class mapping into the
+    # grid-api network IR with the EXPLICITLY_UNMAPPED discipline, the
+    # IEC 61968-5 DER-group registry, and the common scope declaration. A
+    # COMPOSITION crate in tools/check_dependency_rule.py (decision
+    # record 44). P14.09 (IEC 60870-5-104) and P14.10 (IEC 61850-7-420)
+    # are design-record-only in wave 2 per the P14-E-3 DEFAULT — no
+    # protocol-104/protocol-61850 crates exist (records 41/42).
+    "crates/adapters/protocol-cim",
+    # P15.04 — the ENTSO-E Transparency Platform price-signal ingestion
+    # adapter: the A44 day-ahead price document model, the document
+    # extraction seam (no XML parser dependency — the P14.12 precedent),
+    # the API-token HUMAN GATE boundary (UNSIGNED until a human
+    # registers), the UNWIRED REST transport seam (no HTTP client; no
+    # request is ever sent in this program), and the ingest-only scope
+    # (prices are INGESTED DATA, never bid inputs — ADR-010 extension,
+    # ADR-011 unchanged). A COMPOSITION crate in
+    # tools/check_dependency_rule.py; zero external dependencies
+    # (decision record
+    # docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/
+    # 04_p15_04_price_ingestion_entsoe.md).
+    "crates/adapters/protocol-entsoe",
+    # P17.01-P17.05 (wave 1, Agent A) — the OCPP CSMS adapter: OCPP-J JSON
+    # framing model types and codec, subprotocol negotiation (ocpp2.0.1
+    # baseline + ocpp2.1 additive, P17-E-1 DEFAULT OPEN), the session state
+    # machine, the CSMS server skeleton with a designed (UNRUN) WebSocket
+    # transport seam, security Profile 3 onboarding types, the
+    # boot/status/transaction mapping into the domain EVSE registry
+    # extension, and the SetChargingProfile payload mapping for the
+    # smart-charging composer. A COMPOSITION crate in
+    # tools/check_dependency_rule.py; no WebSocket / TLS / HTTP dependency
+    # (the transport is a designed seam, decision record 01).
+    "crates/adapters/protocol-ocpp",
 ]
 
 [workspace.package]
@@ -139,6 +217,36 @@ flexcore-simulator = { path = "crates/flexcore-simulator" }
 # P6.05 — edge agent (composition crate; port holder for the P6.12
 # `EmsAdapter` interface that later `crates/adapters/<protocol>` crates implement).
 flexcore-edge-agent = { path = "crates/edge-agent" }
+# P7.05+ — plugin kernel (composition crate; its own dependency line pins
+# flexcore-protocol-ports via this table). Added to the table by wave 3,
+# Agent A (P14.17): the simulated protocol counterparts in
+# flexcore-simulator bind the SAME kernel-side adapter-permission checks
+# their real counterparts pass (decision record 81; composition→composition
+# edge, checker-legal).
+flexcore-kernel = { path = "crates/flexcore-kernel" }
+
+# P14.01/P14.02 — protocol adapter crates (single version source; see the
+# member notes above and the phase-14 records for the placement rationale).
+flexcore-protocol-ports = { path = "crates/flexcore-protocol-ports" }
+flexcore-protocol-20305 = { path = "crates/adapters/protocol-20305" }
+# P14.05/P14.07/P14.08 (wave 1, Agent B) — protocol adapter crates (single
+# version source; see the member notes above and the phase-14 records for
+# the placement rationale).
+flexcore-openadr-adapter = { path = "crates/adapters/protocol-openadr" }
+flexcore-modbus-adapter = { path = "crates/adapters/protocol-modbus" }
+flexcore-dnp3-adapter = { path = "crates/adapters/protocol-dnp3" }
+# P14.11/P14.12 (wave 2, Agent A) — protocol adapter crates (single
+# version source; see the member notes above and the phase-14 records for
+# the placement rationale).
+flexcore-mqtt-adapter = { path = "crates/adapters/protocol-mqtt" }
+flexcore-cim-adapter = { path = "crates/adapters/protocol-cim" }
+# P15.04 — the ENTSO-E price-signal ingestion adapter (single version
+# source; see the member note above and the phase-15 records).
+flexcore-entsoe-adapter = { path = "crates/adapters/protocol-entsoe" }
+# P17.01-P17.05 — the OCPP CSMS adapter crate (single version source; see
+# the member note above and the phase-17 records for the placement
+# rationale).
+flexcore-ocpp-adapter = { path = "crates/adapters/protocol-ocpp" }
 
 # Patch policy: no [patch] entries without an ADR and a recorded upstream
 # issue (P1.03 step 5).

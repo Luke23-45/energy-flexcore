@@ -41,6 +41,23 @@ use crate::dto::{
 use crate::error::ApiError;
 use crate::state::AppState;
 
+// P11.11/P11.14 (Phase 11 wave 1, Agent B) — the command-submission POST
+// class. The §15.2 dispatch-command resource is READ-ONLY by recorded
+// decision (routes_phase4.rs: NO execute-command endpoint exists), so the
+// governed class is the set of POST routes that SUBMIT candidates which
+// can enter the command lifecycle — today exactly the three Phase 3
+// candidate-submission routes below. The P11.11 Idempotency-Key contract
+// and the P11.14 in-flight caps apply to exactly these paths; a later
+// phase that exposes a command-submission POST adds it to this list and
+// both contracts govern it with zero code change. Closed list — a path
+// not named here is NOT governed (deny-by-default extends to contracts:
+// nothing is silently opted in).
+pub const COMMAND_SUBMISSION_PATHS: [&str; 3] = [
+    "/api/v1/flexibility/envelopes",
+    "/api/v1/schedules",
+    "/api/v1/optimization-runs",
+];
+
 /// Builds the Stage 1 router (subset of `/api/v1` per P0.15) plus the
 /// probe/metrics/OpenAPI endpoints, merged with the Phase 2 routes
 /// (P2.12/P2.17: registry DELETE/update/deactivate, telemetry query,

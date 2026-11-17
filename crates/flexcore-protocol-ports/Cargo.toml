@@ -1,0 +1,31 @@
+# P14.01 — flexcore-protocol-ports manifest: the common port layer for the
+# Phase 14 protocol adapters (crates/adapters/protocol-*).
+#
+# Placement rationale (decision record
+# docs/phases-11-20/phase-14-protocol-device-connectivity/records/
+# 01_p14_01_adapter_architecture.md): a CORE crate alongside flexcore-ports,
+# classified in tools/check_dependency_rule.py with the allowed internal edge
+# set {} — this crate depends on NO other workspace crate. The scope
+# declaration mirrors crates/flexcore-grid-api/src/scope.rs exactly (no
+# `Default` impl, mandatory non-empty `not_modelled`, fail-closed
+# `assert_supports`); the capability-manifest type and the connection
+# lifecycle port live here so every protocol adapter (IEEE 2030.5, OpenADR,
+# Modbus, DNP3, 104, 61850, MQTT, CIM) implements ONE manifest shape and ONE
+# connect/disconnect lifecycle.
+#
+# Dependency policy: serde only (workspace pin) for the manifest/scope value
+# types. No flexcore-contracts dependency — the protocol port layer carries
+# protocol-shaped declarations only; canonical-units and quality-state
+# translation stays at the edge-agent anti-corruption layer (the P6.12
+# `EmsAdapter` / ACL pattern), never in the port. No tokio, no HTTP
+# framework, no TLS library: transports are adapter-owned (the sync-trait
+# house rule; a concrete adapter bridges its own I/O shape onto the sync
+# surface).
+[package]
+name = "flexcore-protocol-ports"
+description = "Common port layer for FlexCore protocol adapters: protocol scope declarations, capability manifests, and the connect/disconnect connection lifecycle (P14.01)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }

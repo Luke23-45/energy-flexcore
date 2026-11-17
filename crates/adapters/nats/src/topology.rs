@@ -31,6 +31,7 @@
 
 use std::time::Duration;
 
+use async_nats::header::HeaderMap;
 use async_nats::jetstream::consumer::{AckPolicy, DeliverPolicy, ReplayPolicy};
 use async_nats::jetstream::context::CreateStreamError;
 // `ConsumerError` (the `create_consumer_on_stream` error type) is a type
@@ -38,6 +39,45 @@ use async_nats::jetstream::context::CreateStreamError;
 // checked against the 0.50.0 docs.
 use async_nats::jetstream::stream::{Config as StreamConfig, ConsumerError, StorageType};
 use async_nats::jetstream::{consumer, Context};
+
+// P11.13 — the JetStream message header carrying the envelope schema
+// version on every published message (hardening package, gap analysis §5
+// Tier 0 row 5 [S-65]). The header name is a platform constant, not a
+// convention: the publisher sets it through
+// [`published_message_headers`], and the consumer reads it back
+// ([`crate::consumer::DeliveredMessage::schema_version`]) so a payload
+// whose schema version is invisible can be quarantined with its metadata
+// intact. This is delivery metadata, NOT a second schema-version source:
+// the envelope's own `schema_version` field (P1.09) stays the authority —
+// an unknown version fails to parse there, never here.
+pub const SCHEMA_VERSION_HEADER: &str = "flexcore-schema-version";
+
+/// The schema version the publisher stamps on every published event
+/// message. This crate deliberately depends on `flexcore-ports` only (the
+/// recorded single core-crate edge), so the value is a RECORDED
+/// cross-check, not a compile-time link: it MUST equal
+/// `flexcore_events::envelope::SUPPORTED_SCHEMA_VERSION` (1). The
+/// cross-check is asserted in the worker integration tests (which see
+/// both crates) — a divergence fails there instead of coupling the
+/// adapter to the events crate.
+pub const PUBLISHED_SCHEMA_VERSION: u32 = 1;
+
+/// Builds the header set every published event message carries: the
+/// envelope schema version under [`SCHEMA_VERSION_HEADER`]. The publish
+/// side (the outbox publisher, P1.15) inserts this on EVERY publish; the
+/// value is the crate's single supported version
+/// (`flexcore_events::envelope::SUPPORTED_SCHEMA_VERSION`) — the publisher
+/// never invents one.
+pub fn published_message_headers(schema_version: u32) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    // VERIFY-BUILD (async-nats 0.50.0): `HeaderMap::insert` takes a name
+    // convertible into `header::HeaderName`; the custom-header name travels
+    // as a string. If the 0.50.0 conversion is `TryFrom` rather than
+    // `Into`, adjust this one line mechanically — the constant and the
+    // helper's contract do not change.
+    headers.insert(SCHEMA_VERSION_HEADER, schema_version.to_string());
+    headers
+}
 
 /// The versioned event-subject prefix (P1.14 §3, D-J1).
 pub const EVENT_SUBJECT_PREFIX: &str = "flexcore.v1";
@@ -61,6 +101,37 @@ pub const STREAM_DISPATCH: &str = "FLEXCORE_DISPATCH";
 pub const STREAM_PLUGINS: &str = "FLEXCORE_PLUGINS";
 pub const STREAM_AUDIT: &str = "FLEXCORE_AUDIT";
 pub const STREAM_DLQ: &str = "FLEXCORE_DLQ";
+
+// P11.13 — dedicated DLQ streams per subject family (the hardening
+// package's second item [S-65]): one DLQ stream per P1.14 §3 area so a
+// poison storm in one family cannot evict another family's quarantine
+// copies (each stream carries its OWN bounded-retention budget — see
+// `dlq_deployment_limits` guidance in the P11.13 record) and so DLQ-depth
+// alerting can be scoped per family instead of per server.
+//
+// The original catch-all `FLEXCORE_DLQ` is RETAINED but its filter is
+// narrowed to the unrouted quarantine subject only
+// (`flexcore.dlq.v1.unrouted` — the subject
+// `crate::consumer`'s quarantine path uses when a non-conforming original
+// subject yields no derivable DLQ subject). Every CONFORMING quarantine
+// copy (`flexcore.dlq.v1.<area>.<event_slug>`) is captured by its family's
+// dedicated stream; there is no overlap between the family filters and the
+// catch-all filter.
+pub const DLQ_STREAM_REGISTRY: &str = "FLEXCORE_DLQ_REGISTRY";
+pub const DLQ_STREAM_STATE: &str = "FLEXCORE_DLQ_STATE";
+pub const DLQ_STREAM_TELEMETRY: &str = "FLEXCORE_DLQ_TELEMETRY";
+pub const DLQ_STREAM_FLEXIBILITY: &str = "FLEXCORE_DLQ_FLEXIBILITY";
+pub const DLQ_STREAM_FORECAST: &str = "FLEXCORE_DLQ_FORECAST";
+pub const DLQ_STREAM_MARKET: &str = "FLEXCORE_DLQ_MARKET";
+pub const DLQ_STREAM_SCHEDULING: &str = "FLEXCORE_DLQ_SCHEDULING";
+pub const DLQ_STREAM_VALIDATION: &str = "FLEXCORE_DLQ_VALIDATION";
+pub const DLQ_STREAM_DISPATCH: &str = "FLEXCORE_DLQ_DISPATCH";
+pub const DLQ_STREAM_PLUGINS: &str = "FLEXCORE_DLQ_PLUGINS";
+pub const DLQ_STREAM_AUDIT: &str = "FLEXCORE_DLQ_AUDIT";
+
+/// The unrouted-quarantine subject the consumer's catch-all uses; the ONLY
+/// subject the retained `FLEXCORE_DLQ` stream captures.
+pub const DLQ_UNROUTED_SUBJECT: &str = "flexcore.dlq.v1.unrouted";
 
 /// One P1.14 §4.2 stream row: name + subject filter. The retention/storage/
 /// discard/replication policy is shared ([`provision_stream`]); the limits
@@ -134,12 +205,58 @@ pub const STREAMS: &[StreamDefinition] = &[
         subject_filter: "flexcore.v1.audit.>",
         provisioned_in_phase_1: true,
     },
+    // P11.13: the catch-all DLQ stream is narrowed to the unrouted
+    // quarantine subject; the conforming quarantine copies
+    // (`flexcore.dlq.v1.<area>.<event_slug>`) are captured by their
+    // family's dedicated stream in [`DLQ_STREAMS`].
     StreamDefinition {
         name: STREAM_DLQ,
-        subject_filter: "flexcore.dlq.v1.>",
+        subject_filter: DLQ_UNROUTED_SUBJECT,
         provisioned_in_phase_1: true,
     },
 ];
+
+/// One P11.13 dedicated-DLQ-stream row: one per P1.14 §3 area, in table
+/// order. Retention/storage/discard/replication policy is shared
+/// ([`provision_stream`]); the DLQ streams take their own
+/// bounded-retention limits (see [`provision_dlq_streams`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DlqStreamDefinition {
+    /// The event area (the P1.14 §3 area token) this DLQ family serves.
+    pub area: &'static str,
+    /// The dedicated stream name (`FLEXCORE_DLQ_<AREA>`).
+    pub stream: &'static str,
+    /// The subject filter (`flexcore.dlq.v1.<area>.>`).
+    pub subject_filter: &'static str,
+}
+
+/// The complete P11.13 per-family DLQ inventory — one row per P1.14 §3
+/// area, in table order.
+pub const DLQ_STREAMS: &[DlqStreamDefinition] = &[
+    DlqStreamDefinition { area: "registry", stream: DLQ_STREAM_REGISTRY, subject_filter: "flexcore.dlq.v1.registry.>" },
+    DlqStreamDefinition { area: "state", stream: DLQ_STREAM_STATE, subject_filter: "flexcore.dlq.v1.state.>" },
+    DlqStreamDefinition { area: "telemetry", stream: DLQ_STREAM_TELEMETRY, subject_filter: "flexcore.dlq.v1.telemetry.>" },
+    DlqStreamDefinition { area: "flexibility", stream: DLQ_STREAM_FLEXIBILITY, subject_filter: "flexcore.dlq.v1.flexibility.>" },
+    DlqStreamDefinition { area: "forecast", stream: DLQ_STREAM_FORECAST, subject_filter: "flexcore.dlq.v1.forecast.>" },
+    DlqStreamDefinition { area: "market", stream: DLQ_STREAM_MARKET, subject_filter: "flexcore.dlq.v1.market.>" },
+    DlqStreamDefinition { area: "scheduling", stream: DLQ_STREAM_SCHEDULING, subject_filter: "flexcore.dlq.v1.scheduling.>" },
+    DlqStreamDefinition { area: "validation", stream: DLQ_STREAM_VALIDATION, subject_filter: "flexcore.dlq.v1.validation.>" },
+    DlqStreamDefinition { area: "dispatch", stream: DLQ_STREAM_DISPATCH, subject_filter: "flexcore.dlq.v1.dispatch.>" },
+    DlqStreamDefinition { area: "plugins", stream: DLQ_STREAM_PLUGINS, subject_filter: "flexcore.dlq.v1.plugins.>" },
+    DlqStreamDefinition { area: "audit", stream: DLQ_STREAM_AUDIT, subject_filter: "flexcore.dlq.v1.audit.>" },
+];
+
+/// Maps a quarantine area token (the third token of a
+/// `flexcore.dlq.v1.<area>.<event_slug>` subject) to its dedicated DLQ
+/// stream. `None` for a token outside the P1.14 §3 area vocabulary — the
+/// unrouted catch-all (`STREAM_DLQ`) is the caller's fallback, exactly as
+/// the consumer's quarantine path already routes non-conforming subjects.
+pub fn dlq_stream_for_area(area: &str) -> Option<&'static str> {
+    DLQ_STREAMS
+        .iter()
+        .find(|d| d.area == area)
+        .map(|d| d.stream)
+}
 
 /// The four streams D-J7 provisions in Phase 1 (plus the DLQ).
 pub const PHASE_1_STREAMS: &[&StreamDefinition] = &[
@@ -164,6 +281,16 @@ pub const PHASE_1_STREAMS: &[&StreamDefinition] = &[
 /// must be reconciled there — the publisher does not remap).
 pub fn stream_for_subject(subject: &str) -> Option<&'static str> {
     if subject.starts_with(DLQ_SUBJECT_PREFIX) {
+        // P11.13: a conforming quarantine copy routes to its family's
+        // dedicated DLQ stream; the unrouted catch-all subject (and any
+        // other subject under the DLQ prefix the family table does not
+        // recognise) stays on the retained catch-all stream.
+        let tokens: Vec<&str> = subject.split('.').collect();
+        if tokens.len() >= 4 {
+            if let Some(stream) = dlq_stream_for_area(tokens[2]) {
+                return Some(stream);
+            }
+        }
         return Some(STREAM_DLQ);
     }
     let mut tokens = subject.split('.');
@@ -220,6 +347,53 @@ pub struct DeploymentLimits {
     pub max_messages: Option<i64>,
     /// Maximum stream bytes (`max_bytes`); `None` leaves the server default.
     pub max_bytes: Option<i64>,
+}
+
+impl DeploymentLimits {
+    /// P11.13 — bounded-retention constructor: every event stream gets an
+    /// explicit retention ceiling instead of the server default ("bounded
+    /// retention" item of the JetStream hardening package [S-65]). The
+    /// values below are REGISTERED RECOMMENDATION defaults for the
+    /// single-node simulation deployment (X-8 pre-registration: written
+    /// down before any run that could measure against them; pending
+    /// operator sign-off on real retention data). Production values remain
+    /// a per-deployment decision per data class (P1.14 §4.1/D-J4). No
+    /// performance or sufficiency claim is made for any of them.
+    ///
+    /// | Bound | Value | Registered rationale |
+    /// |---|---|---|
+    /// | duplicate window | 120 s | unchanged from the P1.19 dev default |
+    /// | max_age | 7 days | the replayable window for a simulation deployment |
+    /// | max_messages | 1,000,000 | coarse message-count ceiling |
+    /// | max_bytes | 1 GiB | coarse byte ceiling |
+    pub fn bounded_simulation_defaults() -> Self {
+        Self {
+            duplicate_window: Duration::from_secs(120),
+            max_age: Some(Duration::from_secs(7 * 24 * 60 * 60)),
+            max_messages: Some(1_000_000),
+            max_bytes: Some(1_073_741_824),
+        }
+    }
+
+    /// P11.13 — the DLQ-family retention budget: quarantine copies are
+    /// evidence, not replayable events, so the ceiling is TIGHTER than the
+    /// event streams' (a poison storm must not grow without bound).
+    /// REGISTERED RECOMMENDATION values (X-8), pending operator sign-off.
+    ///
+    /// | Bound | Value | Registered rationale |
+    /// |---|---|---|
+    /// | duplicate window | 120 s | same window as the event streams |
+    /// | max_age | 72 h | quarantine copies are investigated, not replayed |
+    /// | max_messages | 10,000 per family stream | per-family burst ceiling |
+    /// | max_bytes | 64 MiB per family stream | per-family byte ceiling |
+    pub fn bounded_dlq_defaults() -> Self {
+        Self {
+            duplicate_window: Duration::from_secs(120),
+            max_age: Some(Duration::from_secs(72 * 60 * 60)),
+            max_messages: Some(10_000),
+            max_bytes: Some(67_108_864),
+        }
+    }
 }
 
 /// Durable pull-consumer policy (P1.14 §5.1). `AckWait`, `MaxAckPending`
@@ -326,6 +500,30 @@ pub async fn provision_phase_1_streams(
 ) -> Result<(), ProvisionError> {
     for definition in PHASE_1_STREAMS {
         provision_stream(jetstream, definition, limits).await?;
+    }
+    Ok(())
+}
+
+/// P11.13 — provisions the eleven dedicated per-family DLQ streams
+/// ([`DLQ_STREAMS`]) with the DLQ retention budget. Idempotent: safe to
+/// call on every worker start. The catch-all `FLEXCORE_DLQ` stream keeps
+/// its Phase 1 provisioning ([`provision_phase_1_streams`]); this function
+/// is additive on top of it.
+pub async fn provision_dlq_streams(
+    jetstream: &Context,
+    dlq_limits: &DeploymentLimits,
+) -> Result<(), ProvisionError> {
+    for definition in DLQ_STREAMS {
+        provision_stream(
+            jetstream,
+            &StreamDefinition {
+                name: definition.stream,
+                subject_filter: definition.subject_filter,
+                provisioned_in_phase_1: false,
+            },
+            dlq_limits,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -452,13 +650,74 @@ mod tests {
 
     #[test]
     fn dlq_and_unknown_subjects_map_correctly() {
+        // P11.13: conforming quarantine copies route to their family's
+        // dedicated DLQ stream; the unrouted catch-all subject stays on the
+        // retained catch-all stream.
         assert_eq!(
             stream_for_subject("flexcore.dlq.v1.registry.asset_registered"),
+            Some(DLQ_STREAM_REGISTRY)
+        );
+        assert_eq!(
+            stream_for_subject("flexcore.dlq.v1.dispatch.dispatch_failed"),
+            Some(DLQ_STREAM_DISPATCH)
+        );
+        assert_eq!(
+            stream_for_subject(DLQ_UNROUTED_SUBJECT),
+            Some(STREAM_DLQ)
+        );
+        // A DLQ-prefix subject whose area token is outside the family
+        // table falls back to the catch-all, never to `None`.
+        assert_eq!(
+            stream_for_subject("flexcore.dlq.v1.unknown.event"),
             Some(STREAM_DLQ)
         );
         assert_eq!(stream_for_subject("flexcore.v2.registry.asset_registered"), None);
         assert_eq!(stream_for_subject("flexcore.v1.unknown.event"), None);
         assert_eq!(stream_for_subject("other.v1.registry.asset_registered"), None);
+    }
+
+    /// P11.13 — the per-family DLQ inventory: one row per P1.14 §3 area,
+    /// every filter disjoint from the catch-all filter.
+    #[test]
+    fn dlq_family_streams_cover_every_area_without_overlap() {
+        assert_eq!(DLQ_STREAMS.len(), 11, "one DLQ stream per P1.14 §3 area");
+        let areas = [
+            "registry", "state", "telemetry", "flexibility", "forecast", "market",
+            "scheduling", "validation", "dispatch", "plugins", "audit",
+        ];
+        for area in areas {
+            let stream = dlq_stream_for_area(area)
+                .unwrap_or_else(|| panic!("area {area} must have a dedicated DLQ stream"));
+            assert!(stream.starts_with("FLEXCORE_DLQ_"));
+        }
+        assert_eq!(dlq_stream_for_area("not-an-area"), None);
+        // The catch-all filter admits only the unrouted subject.
+        assert_ne!(DLQ_UNROUTED_SUBJECT, "flexcore.dlq.v1.>");
+    }
+
+    /// P11.13 — bounded retention is registered, never server-default.
+    #[test]
+    fn bounded_retention_defaults_are_explicit() {
+        let event_limits = DeploymentLimits::bounded_simulation_defaults();
+        assert!(event_limits.max_age.is_some());
+        assert!(event_limits.max_messages.is_some());
+        assert!(event_limits.max_bytes.is_some());
+        let dlq_limits = DeploymentLimits::bounded_dlq_defaults();
+        // DLQ retention is tighter than the event streams'.
+        assert!(dlq_limits.max_messages.unwrap() < event_limits.max_messages.unwrap());
+        assert!(dlq_limits.max_bytes.unwrap() < event_limits.max_bytes.unwrap());
+    }
+
+    /// P11.13 — the published-message header carries the schema version.
+    #[test]
+    fn published_message_headers_carry_the_schema_version() {
+        let headers = published_message_headers(1);
+        assert_eq!(
+            headers
+                .get(SCHEMA_VERSION_HEADER)
+                .map(|v| v.as_str()),
+            Some("1")
+        );
     }
 
     #[test]

@@ -1,0 +1,20 @@
+# P11.09 — Grafana dashboard provisioning (Phase 11 wave 1, Agent B).
+#
+# The dashboard provider scans the mounted dashboards directory; every
+# JSON in deploy/compose/observability/grafana/dashboards/ provisions
+# automatically. WRITTEN-UNRUN (live provisioning is a human gate input).
+apiVersion: 1
+
+providers:
+  - name: flexcore
+    orgId: 1
+    folder: FlexCore
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      # The in-container path the Compose wiring mounts the tree's
+      # dashboards directory at (handoff note: the Compose service that
+      # mounts it is recorded in the P11.09 record).
+      path: /var/lib/grafana/dashboards

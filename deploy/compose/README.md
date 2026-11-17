@@ -43,9 +43,17 @@ Removing the named volumes (`postgres-data`, `nats-data`) resets all state.
 
 ## Dev-only credentials
 
-The PostgreSQL user/password in `docker-compose.yml` are **dev-only** and
-marked as such. They are never production credentials; production
-secrets come from a secrets manager (P1.21), never from this file.
+**P11.16 — the Compose secrets floor:** credentials no longer live in
+`docker-compose.yml` or `.env`. Each Compose host reads its secret from
+its own FILE under `./secrets/` (gitignored), mounted through the compose
+`secrets:` blocks; create the two required files with `0600` permissions
+before the first start (the exact procedure is in
+[`secrets/README.md`](secrets/README.md)). The historical dev placeholder
+values are allowed only inside those local files. Production secrets are
+a secrets manager with dynamic short-lived credentials (the recorded
+P11.16 Vault DEFAULT [S-74][S-75]; the SQLx pool credential-refresh
+design is written at the pool seam in the postgres adapter) — this floor
+is the Compose-shape minimum, never the production answer.
 
 ## Pinned image tags (re-verify at build time)
 

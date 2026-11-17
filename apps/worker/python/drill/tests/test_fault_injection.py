@@ -229,3 +229,121 @@ def test_drill_cell_records_faults_verbatim():
 
 def test_empty_summary_is_honest_zeros():
     assert fi.summarize([]) == {"cells": 0, "completed": 0, "errored": 0}
+
+
+# ---------------------------------------------------------------------------
+# P12.09 additions — one-for-one mirrors of the new hand-computed
+# self-tests (17–24) inside fault_injection.py. WRITTEN, NEVER RUN.
+# ---------------------------------------------------------------------------
+
+
+def test_partial_write_truncates_sliceable_reply():
+    def bytes_toy():
+        return b"PAYLOAD-BYTES"
+
+    injector = fi.FaultInjector(bytes_toy, [fi.Fault("partial_write", keep_bytes=7)])
+    delivered = injector.call()
+    assert delivered == b"PAYLOAD"
+    assert len(delivered) == 7
+    record = injector.records[0]
+    assert record.target_called is True
+    assert record.fault_kind == "partial_write"
+
+
+def test_partial_write_unsliceable_reply_fails_closed():
+    injector = fi.FaultInjector(lambda: {"ok": True},
+                                [fi.Fault("partial_write", keep_bytes=3)])
+    with pytest.raises(fi.PartialWriteUnsupported):
+        injector.call()
+    # The side effect happened — the record must not vanish it.
+    assert injector.records[0].target_called is True
+
+
+def test_slow_consumer_delay_travels_as_data():
+    state = {"n": 0}
+
+    def target():
+        state["n"] += 1
+        return state["n"]
+
+    injector = fi.FaultInjector(
+        target,
+        [fi.Fault("none"), fi.Fault("slow_consumer", delay_ms=45_000), fi.Fault("none")],
+    )
+    assert [injector.call() for _ in range(3)] == [1, 2, 3]
+    assert injector.records[1].delay_ms == 45_000
+    assert injector.records[0].delay_ms == 0
+    assert injector.stats()["target_called"] == 3
+    assert fi.exceeds_supervision_timeout(45_000) is True
+    assert fi.exceeds_supervision_timeout(29_999) is False
+
+
+def test_slow_consumer_zero_delay_is_legal():
+    injector = fi.FaultInjector(lambda: "served", [fi.Fault("slow_consumer", delay_ms=0)])
+    assert injector.call() == "served"
+    assert injector.records[0].delay_ms == 0
+
+
+def test_partition_window_closes_then_heals():
+    state = {"n": 0}
+
+    def target():
+        state["n"] += 1
+        return state["n"]
+
+    injector = fi.PartitionInjector(target, open_after_calls=2, closed_for_calls=2)
+    assert [injector.call() for _ in range(2)] == [1, 2]
+    for _ in range(2):
+        with pytest.raises(fi.NetworkPartitionError):
+            injector.call()
+    assert injector.call() == 3
+    assert injector.stats()["target_called"] == 3
+    assert {r.fault_kind for r in injector.records} == {"none", "network_partition"}
+
+
+@pytest.mark.parametrize(
+    "open_after,closed_for",
+    [(-1, 1), (0, 0)],
+    ids=["negative_open_after", "zero_length_window"],
+)
+def test_partition_construction_refusals_fail_closed(open_after, closed_for):
+    with pytest.raises(fi.DrillConfigurationError):
+        fi.PartitionInjector(lambda: 1, open_after_calls=open_after,
+                             closed_for_calls=closed_for)
+
+
+def test_scheduled_skew_per_call_then_plateaus():
+    clock = fi.scheduled_skew_clock(lambda: 1000, [0, 500, -250])
+    reads = [clock() for _ in range(4)]
+    assert reads == [1000, 1500, 750, 750]
+
+
+def test_empty_skew_schedule_refused():
+    with pytest.raises(fi.DrillConfigurationError):
+        fi.scheduled_skew_clock(lambda: 1000, [])
+
+
+@pytest.mark.parametrize(
+    "offender",
+    [
+        lambda: fi.Fault("partial_write", keep_bytes=-1),
+        lambda: fi.Fault("partial_write"),
+        lambda: fi.Fault("slow_consumer", delay_ms=-5),
+        lambda: fi.Fault("slow_consumer"),
+    ],
+    ids=[
+        "negative_keep_bytes",
+        "missing_keep_bytes",
+        "negative_delay_ms",
+        "missing_delay_ms",
+    ],
+)
+def test_partial_write_and_slow_consumer_refusals_fail_closed(offender):
+    with pytest.raises(fi.DrillConfigurationError):
+        offender()
+
+
+def test_supervision_timeout_transcription_matches_source():
+    # The transcription copy rule: this constant mirrors
+    # apps/worker/src/supervision.rs DEFAULT_CALL_TIMEOUT_MS (30 000).
+    assert fi.SUPERVISION_DEFAULT_CALL_TIMEOUT_MS == 30_000

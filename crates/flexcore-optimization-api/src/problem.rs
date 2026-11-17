@@ -904,4 +904,143 @@ mod tests {
             assert_eq!(class.tier(), tier);
         }
     }
+
+    // --- P15.08 solver-class guard tests (degradation cost INPUT DATA) ------
+    //
+    // The degradation cost curve (crate::degradation_cost) enters the
+    // optimizer ONLY as linear/piecewise-linear objective data feeding the
+    // existing `C_degradation` term (P3.14 closed vocabulary). These tests
+    // prove the recorded discipline (conventions §6.5; AGENTS.md rule 4 —
+    // absolute): degradation data never widens the declared class, the
+    // class-mismatch refusals stay, and the MISOCP/Tier-3 refusal stays.
+    // Written UNRUN (P15.08 — program conventions §1.3).
+
+    /// The linear objective coefficient a degradation cost declaration
+    /// contributes for one interval's discharge variable (the formulation
+    /// assembler's mapping: coefficient = marginal cost per MWh of
+    /// throughput).
+    fn degradation_linear_terms(curve: &crate::degradation_cost::DegradationCostCurve) -> Vec<Coefficient> {
+        let marginal = curve
+            .marginal_cost_at(0.0)
+            .expect("the guard fixtures query within the declared range");
+        vec![
+            Coefficient {
+                variable: 0,
+                coefficient: marginal,
+            },
+            Coefficient {
+                variable: 1,
+                coefficient: marginal,
+            },
+        ]
+    }
+
+    #[test]
+    fn p15_08_degradation_data_keeps_the_lp_an_lp() {
+        let curve = crate::degradation_cost::DegradationCostCurve::Linear {
+            cost_per_mwh_throughput: 7.25,
+        };
+        curve
+            .validate_convex_for_minimization()
+            .expect("a linear rate is convex by construction");
+        let mut problem = fixture::reference_lp();
+        problem.objective.linear_terms = degradation_linear_terms(&curve);
+        problem.declared_assumptions.push(
+            "degradation cost enters as linear INPUT DATA feeding C_degradation \
+             (P15.08); no new problem class"
+                .to_string(),
+        );
+        // The formulation with degradation data still validates AS an LP,
+        // at Tier 1.
+        problem
+            .validate()
+            .expect("degradation data must not change the declared class");
+        assert_eq!(problem.declared_class, ProblemClass::LinearProgram);
+        assert_eq!(problem.declared_class.tier(), 1);
+        assert!(crate::tier_guard::tier_supported(problem.declared_class));
+        crate::tier_guard::guard_problem(&problem)
+            .expect("a Tier 1 formulation passes the tier boundary");
+    }
+
+    #[test]
+    fn p15_08_degradation_data_keeps_the_milp_a_milp() {
+        let curve = crate::degradation_cost::DegradationCostCurve::PiecewiseLinear {
+            segments: vec![
+                crate::degradation_cost::PwlSegment {
+                    cumulative_throughput_limit_mwh: 100.0,
+                    marginal_cost_per_mwh: 8.0,
+                },
+                crate::degradation_cost::PwlSegment {
+                    cumulative_throughput_limit_mwh: 2_000.0,
+                    marginal_cost_per_mwh: 11.0,
+                },
+            ],
+        };
+        curve
+            .validate_convex_for_minimization()
+            .expect("non-decreasing marginal costs keep the epigraph an LP/MILP");
+        let mut problem = fixture::reference_milp();
+        problem.objective.linear_terms = degradation_linear_terms(&curve);
+        problem
+            .validate()
+            .expect("degradation data must not change the declared class");
+        assert_eq!(
+            problem.declared_class,
+            ProblemClass::MixedIntegerLinearProgram
+        );
+    }
+
+    #[test]
+    fn p15_08_degradation_data_does_not_widen_the_class_when_cones_are_added() {
+        // The recorded refusal stays: a formulation carrying degradation
+        // linear terms AND a cone is not an LP — the class-mismatch error
+        // fires exactly as before P15.08 (never widened to admit the data).
+        let curve = crate::degradation_cost::DegradationCostCurve::Linear {
+            cost_per_mwh_throughput: 7.25,
+        };
+        let mut problem = fixture::reference_lp();
+        problem.objective.linear_terms = degradation_linear_terms(&curve);
+        // A two-variable cone (indices within the LP fixture's variable
+        // count) so the class check — not an index error — is what fires.
+        problem.conic_constraints.push(SecondOrderCone {
+            name: "degradation_guard_cone".to_string(),
+            norm_members: vec![coefficient(0, 1.0), coefficient(1, 1.0)],
+            norm_offset: 0.0,
+            rhs_members: vec![coefficient(1, 1.0)],
+            rhs_offset: 0.0,
+        });
+        match problem.validate() {
+            Err(ProblemError::ClassMismatch { declared, reason }) => {
+                assert_eq!(declared, ProblemClass::LinearProgram);
+                assert!(reason.contains("second-order cone"), "reason: {reason}");
+            }
+            other => panic!("expected ClassMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn p15_08_degradation_data_does_not_relax_the_tier3_refusal() {
+        // The MISOCP refusal stays: a MISOCP declaration carrying degradation
+        // linear terms is still outside the built tiers — guard_problem
+        // refuses with `unsupported` and the decision reference, exactly as
+        // before P15.08.
+        let curve = crate::degradation_cost::DegradationCostCurve::Linear {
+            cost_per_mwh_throughput: 7.25,
+        };
+        let mut problem = fixture::reference_misocp_declaration();
+        problem.objective.linear_terms = degradation_linear_terms(&curve);
+        assert_eq!(
+            problem.declared_class,
+            ProblemClass::MixedIntegerSecondOrderConeProgram
+        );
+        assert!(!crate::tier_guard::tier_supported(problem.declared_class));
+        let rejection = crate::tier_guard::guard_problem(&problem)
+            .expect_err("a Tier 3 declaration is refused regardless of the degradation data");
+        assert_eq!(
+            rejection.requested_class,
+            ProblemClass::MixedIntegerSecondOrderConeProgram
+        );
+        assert_eq!(rejection.requested_tier, 3);
+        assert_eq!(rejection.outcome, "unsupported");
+    }
 }

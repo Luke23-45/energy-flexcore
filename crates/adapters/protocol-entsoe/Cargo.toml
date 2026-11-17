@@ -1,0 +1,36 @@
+# P15.04 — ENTSO-E Transparency Platform price-signal ingestion adapter
+#         models: the A44 day-ahead price document model, the document
+#         extraction seam, the API-token HUMAN GATE boundary, the REST
+#         transport SEAM, and the ingest-only authority scope.
+#
+# Dependency policy (tools/check_dependency_rule.py): ADAPTER crate
+# (composition side, like crates/adapters/protocol-modbus). ZERO external
+# dependencies: the A44 document types are hand-rolled value types, the
+# XML navigation is a documented seam over a minimal internal node type
+# (no XML parser library — the CIM/CGMES precedent, P14.12: the profile
+# parsing is a designed UNWIRED seam the composition root may implement
+# over a real parser), and the REST transport is an UNWIRED seam (no HTTP
+# client, no TLS stack). No workspace crate is depended on: price points
+# carry currency + per-MWh as declared data (the canonical-unit question
+# is settled at the port boundary, flexcore-ports::price_signal).
+#
+# Honesty (the module headers repeat it): every wire-level fact below —
+# the A44 document type code, the query parameter names, the XML element
+# names, the resolution codes, the currency convention — is cited from
+# [S-111] (the ENTSO-E Transparency Platform + API guide, gap analysis
+# §11) and carries an UNVERIFIED label naming the implementation-time
+# check against the live API guide and a registered token. The API token
+# is a HUMAN GATE input (UNSIGNED until a human registers it); no request
+# is ever sent in this program (conventions §1 loop bans).
+
+[package]
+name = "flexcore-entsoe-adapter"
+description = "ENTSO-E Transparency Platform price-signal ingestion adapter models: A44 day-ahead price document model, extraction seam, token gate, REST transport seam, ingest-only scope (P15.04)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+# The extraction tests (tests/a44_extraction.rs) construct the internal
+# XML node type by hand — no external dependency is permitted.

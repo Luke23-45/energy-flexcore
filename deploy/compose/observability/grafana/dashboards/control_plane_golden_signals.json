@@ -1,0 +1,89 @@
+{
+  "uid": "flexcore-control-plane-golden-signals",
+  "title": "FlexCore — control-plane-api golden signals",
+  "description": "P11.09 dashboard-as-code (Phase 11 wave 1, Agent B). Golden signals for the control-plane-api service [S-61]. Every panel queries a metric family defined in the P11.01 taxonomy record (records/01_p11_01_metric_taxonomy.md) or the pre-existing P1.20/P2.21 registry families — no panel invents a metric. WRITTEN-UNRUN: rendered against no live store; the live rendering check is a human gate input.",
+  "tags": ["flexcore", "phase-11", "golden-signals"],
+  "schemaVersion": 39,
+  "editable": false,
+  "graphTooltip": 1,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Traffic — request rate (flexcore_http_requests_total)",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(flexcore_http_requests_total[5m]))",
+          "legendFormat": "status={{status}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Latency — p95 request duration (flexcore_api_request_duration_milliseconds)",
+      "description": "p95 over the P11.01 histogram (fixed registered bucket set; no route label by recorded cardinality decision).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(flexcore_api_request_duration_milliseconds_bucket[5m])))",
+          "legendFormat": "p95 ms"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Errors — error ratio (flexcore_http_errors_total)",
+      "description": "The API error SLI shape from the P11.01 record §4; the SLO target on this ratio is a RECOMMENDATION pending operator sign-off (P11.02).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(flexcore_http_errors_total[5m])) / sum(rate(flexcore_http_requests_total[5m]))",
+          "legendFormat": "error ratio"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Saturation — in-flight requests (flexcore_api_in_flight_requests)",
+      "description": "No labels by recorded cardinality decision; database-pool and broker saturation are NOT exposed by this family (the P11.01 record's known gap — not faked).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "flexcore_api_in_flight_requests",
+          "legendFormat": "in flight"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Latency — good-event ratio at the registered 1000 ms bucket",
+      "description": "The latency-SLI numerator shape the P11.01 record §4 names for the burn-rate rules (le=\"1000\" is the registered good-event threshold candidate, RECOMMENDATION).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(flexcore_api_request_duration_milliseconds_bucket{le=\"1000\"}[5m])) / sum(rate(flexcore_api_request_duration_milliseconds_count[5m]))",
+          "legendFormat": "good ratio"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "uid": "flexcore-ingestion-pipeline",
+  "title": "FlexCore — telemetry ingestion pipeline",
+  "description": "P11.09 dashboard-as-code (Phase 11 wave 1, Agent B). The P2.21 telemetry families already in the registry, referenced by name only (they are not re-declared — the P11.01 record's rule). No panel invents a metric. WRITTEN-UNRUN.",
+  "tags": ["flexcore", "phase-11", "ingestion"],
+  "schemaVersion": 39,
+  "editable": false,
+  "graphTooltip": 1,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Telemetry domain events by frozen type (flexcore_telemetry_events_total)",
+      "description": "The closed §15.3 telemetry event vocabulary; unknown types are never counted (deny-by-default extends to labels).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (event) (rate(flexcore_telemetry_events_total[5m]))",
+          "legendFormat": "{{event}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Bounded-channel depth (flexcore_telemetry_queue_depth)",
+      "description": "The ingestion backlog at the last observation; shedding with retry (never silent drop) is the backpressure contract.",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "flexcore_telemetry_queue_depth",
+          "legendFormat": "queue depth"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Currently stale assets (flexcore_telemetry_stale_assets)",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "flexcore_telemetry_stale_assets",
+          "legendFormat": "stale assets"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Quarantined records by closed reason class (flexcore_telemetry_quarantine_by_reason_total)",
+      "description": "The free-text quarantine reason is never a label (recorded cardinality decision).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason_class) (rate(flexcore_telemetry_quarantine_by_reason_total[5m]))",
+          "legendFormat": "{{reason_class}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Stored records by canonical quality state (flexcore_telemetry_quality_states_total)",
+      "description": "All six canonical states render, zero included (P0.08 vocabulary; exactly one state per value).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (quality) (rate(flexcore_telemetry_quality_states_total[5m]))",
+          "legendFormat": "{{quality}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Mean ingestion delay, ms (flexcore_telemetry_ingestion_delay_milliseconds)",
+      "description": "Per-batch summary (ingest_time - event_time); the per-asset breakdown lives in the logs, never in labels (recorded cardinality decision).",
+      "datasource": { "type": "prometheus", "uid": "flexcore-prom" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(flexcore_telemetry_ingestion_delay_milliseconds_sum[5m])) / sum(rate(flexcore_telemetry_ingestion_delay_milliseconds_count[5m]))",
+          "legendFormat": "mean delay ms"
+        }
+      ]
+    }
+  ]
+}

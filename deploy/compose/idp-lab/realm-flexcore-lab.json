@@ -1,0 +1,176 @@
+{
+  "realm": "flexcore-lab",
+  "enabled": true,
+  "sslRequired": "external",
+  "loginTheme": "",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 43200,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyInitialCounter": 0,
+  "otpPolicyPeriod": 30,
+  "otpSupportedApplications": ["FreeOTP", "Google Authenticator"],
+  "roles": {
+    "realm": [
+      {
+        "name": "platform-admin",
+        "description": "The FlexCore platform-admin role id (the closed vocabulary, flexcore-authz policy.rs Role::id — the group/role names ARE the ids the P13.02 mapper consumes)."
+      },
+      {
+        "name": "tenant-admin",
+        "description": "The FlexCore tenant-admin role id (the closed vocabulary)."
+      },
+      {
+        "name": "operator",
+        "description": "The FlexCore operator role id (the closed vocabulary)."
+      },
+      {
+        "name": "viewer",
+        "description": "The FlexCore viewer role id (the closed vocabulary)."
+      },
+      {
+        "name": "site-approver",
+        "description": "The FlexCore site-approver role id (the P13.05 approval-duty role; approval duty only, no administrative rights — record 05)."
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "flexcore-control-plane",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "surrogateAuthRequired": false,
+      "frontchannelLogout": true,
+      "redirectUris": [
+        "http://localhost:8080/api/v1/auth/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "flexcore-groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.group.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "flexcore-tenant-binding",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.value": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f8b10",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "claim.name": "flexcore_tenant_id",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ],
+      "defaultClientScopes": [],
+      "optionalClientScopes": []
+    }
+  ],
+  "users": [
+    {
+      "username": "lab-platform-admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Lab",
+      "lastName": "PlatformAdmin",
+      "realmRoles": ["platform-admin"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "lab-password-not-a-production-credential",
+          "temporary": true
+        }
+      ]
+    },
+    {
+      "username": "lab-tenant-admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Lab",
+      "lastName": "TenantAdmin",
+      "realmRoles": ["tenant-admin"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "lab-password-not-a-production-credential",
+          "temporary": true
+        }
+      ]
+    },
+    {
+      "username": "lab-operator",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Lab",
+      "lastName": "Operator",
+      "realmRoles": ["operator"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "lab-password-not-a-production-credential",
+          "temporary": true
+        }
+      ]
+    },
+    {
+      "username": "lab-viewer",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Lab",
+      "lastName": "Viewer",
+      "realmRoles": ["viewer"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "lab-password-not-a-production-credential",
+          "temporary": true
+        }
+      ]
+    },
+    {
+      "username": "lab-site-approver",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Lab",
+      "lastName": "SiteApprover",
+      "realmRoles": ["site-approver"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "lab-password-not-a-production-credential",
+          "temporary": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+# P11.09 — Grafana datasource provisioning (Phase 11 wave 1, Agent B).
+#
+# Dashboard-as-code: the datasource is provisioned from this file so a
+# Grafana container that mounts deploy/compose/observability/grafana/
+# (provisioning under `provisioning/`, dashboards under `dashboards/`)
+# renders the FlexCore dashboards with no manual datasource setup.
+#
+# WRITTEN-UNRUN: no Grafana container has been started against this file
+# in this program (the live provisioning check is a human gate input,
+# recorded UNRUN in the P11.09 record). The Compose service wiring that
+# mounts this tree is recorded as a handoff note (the Compose file is
+# Agent A's / wave-2 ownership in wave 1).
+#
+# The Prometheus server itself and its scrape/rule configuration are
+# deployment shape: the rule files this tree ships live under
+# deploy/compose/observability/prometheus/rules/ and are referenced by
+# whatever rule_path the deployment's Prometheus config names.
+apiVersion: 1
+
+datasources:
+  - name: flexcore-prometheus
+    uid: flexcore-prom
+    type: prometheus
+    access: proxy
+    # The Compose network name of the metrics store (P11.10 DEFAULT:
+    # VictoriaMetrics single-node speaks the Prometheus query API — the
+    # selection is OPEN, P11-E-2; the datasource shape is store-agnostic
+    # under the DEFAULT).
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

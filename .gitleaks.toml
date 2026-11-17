@@ -1,0 +1,84 @@
+# P11.17 — Secret-scanning configuration (gitleaks-class). WRITTEN-UNRUN.
+#
+# This file is CONFIGURATION ONLY. No scan was executed in this program
+# (the loop bans of docs/phases-11-20/01_PROGRAM_CONVENTIONS.md §1 forbid
+# running tools); every scan result is a HUMAN GATE INPUT recorded UNRUN
+# and findings are a human review responsibility — an agent never
+# triages, dismisses, or auto-fixes findings.
+#
+# Shape: extend the tool's DEFAULT rule set (the gitleaks built-in rules
+# cover generic API keys, tokens, private keys, and similar patterns) and
+# add the repo-specific allowlist plus two FlexCore-specific rules.
+#
+# UNVERIFIED external behavior (honesty rules): the exact semantics of
+# the `[extend]`/`[allowlist]` tables, and whether the gitleaks-action
+# CI step picks this file up automatically from the repository root, are
+# third-party tool behaviors that were NOT executed or verified here —
+# the first human scan run confirms both, and the CI step's comment
+# records the same assumption. Version target: gitleaks v8.30.1 (the
+# latest tag on the release index, checked 2026-11-14; the pre-commit
+# hook pins the same tag). If the human run uses a different version,
+# re-check this file against that version's configuration schema.
+
+[extend]
+# Start from the tool's default rules (generic patterns) rather than
+# reimplementing them.
+useDefault = true
+
+# FlexCore-specific detection rules (in addition to the defaults).
+[[rules]]
+id = "flexcore-vault-service-token"
+# HashiCorp Vault service tokens (the recorded P11.16 Vault DEFAULT means
+# Vault token material is the secret class most likely to appear here by
+# accident). hvt. = legacy batch/service tokens; hvs. = current service
+# tokens. UNVERIFIED against a live scanner run.
+description = "HashiCorp Vault service or batch token"
+regex = '''\b(hvs\.[0-9A-Za-z]{20,}|hvt\.[0-9A-Za-z]{20,})\b'''
+tags = ["vault", "secret", "flexcore"]
+
+[[rules]]
+id = "flexcore-env-style-credential"
+# A shell/env-style assignment whose variable NAME names a credential and
+# whose value is non-empty and not an obvious placeholder. Catches
+# `FLEXCORE_DATABASE_URL=postgres://user:pass@...`-style lines and
+# `*_PASSWORD=literal` lines outside the allowlisted dev-only file.
+# The word-boundary exclusion list keeps recorded placeholders and
+# documented non-secrets (role names, host names, the dev marker) out.
+description = "Env-style credential assignment with a literal value"
+regex = '''(?i)\b[A-Z0-9_]*(PASSWORD|PASSWD|SECRET|TOKEN|API_KEY|APIKEY|PRIVATE_KEY|CREDENTIAL)[A-Z0-9_]*\s*=\s*["']?([A-Za-z0-9/+_\-]{8,})["']?'''
+tags = ["env", "credential", "flexcore"]
+
+[rules.allowlist]
+# Placeholders and documented non-secrets this rule must not flag.
+regexes = [
+  '''(?i)password_file''',
+  '''(?i)placeholder''',
+  '''(?i)changeme''',
+  '''(?i)example''',
+  '''(?i)_FILE''',
+]
+
+# Repo-specific allowlist: the DEV-ONLY compose credential markers.
+# The dev placeholder ("flexcore_dev_password") is a recorded,
+# intentionally-committed LOCAL-DEV value (P1.25, and since P11.16 it
+# lives only inside gitignored local files — the allowlist below exists
+# so a REINTRODUCED copy in the compose file or docs is still caught by
+# the env-style rule above unless it sits in these clearly-marked
+# locations). The allowlist is scoped as narrowly as the tool's shape
+# allows; widening it is a human decision, never an agent action.
+[allowlist]
+description = "FlexCore recorded dev-only markers and non-secrets"
+paths = [
+  '''deploy/compose/README\.md''',
+  '''deploy/compose/secrets/README\.md''',
+  '''\.gitleaks\.toml''',
+  '''docs/phases-11-20/.*\.md''',
+]
+regexes = [
+  # The recorded dev placeholder itself (documentation references).
+  '''flexcore_dev_password''',
+  # The dev ROLE NAME (a username, not a secret).
+  '''flexcore_dev''',
+  # The compose shim's ${...} escape sequences (not secrets).
+  '''\$\$\(\s*cat\s+/run/secrets/''',
+]

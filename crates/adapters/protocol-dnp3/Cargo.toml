@@ -1,0 +1,29 @@
+# P14.08 — DNP3 (IEEE 1815.2-2025 DER profile) adapter models: DER
+# data-object types, OUTSTATION-role model (representing the fleet to
+# utility SCADA), master-role assessment (record), secure-transport
+# posture note, and the transport SEAM.
+#
+# Dependency policy (tools/check_dependency_rule.py): ADAPTER crate
+# (composition side, like crates/adapters/nats). Minimal dependency set —
+# flexcore-contracts for the canonical unit types (the fleet snapshot
+# carries MW / SOC fractions, converted at the adapter boundary),
+# flexcore-domain for the frozen command-state vocabulary (a DNP3 control
+# arriving from a master is an EXTERNAL event and enters the lifecycle at
+# PROPOSED — never an issued setpoint), serde for model serialization.
+# NO DNP3 stack library, NO serial/TCP runtime: the wire transport is a
+# designed seam (src/transport.rs).
+
+[package]
+name = "flexcore-dnp3-adapter"
+description = "DNP3 IEEE 1815.2-2025 DER-profile adapter models: data objects, outstation role, master assessment, secure-transport posture, transport seam (P14.08)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-protocol-ports = { workspace = true }
+serde = { workspace = true }
+flexcore-contracts = { workspace = true }
+flexcore-domain = { workspace = true }
+
+[dev-dependencies]
+# Inline tests use only the crates above — no additional dev dependency.

@@ -1,0 +1,78 @@
+{
+  "manifest_schema": "flexcore-research/training-data-manifest.v2",
+  "manifest_version": 2,
+  "manifest_id": "flexcore-research/training-data-manifest-v2",
+  "created_utc": "2026-11-14",
+  "supersedes": {
+    "manifest_id": "flexcore-research/training-data-manifest-v1",
+    "file": "apps/worker/python/training-data-manifest-v1.json",
+    "relationship": "carries the v1 GNN topology-family assignment forward BY REFERENCE (v1 is never edited); v2 adds the FORECASTING dataset registration discipline (P15.18). A v1 content dispute is a NEW manifest version, never an edit of either file.",
+    "owning_record": "ledger/phase-08-advanced-coordination/35_training_data_provenance.md",
+    "phase_15_record": "docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/47_p15_18_evaluation_datasets_policy.md"
+  },
+  "status": "NO DATASET EXISTS: every per-instance row is EMPTY and is filled only by the human/lab generation gate (the P8.35 discipline carried unchanged). The forecasting dataset families below are REGISTERED STRUCTURES with EMPTY rows - no forecast dataset was generated, no evaluation was run, and every result cell belongs to the P15.05 framework and is EMPTY.",
+  "v1_carry_forward": {
+    "description": "The v1 GNN topology-family assignment (families, tracks, findings F-1/F-2, the instance-ID scheme, the leakage controls, the license and poisoning registers) is carried forward BY REFERENCE - read v1 for it; nothing in v2 re-decides or restates it. v2 touches ONLY the dataset-registration surface below.",
+    "v1_file": "apps/worker/python/training-data-manifest-v1.json",
+    "v1_status_unchanged": true
+  },
+  "dataset_registration_discipline": {
+    "description": "The registration fields EVERY dataset (GNN or forecasting) carries at generation time, extending the P8.35 per-dataset provenance record standard to forecasting datasets (P15.18). A field that cannot be filled is recorded 'unavailable: <reason>' at generation time, never omitted and never guessed (the P3.27 discipline, mirrored).",
+    "required_fields": [
+      "dataset_id",
+      "dataset_version",
+      "dataset_kind (closed: gnn_topology | forecast_eval | forecast_training)",
+      "source (simulator-generated or labeled synthetic ONLY in 0.x; generation_method + generator version recorded per instance)",
+      "size (instance count; a filled cell at generation time)",
+      "license + license_consequence (the P8.35 register, section 5)",
+      "leakage_controls (the REQUIRED declarations, checked at evaluation time)",
+      "digest_rule (digests pinned BEFORE training; a content change is a NEW dataset_version, never a silent edit)"
+    ],
+    "versioning_rule": "a dataset content change is a NEW dataset_version; a family-assignment or registration-discipline change is a NEW manifest version; never a silent edit (the P8.19 anti-silent-growth rule). Eval-set growth follows the same rule: forecast-eval-set-v2 is a NEW FILE, never an edit of forecast-eval-set-v1 (the P15.05 frozen-artifact rule)."
+  },
+  "forecasting_datasets": {
+    "no_production_data_in_simulation": {
+      "rule": "NO production data enters simulation or any training/evaluation dataset (the Phase 8/9 discipline carried): the 0.x platform has never run, no production data exists, and the ONLY permitted dataset sources are (a) simulator-generated series over the declared scenario library and (b) the labeled SYNTHETIC fixture (P3.31, provenance 'synthetic'). A dataset row whose source is not one of these two is INVALID and must not be entered (fail-closed).",
+      "discipline_refs": [
+        "ledger/phase-08-advanced-coordination/35_training_data_provenance.md (the P8.35 standard)",
+        "docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/05_p15_05_forecast_evaluation.md (the P15.05 eval-set freeze)"
+      ]
+    },
+    "registered_families": [
+      {
+        "family_id": "fds-forecast-eval-synthetic-fixture",
+        "dataset_kind": "forecast_eval",
+        "structural_definition": "the backtesting windows over the P3.31 labeled synthetic fixture (the ONLY eval source that exists); registered by the frozen artifact benchmarks/forecast-eval-set-v1.json (forecast-eval-set-v1), which owns the windows, metrics, thresholds, and the EMPTY result cells",
+        "source": "the P3.31 synthetic fixture (provenance 'synthetic'; generated deterministically from the scenario-v2 declaration)",
+        "instance_count": "EMPTY - owned by the frozen eval-set artifact (run_status NOT_RUN in every cell)",
+        "growth_rule": "eval-set growth is forecast-eval-set-v2 as a NEW FILE with a NEW registered-window/threshold set (X-8: thresholds are registered BEFORE any run that could fill them); the v1 artifact is never edited",
+        "row_note": "EMPTY - one row per generated window at the human/lab generation gate: {window_id, train_span, test_span, generator_version, seed, generated_utc, source_record_digest}."
+      },
+      {
+        "family_id": "fds-forecast-training-simulated-series",
+        "dataset_kind": "forecast_training",
+        "structural_definition": "simulator-generated load/PV series over the scenario library, for FUTURE baseline/ML forecast training - REGISTERED STRUCTURE ONLY: no training run exists, every model registers UNTRAINED (P15.06 first-class state), and no training may occur before the human generation gate resolves the framework DECISION-POINTs (the P8.35 gate procedure)",
+        "source": "apps/sim-runner generation over the declared family parameter sets (generator version recorded per instance)",
+        "instance_count": "EMPTY - recorded at generation",
+        "row_note": "EMPTY - one row per generated instance at the human/lab generation gate: {instance_id, family_id, generator_version, parameter_set_ref, seed, generated_utc, source_record_digest}. A dataset version whose rows are incomplete is not freezable."
+      }
+    ],
+    "fail_closed_scope_checks": {
+      "description": "The P8.11 fail-closed scope-check discipline EXTENDED to forecasting datasets (P15.18): a consumer of a forecasting dataset must verify the dataset against its REGISTERED scope before use, and anything not EXACTLY inside the registered scope flags out-of-scope (outputs refused/NULL, never fuzzy-passed).",
+      "rules": [
+        "EXACT string equality on dataset ids and instance ids (the P8.11 evaluate_topology_scope discipline mirrored; no fuzzy or prefix matching - a near-miss flags, never passes)",
+        "a forecasting worker request naming a dataset whose id is not EXACTLY registered here (or in the frozen eval-set artifact) is REFUSED with a named error - there is no default dataset and no degraded-mode forecast",
+        "a dataset row whose source is neither simulator-generated nor the labeled synthetic fixture is INVALID and flags (the no-production-data rule above, enforced at registration AND at consumption)",
+        "the scope check runs on the CONSUMER side at evaluation/training time; the reviewer re-checks (the P8.10 verification-method discipline mirrored)"
+      ],
+      "current_registered_scope": {
+        "forecast_eval": ["benchmarks/forecast-eval-set-v1.json (forecast-eval-set-v1)"],
+        "forecast_training": [],
+        "current_state": "EMPTY BY DESIGN: the forecast_training scope list is EMPTY (no training dataset exists); any request naming a forecast_training dataset flags out-of-scope (fail-closed by design) until instances are generated and recorded here"
+      }
+    },
+    "license_register_ref": "ledger/phase-08-advanced-coordination/35_training_data_provenance.md section 5 (forecasting datasets inherit the P8.03/P8.35 discipline unchanged; ANDES GPLv3 isolation applies to training-data outputs; the torch/PyG DECISION-POINTs are carried OPEN)",
+    "poisoning_controls_ref": "ledger/phase-08-advanced-coordination/35_training_data_provenance.md section 6 (ingestion schema/range/duplication checks, quarantine WITH a record, digests pinned before training; the poisoning-detection run is a HUMAN GATE, UNRUN - carried unchanged for forecasting datasets)",
+    "adr_010_note": "No dataset, eval result, or trained model authorizes or produces a dispatch command (ADR-010 extension, program conventions 6.3): datasets feed forecasts, forecasts are INPUTS; the never-granted permission set (dispatch.authorize, dispatch.issue, secret.read, network.any) is untouched by this manifest."
+  }
+}

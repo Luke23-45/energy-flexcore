@@ -1085,8 +1085,11 @@ fn decode_len_string(payload: &[u8], cursor: usize) -> Option<(String, usize)> {
 /// CRC-32 (IEEE, reflected) — the same checksum family as the checkpoint,
 /// the audit journal, the P9.31 binding journal, and the P9.33 identity
 /// register (an integrity checksum for corruption detection, not a
-/// security primitive).
-fn crc32(bytes: &[u8]) -> u32 {
+/// security primitive). P18.02 (`update_bundle.rs`) consumes THIS
+/// function for its anti-rollback-counter framing — cited, not
+/// reimplemented (no behavior change; visibility widened to
+/// `pub(crate)` only).
+pub(crate) fn crc32(bytes: &[u8]) -> u32 {
     let mut crc: u32 = 0xFFFF_FFFF;
     for &byte in bytes {
         crc ^= u32::from(byte);

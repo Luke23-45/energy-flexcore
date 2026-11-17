@@ -1,0 +1,37 @@
+# P14.11 — MQTT 5 + Sparkplug B edge-transport adapter models: the topic
+# namespace, the Sparkplug B payload model, the BIRTH/DEATH session state
+# machine, per-device credential bindings, the edge-agent uplink OPTION
+# design, and the MQTT wire SEAM.
+#
+# Dependency policy (tools/check_dependency_rule.py): ADAPTER crate
+# (composition side, like crates/adapters/nats). Minimal dependency set —
+# flexcore-protocol-ports for the COMMON protocol scope declaration and
+# capability manifest (the one scope/manifest vocabulary every Phase 14
+# protocol adapter implements), flexcore-contracts for the canonical unit
+# types (an uplink point carries MW / MVAr / MWh / SOC-fraction values,
+# converted at the adapter boundary), serde for model serialization.
+#
+# NO MQTT client library, NO broker runtime, NO async runtime: the wire
+# transport is a designed seam (src/transport.rs). NO dependency on
+# flexcore-edge-agent — the edge-agent `UplinkChannel` seam is NAMED as the
+# composition point (src/uplink.rs docs) but the edge agent is a composition
+# crate and adapter crates must not depend on it (checker policy: nothing
+# depends ON composition crates except apps). The NATS-at-the-grid-edge
+# evidence [S-40] is NOTED, not productized: the existing crates/adapters/
+# nats crate stays the platform-internal bus; no NATS transport is added
+# here.
+
+[package]
+name = "flexcore-mqtt-adapter"
+description = "MQTT 5 + Sparkplug B edge-transport adapter models: topic namespace, BIRTH/DEATH state machine, payload model, per-device credentials, uplink option, transport seam (P14.11)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flexcore-protocol-ports = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+flexcore-contracts = { workspace = true }
+
+[dev-dependencies]
+# Inline tests use only the crates above — no additional dev dependency.

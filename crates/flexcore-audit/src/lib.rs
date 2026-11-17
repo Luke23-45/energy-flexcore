@@ -9,6 +9,7 @@
 //! |---|---|
 //! | [`record`] | `AuditRecord` (actor, action, object, before/after references, decision, evidence, event/ingest timestamps, correlation ID, tenant context) plus `CorrectionRecord`, the new-record-referencing-the-original linkage |
 //! | [`sink`] | `AuditSink` — the append-only write port: `append` is its ONLY method |
+//! | [`chain`] | P11.15 keyed HMAC-SHA-256 linear chain (the P11-E-1 DEFAULT) with the per-tenant chain namespace and the periodic anchor-export design — a DEPLOYMENT REQUIREMENT: implemented code, never keyed, deployed, or exercised here |
 //!
 //! # The append-orientation rule (P1.10 step 3)
 //!
@@ -49,5 +50,19 @@
 //! frequency response, synthetic inertia, relay protection, inverter
 //! inner-loop control, or sub-cycle control.
 
+pub mod chain;
 pub mod record;
 pub mod sink;
+// P18.07 (phase 18, wave 1, Agent A) — per-device update EVIDENCE
+// records (the ledger's five closed kinds: attempt / verify / install /
+// result / rollback), a per-attempt keyed HMAC-SHA-256 linear chain
+// (domain-separated from the P11.15 audit chain — the SAME std-only
+// primitives, consumed not duplicated), an exportable bundle shape, and
+// the §10.1 `AuditRecord` mapping that rides each record through the
+// EXISTING `AuditSink` port and the P11.15 production chain (consumed,
+// never redefined; LR-203 honored — the test-grade FNV path untouched).
+// No update evidence record exists anywhere: no device, no fleet, no
+// update (decision record
+// docs/phases-11-20/phase-18-edge-fleet-lifecycle-ota/records/
+// 07_p18_07_update_evidence_audit_pack.md).
+pub mod update_evidence;

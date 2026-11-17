@@ -92,7 +92,17 @@ pub async fn run_outbox_publisher(
     config: PublisherConfig,
     mut shutdown: watch::Receiver<bool>,
 ) {
-    let publisher = OutboxPublisher::new(&jetstream, outbox.as_ref(), config.clone());
+    let publisher = OutboxPublisher::new(&jetstream, outbox.as_ref(), config.clone())
+        // P11.05 — trace-context propagation on publish (Phase 11 wave 1,
+        // Agent A): every published message carries the W3C `traceparent`
+        // of the current OTel context, when one is active; an absent
+        // context injects nothing (no fabricated trace id). The consumer
+        // side reads the header — Agent B's files, handoff recorded in
+        // the phase-11 record
+        // `records/05_p11_05_otel_python_and_trace_headers.md`.
+        .with_trace_header_provider(std::sync::Arc::new(
+            flexcore_worker::otel::trace_header_pairs,
+        ));
     loop {
         if *shutdown.borrow() {
             return;
