@@ -348,12 +348,12 @@ fn map_telemetry_record(r: &NormalizedTelemetry) -> TelemetryRecordDto {
     }
 }
 
-/// RFC 3339 rendering of an ingest timestamp (the ingest type is distinct
-/// from the event type, P0.09; the rendering is the same wire format).
 /// Maps one stored (version-selected) record onto the P2.12 query-response
 /// DTO — the as-of branch's record shape (P2.31). The mapping is the same
 /// field set as [`map_telemetry_record`]; only the source type differs
 /// (the adapter's `StoredTelemetry` instead of the port's canonical record).
+/// (FRV1-R2-010: a stray first line copied from `rfc3339_ingest`'s doc —
+/// which correctly carries that sentence below — was removed.)
 fn map_stored_record(r: &StoredTelemetry) -> Result<TelemetryRecordDto, ApiError> {
     let (value_num, value_bool, value_text) = match &r.value {
         None => (None, None, None),

@@ -36,7 +36,7 @@ use flexcore_audit::record::{
 use flexcore_contracts::ids::FlexUuid;
 use flexcore_contracts::time_model::{EventTime, IngestTime};
 use flexcore_domain::entities::{
-    Asset, AssetType, Portfolio, Site, Tenant,
+    Asset, AssetLifecycleStatus, AssetType, EntityError, Portfolio, Site, Tenant,
 };
 use flexcore_domain::ids::{AssetId, PortfolioId, SiteId, TenantId};
 use flexcore_domain::tenant_context::{
@@ -830,6 +830,59 @@ fn soc_outside_the_unit_interval_is_rejected_by_the_database() {
             .expect("soc fraction inside [0,1] accepted");
         tx.commit().await.expect("commit");
     });
+}
+
+// --- 4b. Registry lifecycle round-trip (P2.03) ---------------------------------------
+
+#[test]
+fn a_deactivated_asset_persists_its_lifecycle_across_a_read_back() {
+    let admin_url = require_db("a_deactivated_asset_persists_its_lifecycle_across_a_read_back");
+    if skipped(&admin_url) {
+        return;
+    }
+    let (tenant_a, asset_id) = seed_full_chain(admin_url.clone(), 0xD2);
+    let app_store =
+        FlexCoreStore::connect(&url_as(&admin_url, "flexcore_app", "flexcore_app_test_only"))
+            .expect("app store");
+    let ctx_a = context_for(tenant_a);
+    let reason = "maintenance window".to_string();
+
+    // Deactivate through the repository update port (the persistence step of
+    // the P2.03 DeactivateAsset use case): the lifecycle columns must be
+    // written, and migration 0009's CHECK must accept the row.
+    {
+        let unit = app_store.begin(Some(&ctx_a)).expect("unit of work");
+        let asset = AssetRepository::find_by_id(&unit, &ctx_a, asset_id)
+            .expect("find")
+            .expect("seeded asset");
+        assert_eq!(asset.lifecycle_status(), AssetLifecycleStatus::Active);
+        let deactivated = asset
+            .deactivate(reason.clone(), SystemClock.now_event_time())
+            .expect("deactivation");
+        AssetRepository::update(&unit, &ctx_a, &deactivated).expect("update");
+        unit.commit().expect("commit");
+    }
+    // Read-back: the terminal lifecycle state must not revert to Active
+    // (FRV1-R5-001), and the reconstructed aggregate must still enforce the
+    // domain's terminal-deactivation invariant.
+    {
+        let unit = app_store.begin(Some(&ctx_a)).expect("unit of work");
+        let asset = AssetRepository::find_by_id(&unit, &ctx_a, asset_id)
+            .expect("find")
+            .expect("asset after deactivation");
+        assert_eq!(
+            asset.lifecycle_status(),
+            AssetLifecycleStatus::Deactivated,
+            "the completed deactivation must survive persistence"
+        );
+        assert_eq!(asset.deactivation_reason(), Some(reason.as_str()));
+        assert!(asset.deactivated_at().is_some());
+        assert!(matches!(
+            asset.deactivate("again".to_string(), SystemClock.now_event_time()),
+            Err(EntityError::AlreadyDeactivated)
+        ));
+        unit.commit().expect("commit");
+    }
 }
 
 // --- 5. Quality enum: no seventh value (D-S4) ---------------------------------------

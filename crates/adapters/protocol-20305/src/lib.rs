@@ -12,6 +12,7 @@
 //! | [`model`] | P14.02 §2 | The CSIP resource-tree model types: FunctionSetAssignments, DERProgram / DefaultDERControl / DERControlList, ResponseList, PricingList, LogEventList, EndDevice/SFDI/LFDI — serde value types with UNVERIFIED attribute spellings |
 //! | [`addressing`] | P14.02 §3 | The declared `AddressPlan` (resource paths declared, never hardcoded guesses), the list query semantics, and the declared primacy-resolution rules [S-156] |
 //! | [`scheduling`] | P14.02 §2.1 | DERControl timing windows: start/duration/randomization modelling and the `active_at` / overlap semantics used by the conformance tests |
+//! | [`scope`] | P14.01 (mirrors the sibling adapters) | The reviewed `aggregator_scope` / `aggregator_manifest` constructors: the one reviewed spelling of the common scope/manifest for this adapter (the test helpers delegate here) |
 //! | [`server`] | P14.02 §4 | The AggregatorServer skeleton: deterministic resource store, GET/POST request routing, bounded lists, mTLS requirements (fail-closed construction), and the `AggregatorTransport` seam (UNRUN by design — no transport ships in this repo) |
 //! | [`proposal`] | P14.02 §5 | The DERControl → command-lifecycle mapping: external control objects enter at PROPOSED, typed with the frozen `flexcore-domain` `CommandState`; the adapter can produce PROPOSED or record a REJECTION at the PROPOSED gate and nothing else |
 //!
@@ -47,6 +48,7 @@ pub mod addressing;
 pub mod model;
 pub mod proposal;
 pub mod scheduling;
+pub mod scope;
 pub mod server;
 
 /// The registered adapter id (the composition-registry allowlist key shape;

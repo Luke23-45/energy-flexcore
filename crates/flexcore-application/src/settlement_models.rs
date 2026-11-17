@@ -106,8 +106,6 @@ pub enum SettlementParseError {
     /// An interval was not the format's declared length (CAISO SQMD is a
     /// 5-minute record; the EBGL ISP is 15 minutes) or was inverted.
     IntervalInvalid { expected_millis: i64 },
-    /// A currency code was empty or malformed (the money-record rule).
-    CurrencyInvalid { reason: String },
     /// A required reference/identifier field was empty.
     EmptyReference { field: &'static str },
     /// The node seam carried no text where the grammar requires text.
@@ -124,7 +122,6 @@ impl SettlementParseError {
             }
             SettlementParseError::DecimalInvalid { .. } => "SETTLEMENT_PARSE_DECIMAL_INVALID",
             SettlementParseError::IntervalInvalid { .. } => "SETTLEMENT_PARSE_INTERVAL_INVALID",
-            SettlementParseError::CurrencyInvalid { .. } => "SETTLEMENT_PARSE_CURRENCY_INVALID",
             SettlementParseError::EmptyReference { .. } => "SETTLEMENT_PARSE_EMPTY_REFERENCE",
             SettlementParseError::MissingNodeText { .. } => "SETTLEMENT_PARSE_MISSING_NODE_TEXT",
         }
@@ -148,9 +145,6 @@ impl std::fmt::Display for SettlementParseError {
                 "the interval is not the format's declared {expected_millis} ms length \
                  (or is inverted); the record is refused, never re-binned"
             ),
-            SettlementParseError::CurrencyInvalid { reason } => {
-                write!(f, "the currency code is invalid: {reason}")
-            }
             SettlementParseError::EmptyReference { field } => {
                 write!(f, "the '{field}' reference must be a non-empty string")
             }
@@ -816,9 +810,6 @@ SYNTH-STMT-1,SYN_CHARGE_B,-40.50,USD
             },
             SettlementParseError::IntervalInvalid {
                 expected_millis: 300_000,
-            },
-            SettlementParseError::CurrencyInvalid {
-                reason: "r".to_string(),
             },
             SettlementParseError::EmptyReference { field: "f" },
             SettlementParseError::MissingNodeText { node: "bli" },

@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { CAPABILITY_MATRIX, ROLES } from '../security/capabilityMatrix';
 import {
   ADMIN_MANAGEMENT_NOTE,
   DISPLAY_NEVER_SECRET_NOTE,
@@ -28,6 +29,28 @@ describe('the role model mirror (record 05, consumed by citation)', () => {
       'viewer',
       'site-approver',
     ]);
+  });
+
+  it('the role vocabulary is DERIVED from the single authoritative mirror, not redeclared (FRV1-R3-003)', () => {
+    // PHASE13_ROLES re-exports capabilityMatrix ROLES — a drift in either
+    // place would break this identity, so the two mirrors cannot disagree
+    // on the role vocabulary.
+    expect(PHASE13_ROLES).toBe(ROLES);
+    expect([...ROLES]).toEqual([...PHASE13_ROLES]);
+  });
+
+  it('the phase-13 grant table agrees with the capability-matrix phase-13 entries (one recorded grant set, two mirrors)', () => {
+    for (const row of PHASE13_GRANT_TABLE) {
+      const entry = CAPABILITY_MATRIX[row.actionId];
+      expect(entry, `${row.actionId} must exist in CAPABILITY_MATRIX`).toBeDefined();
+      // The admin table mirrors the PHASE-13 SET ALONE; the matrix entry
+      // is the union with any earlier recorded grant, so every phase-13
+      // role must be present there, and the scope kinds must match.
+      for (const role of row.roles) {
+        expect(entry!.roles, `${row.actionId}: ${role} must be mirrored`).toContain(role);
+      }
+      expect([...entry!.scopeKinds]).toEqual([...row.scopeKinds]);
+    }
   });
 
   it('mirrors the record 05 §3 grant table exactly', () => {

@@ -282,3 +282,44 @@ describe('PluginsInventoryView (render honesty)', () => {
     expect(error).toContain('forbidden: action denied');
   });
 });
+
+// --- Design wave 2 (FRV1-R9-003) — APPENDED additive assertions only -------
+// The wave-2 additive className edits (state-chip on the lifecycle/health
+// strongs) must not change any pinned text; this block pins the additive
+// classes AND the unchanged verbatim tokens together. Nothing above was
+// modified.
+
+describe('design wave 2 (FRV1-R9-003) — additive state chips (append-only)', () => {
+  it('the lifecycle/health strongs carry the additive state-chip class; the verbatim text is unchanged', () => {
+    const html = renderToString(<PluginsInventoryView state={readyState()} />);
+    // NOT_REPORTED (the named gap) keeps the neutral fail-safe chip key.
+    expect(html).toContain('class="state-chip state-not_reported"');
+    // A reported lifecycle state and the verbatim health state get their keys.
+    expect(html).toContain('class="state-chip state-ready"');
+    expect(html).toContain('class="state-chip state-degraded_error_rate"');
+    // The pinned verbatim tokens are byte-identical.
+    expect(html).toContain('[NOT_REPORTED]');
+    expect(html).toContain('[READY]');
+    expect(html).toContain('[DEGRADED_ERROR_RATE]');
+  });
+});
+
+// --- FRV1-R9-001 (wave 2, Agent B, APPENDED — nothing above was modified) ----
+// Structural pin for the additive wide-table containment wrappers (see
+// Overview.test.tsx for the full rationale).
+import { readFileSync as readSourceFs } from 'node:fs';
+import { join as joinSourcePath, dirname as dirnameSourcePath } from 'node:path';
+import { fileURLToPath as fileUrlToSourcePath } from 'node:url';
+
+describe('FRV1-R9-001 (wave 2): .table-scroll containment wrappers (source-pinned)', () => {
+  it('the composition-profiles table is wrapped in an additive table-scroll div', () => {
+    const source = readSourceFs(
+      joinSourcePath(
+        dirnameSourcePath(fileUrlToSourcePath(import.meta.url)),
+        'PluginsWorkspace.tsx',
+      ),
+      'utf-8',
+    );
+    expect(source.split('<div className="table-scroll">').length - 1).toBe(1);
+  });
+});

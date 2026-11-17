@@ -393,9 +393,10 @@ impl IngestionMetrics {
 
     /// Renders the telemetry metric families in Prometheus text format,
     /// using the SAME metric names as the control-plane registry's P2.21
-    /// families (one naming space; the worker's future /metrics surface
-    /// renders these, the control plane's `/metrics` renders its own
-    /// registry — the ledger P2.21 acceptance scrapes the control plane).
+    /// families (one naming space; the worker's `/metrics` route renders
+    /// these composed with the command-consumer families — FRV1-R2-003 —
+    /// while the control plane's `/metrics` renders its own registry — the
+    /// ledger P2.21 acceptance scrapes the control plane).
     pub fn render_prometheus(&self) -> String {
         let mut out = String::new();
         out.push_str("# HELP flexcore_telemetry_events_total Telemetry domain events appended to the outbox, by frozen event type.\n");

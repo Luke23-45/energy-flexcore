@@ -11,7 +11,7 @@
 
 use crate::error::decode_failure;
 use flexcore_contracts::quality::TelemetryQuality;
-use flexcore_domain::entities::AssetType;
+use flexcore_domain::entities::{AssetLifecycleStatus, AssetType};
 use flexcore_ports::repository::RepositoryError;
 
 /// The contracts asset type as the `assets.asset_type` text value.
@@ -40,6 +40,16 @@ pub(crate) fn asset_type_from_text(raw: &str) -> Result<AssetType, RepositoryErr
         "wind" => Ok(AssetType::WindGeneration),
         "thermal_storage_heat_pump" => Ok(AssetType::ThermalStorageHeatPump),
         _ => Err(RepositoryError::Backend(decode_failure("assets.asset_type"))),
+    }
+}
+
+/// The contracts registry lifecycle status as the `assets.lifecycle_status`
+/// text value (the migration 0009 spellings, backed by the
+/// `assets_lifecycle_consistency` CHECK).
+pub(crate) fn lifecycle_status_text(status: AssetLifecycleStatus) -> &'static str {
+    match status {
+        AssetLifecycleStatus::Active => "active",
+        AssetLifecycleStatus::Deactivated => "deactivated",
     }
 }
 

@@ -307,8 +307,11 @@ impl PriceSeries {
 /// price data: there is no write path, no bid/offer/order vocabulary, and
 /// no dispatch vocabulary anywhere in this trait's surface — prices are
 /// INGESTED DATA for later phases (Phase 16 consumes them; this phase
-/// produces only the ingestion seam). No implementation ships in this
-/// crate, and no concrete source (platform or vendor) is named here.
+/// produces only the ingestion seam). No ADAPTER implementation ships in
+/// this crate — the only shipped implementation is the fail-closed
+/// [`UnwiredPriceSignalSource`] default (FRV1-R1-003 recorded deferral),
+/// which refuses every operation by name — and no concrete source
+/// (platform or vendor) is named here.
 ///
 /// Control status: an INPUT seam (ADR-010 extension, conventions §6.3).
 /// Nothing here authorizes, issues, dispatches, or bids; an ingested
@@ -373,6 +376,65 @@ impl std::fmt::Display for PricePortError {
 }
 
 impl std::error::Error for PricePortError {}
+
+// --- The unwired shipped default ---------------------------------------------
+
+/// The name the unwired default reports in every refusal code (surfaced in
+/// the [`PricePortError::SourceUnavailable`] code so a log or metric
+/// labels the unwired seam by name).
+pub const PRICE_SOURCE_SEAM_NOT_WIRED: &str = "PRICE_SOURCE_SEAM_NOT_WIRED";
+
+/// The shipped default [`PriceSignalSource`] implementation: refuses every
+/// operation with the named `PRICE_SOURCE_SEAM_NOT_WIRED` refusal
+/// (FRV1-R1-003 recorded deferral; the fail-closed `Unwired*` seam idiom
+/// this workspace already uses at the protocol-port layer, lifted to this
+/// port). No adapter implements the price port anywhere in the 0.x
+/// baseline — no price source is configured, no delivery contract exists,
+/// and no concrete source integration is invented here (a price source is
+/// named only in deployment configuration, never in this port). A wired
+/// source can only arrive as a deliberate, composed adapter
+/// implementation — never as a silent default.
+///
+/// Fail-closed by construction: both operations answer
+/// [`PricePortError::SourceUnavailable`] (a missing price source is never
+/// answered with a fabricated series), so a composition that wires this
+/// default by mistake refuses loudly instead of feeding invented prices
+/// into the later-phase consumers.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnwiredPriceSignalSource;
+
+impl PriceSignalSource for UnwiredPriceSignalSource {
+    fn latest_series(
+        &self,
+        _ctx: &TenantContext,
+        _kind: PriceSeriesKind,
+        _area: &str,
+    ) -> Result<Option<PriceSeries>, PricePortError> {
+        Err(PricePortError::SourceUnavailable {
+            code: PRICE_SOURCE_SEAM_NOT_WIRED.to_string(),
+            message: "no adapter implements the PriceSignalSource port in this \
+                      baseline (FRV1-R1-003 recorded deferral; no price source \
+                      is configured in 0.x) — ingested price data lands with the \
+                      first adapter composition"
+                .to_string(),
+        })
+    }
+
+    fn ingest_series(
+        &self,
+        _ctx: &TenantContext,
+        _series: PriceSeries,
+    ) -> Result<(), PricePortError> {
+        Err(PricePortError::SourceUnavailable {
+            code: PRICE_SOURCE_SEAM_NOT_WIRED.to_string(),
+            message: "no adapter implements the PriceSignalSource port in this \
+                      baseline (FRV1-R1-003 recorded deferral; no price source \
+                      is configured in 0.x) — ingested price data lands with the \
+                      first adapter composition"
+                .to_string(),
+        })
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Tests (WRITTEN-UNRUN — no cargo command was executed in this loop; the
@@ -519,5 +581,52 @@ mod tests {
         for error in errors {
             assert!(!error.to_string().is_empty());
         }
+    }
+
+    /// The only path a read can take to a tenant scope: authenticated
+    /// claims → tenant context. There is no other constructor.
+    fn tenant_context() -> TenantContext {
+        use flexcore_contracts::ids::FlexUuid;
+        use flexcore_domain::ids::TenantId;
+        use flexcore_domain::tenant_context::{AuthenticatedClaims, VerifiedClaims};
+        TenantContext::from_authenticated_claims(AuthenticatedClaims::from_verified(
+            VerifiedClaims {
+                tenant_id: TenantId::new(
+                    FlexUuid::parse("0192a800-0000-7000-8000-00000000000a")
+                        .expect("fixture tenant id is a valid uuid"),
+                ),
+                subject: "user:price-port-test".to_string(),
+            },
+        ))
+    }
+
+    // FRV1-R1-003 — the unwired default is a named fail-closed refusal,
+    // never a fabricated series and never a silently-accepted ingest.
+    #[test]
+    fn the_unwired_default_refuses_every_operation_by_name() {
+        let source = UnwiredPriceSignalSource;
+        let err = source
+            .latest_series(&tenant_context(), PriceSeriesKind::Actual, "FIXTURE-ZONE")
+            .expect_err("the unwired default refuses");
+        assert_eq!(err.name(), "PRICE_SOURCE_UNAVAILABLE");
+        let rendered = err.to_string();
+        assert!(rendered.contains(PRICE_SOURCE_SEAM_NOT_WIRED));
+        assert!(rendered.contains("FRV1-R1-003"));
+
+        let series = PriceSeries::new(
+            PriceSeriesKind::Actual,
+            PriceSourceClass::TransparencyPlatform,
+            "prices://fixture/source".to_string(),
+            "prices://fixture/document".to_string(),
+            "FIXTURE-ZONE".to_string(),
+            "EUR".to_string(),
+            vec![point(0, 42.5)],
+        )
+        .expect("valid series");
+        let err = source
+            .ingest_series(&tenant_context(), series)
+            .expect_err("the unwired default refuses");
+        assert_eq!(err.name(), "PRICE_SOURCE_UNAVAILABLE");
+        assert!(err.to_string().contains(PRICE_SOURCE_SEAM_NOT_WIRED));
     }
 }

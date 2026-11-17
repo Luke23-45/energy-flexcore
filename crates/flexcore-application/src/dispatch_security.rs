@@ -496,6 +496,12 @@ impl<'a> VerifyingDispatchTransport<'a> {
     /// The last accepted sequence for an asset's default dispatch channel
     /// (test/inspection surface).
     pub fn last_accepted_sequence(&self, asset_id: &AssetId) -> Option<u64> {
+        // Invariant note (FRV1-R1-010): the only `expect` panics on this
+        // path are mutex-POISONING paths — the guard can only be poisoned
+        // by a panic inside this same module's critical sections, and the
+        // crate policy is that a poisoned coordination primitive is not
+        // recoverable state (never a silent fallback). No caller input
+        // reaches a panic here.
         self.guard
             .lock()
             .expect("sequence guard")
@@ -533,6 +539,8 @@ impl SimulatorDispatchTransport for VerifyingDispatchTransport<'_> {
         //    advances only on acceptance.
         let key = channel_key(&envelope.asset_id, DEFAULT_DISPATCH_CHANNEL);
         let admission = {
+            // Invariant note (FRV1-R1-010): mutex-poisoning expect only —
+            // see `last_accepted_sequence` for the recorded policy.
             let mut guard = self.guard.lock().expect("sequence guard");
             guard.admit(&key, envelope.sequence)
         };

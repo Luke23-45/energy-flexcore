@@ -105,6 +105,18 @@ pub mod interconnection_store;
 // conversion anywhere). The audit-chain LINK is stored per row; the P11
 // chain itself is consumed, never redefined.
 pub mod market_records_store;
+// P13.09 — the webhook-delivery bookkeeping store (migration 0020): the
+// PostgreSQL storage half of the delivery contract in
+// apps/control-plane/src/webhook_service.rs. FRV1-R8-005 (final review):
+// this module lands the recorded composition step — the per-call
+// tenant-scoped units of work (the 0020 RLS tables are never touched
+// without a tenant scope; cross-tenant reads walk the registered tenants
+// per-tenant), the idempotency-key collapse, the book-before-attempt
+// rows, and the dead-letter depth. The PORT stays single-homed in
+// apps/control-plane (its error vocabulary names the app's signing
+// error); the control-plane crate implements the port over this module's
+// store (the recorded composition shape, record 21 §5).
+pub mod webhook_delivery;
 pub mod store;
 pub mod telemetry;
 pub mod unit_of_work;

@@ -134,6 +134,7 @@ FORBIDDEN_RESULT_KEYS: frozenset = frozenset(
         "dispatch",
         "dispatchable",
         "approval",
+        "approved",
         "approval_token",
     }
 )
@@ -1304,9 +1305,11 @@ def _expects_named_import_error(results: list, fn, name: str, detail: str) -> No
 
 
 if __name__ == "__main__":  # pragma: no cover — human-gate entrypoint
-    _records = run_self_tests()
-    _failures = [r for r in _records if not r["passed"]]
-    for _r in _records:
-        print(("PASS" if _r["passed"] else "FAIL"), _r["name"], "-", _r["detail"])
-    print("%d/%d self-tests passed" % (len(_records) - len(_failures), len(_records)))
-    raise SystemExit(1 if _failures else 0)
+    if "--self-test" in sys.argv[1:]:
+        _records = run_self_tests()
+        _failures = [r for r in _records if not r["passed"]]
+        for _r in _records:
+            print(("PASS" if _r["passed"] else "FAIL"), _r["name"], "-", _r["detail"])
+        print("%d/%d self-tests passed" % (len(_records) - len(_failures), len(_records)))
+        raise SystemExit(1 if _failures else 0)
+    raise SystemExit(main())

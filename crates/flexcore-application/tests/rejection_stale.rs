@@ -629,6 +629,7 @@ fn f_st_1_a_command_whose_window_ended_before_validation_is_rejected_stale_not_e
                 command_id: command_id(),
                 state: CommandState::Proposed,
                 valid_until_millis: valid_until,
+                scope: None,
             }],
             now,
         );

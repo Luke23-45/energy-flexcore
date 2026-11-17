@@ -85,6 +85,12 @@ pub mod session;
 // `records/21_p13_09_webhook_service.md`; migration 0020.
 pub mod webhook_signing;
 pub mod webhook_service;
+// FRV1-R8-005 (final review) — the port implementation over the Postgres
+// adapter's webhook-delivery store (migration 0020): the thin record/
+// error mapping that joins the app-local `WebhookDeliveryStore` port to
+// the adapter's storage half (the P13.09 decision record §5 step 1).
+// WRITTEN-UNRUN.
+pub mod webhook_delivery_pg;
 // P13.10 (Phase 13 wave 1, Agent B; WRITTEN-UNRUN) — the API-versioning
 // policy mechanics: `/api/v1/` confirmed CURRENT, the Deprecation/Sunset
 // header design (RFC 8594 [S-84]; the Deprecation header is a draft, used

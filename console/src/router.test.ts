@@ -2,7 +2,7 @@
 // install (the Phase 5 loop bans installs/builds/test runs; decision
 // record: ledger/phase-05-operator-console-simulator/01_25_scaffold_live.md).
 import { describe, expect, it } from 'vitest';
-import { parseRoute, routeHash } from './router';
+import { isInPageAnchorHash, parseRoute, routeHash } from './router';
 import { WORKSPACES } from './workspaces/registry';
 
 describe('parseRoute (hand-rolled hash router)', () => {
@@ -34,5 +34,22 @@ describe('routeHash', () => {
     for (const workspace of WORKSPACES) {
       expect(parseRoute(routeHash(workspace.id))).toBe(workspace.id);
     }
+  });
+});
+
+describe('isInPageAnchorHash (the P5.12 skip-link channel separation)', () => {
+  it('recognises the skip-link anchor as an in-page anchor, not a route', () => {
+    expect(isInPageAnchorHash('#workspace-main')).toBe(true);
+  });
+
+  it('never mistakes a workspace route, the bare-hash forms, or any other fragment for the anchor', () => {
+    for (const workspace of WORKSPACES) {
+      expect(isInPageAnchorHash(routeHash(workspace.id))).toBe(false);
+    }
+    expect(isInPageAnchorHash('')).toBe(false);
+    expect(isInPageAnchorHash('#')).toBe(false);
+    expect(isInPageAnchorHash('#/')).toBe(false);
+    expect(isInPageAnchorHash('#workspace-main-extra')).toBe(false);
+    expect(isInPageAnchorHash('#/workspace-main')).toBe(false);
   });
 });

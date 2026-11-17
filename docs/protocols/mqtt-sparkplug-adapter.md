@@ -42,7 +42,7 @@
 | Trust rules | No DATA trusted without a live BIRTH; a DEATH ends the session; a stale DEATH is refused (it must not kill a newer generation); a re-BIRTH is accepted only as a generation change; DATA must continue the seq chain — a gap is refused and RECORDED (recovery is a re-BIRTH, never a guess); a connection-lost report ends a live session |
 | Refusal names | `data_without_live_birth`, `death_without_live_birth`, `sequence_mismatch`, `stale_rebirth`, `generation_mismatch`, `invalid_payload` — every observation is Accepted or Refused BY NAME; the state is not publicly writable |
 | Offline behavior | The store-and-forward re-publish semantics are the `BoundedHistory` capability declaration (the P6.09 pattern) |
-| Connection states | The common `ProtocolConnection` vocabulary — consumed by the P11 taxonomy, never redefined |
+| Connection states | The common `ProtocolConnection` vocabulary — vocabulary only: no adapter implements the port in this baseline (the recorded FRV1-R6-001 deferral; the shipped default refuses fail-closed by name), so connection reporting rides the adapter's own session/birth-death rules until the first adapter composition. The P11 taxonomy consumes the names, never redefines them |
 
 ## 5. Honest boundary
 

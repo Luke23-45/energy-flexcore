@@ -26,6 +26,22 @@
 # the 2026-11-07 cut-off; re-check at build time (RESEARCH.md §5) and
 # record the resolved tag in the README.
 #
+# FRV1-R8-001 (final review) — the `observability` PROFILE: three
+# additional services below (prometheus, grafana, nats-exporter) wire the
+# shipped P11.09 dashboards/datasource/rules tree
+# (deploy/compose/observability/) to live consumers — the P11.09 record
+# §4 handoff that had been silently dropped. INERT BY DEFAULT (the
+# recorded INERT-until-trigger pattern from the k8s/GitOps artifacts):
+# Compose profiles only start when requested —
+# `docker compose --profile observability up`. NOTHING here has ever been
+# pulled, built, or run (the loop bans docker commands; the first human
+# run is the gate), and the image tags were version-CHECKED (release
+# indexes, 2026-11-18) but are ASSUMPTIONS exactly like the
+# otel-collector pin below — re-verify at the first build. The scrape and
+# rule configuration lives in deploy/compose/observability/prometheus/
+# prometheus.yml (the store-selection note P11-E-2 is recorded there and
+# stays OPEN).
+#
 # Streams: the NATS adapter provisions the Phase 1 streams
 # (REGISTRY/STATE/AUDIT + FLEXCORE_DLQ) on first use per the P1.14 design
 # (§4); no manual stream setup is required.
@@ -163,6 +179,12 @@ services:
       # secret file at start, never stored in this file.
       FLEXCORE_NATS_URL: nats://nats:4222
       FLEXCORE_LOG_LEVEL: info
+      # FRV1-R8-001 (final review): bind the P11.21 probe server to the
+      # container interface so the `observability` profile's Prometheus
+      # can scrape `/metrics` on the Compose network (the 127.0.0.1
+      # default binds inside the container only; the port is NOT
+      # published to the host, so this widens nothing).
+      FLEXCORE_PROBE_ADDR: 0.0.0.0:8081
       # P11.05 (Phase 11 wave 1, Agent A) — OTLP export to the gateway.
       FLEXCORE_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       FLEXCORE_OTEL_SERVICE_NAME: flexcore-worker
@@ -189,6 +211,87 @@ services:
       timeout: 5s
       retries: 30
       start_period: 30s
+
+  # FRV1-R8-001 (final review) — the observability profile services.
+  # The long-term metrics store: PROMETHEUS (dev-profile provisional
+  # shape; P11-E-2 stays OPEN — see the config file's note). Image pin:
+  # prometheus v3.16.0 (the current stable 3.x release tag on the
+  # Prometheus release index, checked 2026-11-18; ASSUMPTION exactly like
+  # the otel-collector pin — re-verify at the first human build).
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # The four shipped rule files (P11.03 burn-rate + recording rules,
+      # P11.13 DLQ-depth and protocol-adapter alerts) — the rule_files
+      # glob in the config above is the repository's ONLY reference to
+      # them (the P11.09 record §3 item 3 handoff, closed here).
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+    ports:
+      # Loopback-only host exposure (the otel-collector pattern): a host
+      # tool may inspect the store from localhost.
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      # The exporters/agents are scrape TARGETS, not liveness
+      # dependencies: Prometheus starts fine before them and the scrape
+      # failures stay visible as `up == 0`.
+      nats-exporter:
+        condition: service_started
+
+  # The NATS JetStream exporter the DLQ-depth rule files need
+  # (`jetstream_stream_messages{stream=...}`): scrapes the NATS monitor
+  # endpoint (:8222, already exposed by the base stack) and serves
+  # Prometheus metrics on :7777. Image pin: natsio/prometheus-nats-exporter
+  # 0.20.3 (the exporter's current release tag on its release index,
+  # checked 2026-11-18; ASSUMPTION like the pins above — re-verify at the
+  # first build). RECORDED CAVEAT (unchanged, P11.13 + rule-file header):
+  # the exact exported family names are UNVERIFIED against a live
+  # exporter; the first human run confirms or mechanically renames the
+  # families in the DLQ rules.
+  nats-exporter:
+    image: natsio/prometheus-nats-exporter:0.20.3
+    profiles: ["observability"]
+    command: ["-varz", "-jsz", "-listen", ":7777"]
+    # -jsz needs the JetStream account/layered mode flag on server 2.x
+    # (VERIFY-BUILD at the first human run, the adapter's protocol-constant
+    # discipline); `-varz` is the monitor surface both the DLQ rules and
+    # the base healthcheck read.
+    ports:
+      # Scrape target inside the Compose network only; loopback for a
+      # host tool.
+      - "127.0.0.1:7777:7777"
+
+  # The dashboards UI over the shipped provisioning tree (P11.09):
+  # datasource provisioning → /etc/grafana/provisioning, dashboards →
+  # /var/lib/grafana/dashboards (the recorded mounts of the P11.09 §4
+  # handoff). The datasource file names `http://prometheus:9090` — with
+  # this profile that service EXISTS in the stack (the FRV1-R8-001
+  # mismatch is closed). Image pin: grafana 13.3.1 (the current stable
+  # release tag on Grafana's release index, checked 2026-11-18;
+  # ASSUMPTION like the pins above — re-verify at the first build).
+  # Anonymous admin access is NOT configured: Grafana's shipped default
+  # (admin/admin, forced change on first login) applies; a real
+  # deployment configures its own auth (an operator concern, not faked
+  # here).
+  grafana:
+    image: grafana/grafana:13.3.1
+    profiles: ["observability"]
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      # Loopback-only host exposure (the otel-collector pattern).
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      # The datasource is provisioned statically; Grafana starts fine
+      # before the store answers (the panel queries fail visibly until
+      # Prometheus is up).
+      prometheus:
+        condition: service_started
 
 volumes:
   postgres-data:

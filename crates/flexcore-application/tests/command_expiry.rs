@@ -556,6 +556,7 @@ fn the_sweep_decides_exactly_the_expirable_states_with_lapsed_windows() {
             command_id: command_id(10),
             state,
             valid_until_millis: valid_until,
+            scope: None,
         })
         .collect();
     let decisions = sweep_validity_windows(&candidates, now);
@@ -582,6 +583,7 @@ fn the_sweep_decides_exactly_the_expirable_states_with_lapsed_windows() {
             command_id: command_id(10),
             state,
             valid_until_millis: now + 1,
+            scope: None,
         })
         .collect();
     assert!(sweep_validity_windows(&fresh, now).is_empty());
@@ -596,6 +598,7 @@ fn the_sweep_boundary_is_end_exclusive_matching_the_domain_guard() {
             command_id: command_id(10),
             state: CommandState::Approved,
             valid_until_millis: 1_000,
+            scope: None,
         }],
         1_000,
     )
@@ -605,6 +608,7 @@ fn the_sweep_boundary_is_end_exclusive_matching_the_domain_guard() {
             command_id: command_id(10),
             state: CommandState::Approved,
             valid_until_millis: 1_000,
+            scope: None,
         }],
         999,
     )
@@ -775,11 +779,13 @@ fn the_sweep_application_applies_exactly_the_pure_decisions() {
             command_id: lapsed,
             state: CommandState::Issued,
             valid_until_millis: 9_000,
+            scope: Some(scope()),
         },
         ExpiryCandidate {
             command_id: fresh,
             state: CommandState::Issued,
             valid_until_millis: 90_000,
+            scope: Some(scope()),
         },
     ];
     let applied = harness
@@ -792,6 +798,89 @@ fn the_sweep_application_applies_exactly_the_pure_decisions() {
     assert_eq!(
         harness.store.journal_of(fresh).last().map(|t| t.to),
         Some(CommandState::Issued)
+    );
+}
+
+#[test]
+fn the_sweep_stamps_each_commands_own_scope_on_its_expired_event() {
+    // FRV1-R1-002: a heterogeneous sweep must not stamp ONE caller-supplied
+    // scope on every `DispatchExpired` event — each command's event carries
+    // the scope of ITS OWN command record (the candidate's scope columns;
+    // D-P4.15-4: a wrong scope breaks tenant routing). The caller-supplied
+    // scope remains only the fallback for a candidate whose record
+    // genuinely lacks one.
+    let harness = harness(50_000);
+    let first = command_id(40);
+    let second = command_id(41);
+    harness.store.seed(first, 9_000, CommandState::Issued);
+    harness.store.seed(second, 9_000, CommandState::Tracking);
+    // Two per-command record scopes, distinct from each other and from the
+    // caller-supplied fallback (asset uuid(4) — byte ", 4]" in the Debug
+    // payload must never appear).
+    let scope_a = EventScope {
+        portfolio_id: PortfolioId::new(uuid(2)),
+        site_id: SiteId::new(uuid(3)),
+        asset_id: AssetId::new(uuid(20)),
+    };
+    let scope_b = EventScope {
+        portfolio_id: PortfolioId::new(uuid(2)),
+        site_id: SiteId::new(uuid(3)),
+        asset_id: AssetId::new(uuid(36)),
+    };
+    let candidates = vec![
+        ExpiryCandidate {
+            command_id: first,
+            state: CommandState::Issued,
+            valid_until_millis: 9_000,
+            scope: Some(scope_a),
+        },
+        ExpiryCandidate {
+            command_id: second,
+            state: CommandState::Tracking,
+            valid_until_millis: 9_000,
+            scope: Some(scope_b),
+        },
+    ];
+    let applied = harness
+        .service
+        .run_sweep(&context(), scope(), &candidates, &actor())
+        .expect("the sweep applies");
+    assert_eq!(applied.len(), 2, "both lapsed candidates fire");
+
+    let writes = harness.outbox.writes();
+    assert_eq!(writes.len(), 2, "one DispatchExpired per swept command");
+    // The Debug payload renders each FlexUuid as its derived byte array —
+    // 15 zero bytes with the tag byte last.
+    let debug_bytes = |tag: u8| {
+        let mut parts: Vec<String> = vec!["0"; 15];
+        parts.push(tag.to_string());
+        format!("FlexUuid([{}])", parts.join(", "))
+    };
+    let payload_of = |command_tag: u8| {
+        writes
+            .iter()
+            .map(|write| write.payload())
+            .find(|payload| payload.contains(debug_bytes(command_tag).as_str()))
+            .expect("each swept command has its own event")
+            .to_string()
+    };
+    let first_payload = payload_of(40);
+    let second_payload = payload_of(41);
+    // Each event carries ITS OWN record's asset scope.
+    assert!(
+        first_payload.contains(debug_bytes(20).as_str()),
+        "the first command's event carries its own asset scope: {first_payload}"
+    );
+    assert!(
+        second_payload.contains(debug_bytes(36).as_str()),
+        "the second command's event carries its own asset scope: {second_payload}"
+    );
+    // Neither event carries the caller-supplied fallback scope (asset
+    // uuid(4) — the fallback's scope uuid must not appear).
+    assert!(
+        !first_payload.contains(debug_bytes(4).as_str())
+            && !second_payload.contains(debug_bytes(4).as_str()),
+        "the caller-supplied scope is a fallback only, never a batch stamp"
     );
 }
 

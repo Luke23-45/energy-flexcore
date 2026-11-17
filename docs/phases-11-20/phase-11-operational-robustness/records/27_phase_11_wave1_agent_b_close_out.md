@@ -111,6 +111,14 @@ OK ù dependency rule holds for 20 workspace members.
    VictoriaMetrics single-node) and Grafana services to
    `docker-compose.yml` mounting the observability tree; the current
    Compose additions are A's Collector gateway only (record 21 §4.1).
+   **CLOSED (final review, FRV1-R8-001)**: the `observability` profile in
+   `deploy/compose/docker-compose.yml` now adds the prometheus, grafana,
+   and nats-exporter services with the recorded mounts (provisioning →
+   `/etc/grafana/provisioning`, dashboards →
+   `/var/lib/grafana/dashboards`, scrape config + rules →
+   `deploy/compose/observability/prometheus/`), INERT until the profile
+   is requested. P11-E-2 stays OPEN (the dev profile runs Prometheus
+   provisionally; the selection note is in the scrape config's header).
 4. **P11-E-2 / P11-E-3 remain OPEN** (record 22); the P11.22 close
    carries the formal register entries.
 5. **First human build checklist**: the VERIFY-BUILD notes in

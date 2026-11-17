@@ -1,20 +1,66 @@
-# P5.15 — the Python grid numerical worker leg
+# apps/worker/python — the Python numerical workers
 
-This directory is the Python leg of the P5.15 grid-simulator adapter
-integration: the process behind the `WorkerProcessBackend`
-(`crates/flexcore-grid-api/src/worker_backend.rs`). The Rust grid-api
-backend spawns this script, writes ONE `flexcore-grid-worker/1` JSON request
-on its stdin, and reads ONE JSON response on its stdout (the
-`BackendPowerFlowOutcome` shape behind the protocol tag).
+This directory is the Python leg of the worker area: the P5.15
+grid-simulator adapter worker (`grid_worker.py`, the process behind the
+`WorkerProcessBackend` in `crates/flexcore-grid-api/src/worker_backend.rs`),
+the P5.16 HELICS co-simulation federates, and the Phase 8 / Phase 15
+research workers with their pure support tooling. **Everything here was
+WRITTEN, NEVER EXECUTED** — the loop bans install/build/run, so the first
+execution of any module in this tree is a recorded human gate (each
+package's README names its own gate and honesty header).
 
 ## Contents
 
-| File | Content |
-|---|---|
-| `grid_worker.py` | The worker entrypoint: grid-api model IR + translated injections → pandapower AC power flow → result payload |
-| `requirements.txt` | The recorded pin `pandapower==3.5.6` (D-P4.01-1) — **NEVER INSTALLED** in this loop |
+| Path | Owning phase | Content |
+|---|---|---|
+| `grid_worker.py` | P5.15 | The grid-api worker backend process: one `flexcore-grid-worker/1` JSON request on stdin → one AC-power-flow result envelope on stdout (pandapower `runpp`, guarded import) |
+| `helics_federates/` | P5.16 | The HELICS co-simulation federates (broker + asset/grid/control roles, coordination-only) and the example federation config; `helics==3.7.0` recorded, never installed |
+| `forecast_worker/` | P15.02 (completed by P15.17) | The statistical baseline forecast worker: frozen no-skill baseline rule sets → one `flexcore-forecast-worker/1` request on stdin → one proposal envelope on stdout; numpy is the guarded import |
+| `gnn_worker/` | P8.11 (evaluation P8.12) | The GNN warm-start/screening inference worker (torch/PyG DECISION-POINT, guarded imports, no inference output exists) and `gnn_evaluation.py`, the pure end-to-end-metric harness |
+| `marl_worker/` | P8.13/P8.14 | The MARL simulation/shadow worker (Ray/RLlib DECISION-POINT): pure filter-probe path, CBF safety filter, shadow log, evaluation harness; no policy output exists |
+| `andes_worker/` | P8.16 (metrics P8.17; cross-checks P8.39) | The ANDES dynamic-simulation research worker (ANDES 2.0.0 recorded, GPLv3-isolated, guarded import), the pure P8.17 response-metrics harness, and the P8.39 cross-check module |
+| `portfolio_analytics/` | P8.22 | Pure-stdlib portfolio analytics: derived reporting over injected data, all measured cells EMPTY |
+| `reproducibility/` | P8.20 | Pure-stdlib reproducibility tooling: record schema validator, seed derivation, rerun comparator |
+| `drill/` | P8.24 | Fault-injection scaffolding for the research-module robustness drill (pure stdlib over injected callables; every drill cell UNRUN) |
+| `training-data-manifest-v1.json` | P8.35 | The GNN training-data family assignment (findings F-1/F-2; every per-instance row EMPTY until the human/lab generation gate) |
+| `training-data-manifest-v2.json` | P15.18 | The forecasting dataset-registration discipline; carries the v1 GNN assignment forward BY REFERENCE (v1 is never edited) |
+| `requirements.txt` | P5.15 | The recorded pin `pandapower==3.5.6` (D-P4.01-1) — **NEVER INSTALLED** in this loop |
+| `requirements-dev.txt` | P8.37 | The recorded test-tooling pin `pytest==9.2.0` (test-only; SECONDARY-SOURCE PIN; RE-VERIFY AT FIRST INSTALL) — never installed in this loop |
 
-## Honest status (do not skip)
+Each package's README documents its own files, honesty header, and human
+gate; this top-level README does not repeat them.
+
+## Transport and self-test conventions
+
+- **Transport** (the five result-emitting workers: `grid_worker.py`,
+  `forecast_worker`, `gnn_worker`, `marl_worker`, `andes_worker`): ONE
+  JSON request document on stdin → ONE JSON result envelope on stdout.
+  Malformed input → NOTHING on stdout, a reason on stderr, exit 2. An
+  in-band refusal is a result envelope with `termination_status:
+  "failed"` — never a crash, never a fabricated figure.
+- **`--self-test` flag**: the gnn, marl, and forecast workers' `__main__`
+  runs the in-module hand-computed self-tests when invoked with
+  `--self-test` (exit 0/1) and its documented stdin→stdout transport
+  otherwise (bare invocation = transport). The andes worker's `__main__`
+  is the bare transport (`raise SystemExit(main())`); its in-module
+  self-tests live in `evaluation_harness.py` / `cosim_crosschecks.py`,
+  which carry the same `--self-test` flag. `grid_worker.py`'s `__main__`
+  runs the transport directly. The pytest suites under each package's
+  `tests/` mirror the same expectations.
+- **Guarded imports**: every framework (pandapower, numpy, torch/PyG,
+  Ray/RLlib/Gymnasium, ANDES, helics) is imported INSIDE a function that
+  raises a NAMED deployment requirement — the pure-logic core imports,
+  runs, and self-tests with NOTHING installed, which is also the loop's
+  honesty gate.
+- **Proposal-only / ADR-010**: the research workers' output trees are
+  scanned by `assert_proposal_only` before emission; no
+  authorization/command-shaped key can leave a worker. The four research
+  workers are mode-locked to simulation/shadow (a constant, never a
+  request-selectable field); the grid worker computes a power-flow
+  statement about the declared model only — neither it nor any worker
+  here carries a field-write path (simulation-only 0.x line).
+
+## Honest status: `grid_worker.py` (the entry point the Rust backend spawns)
 
 1. **The worker was written, never executed.** pandapower 3.5.6 was never
    installed, no worker process was ever spawned against real pandapower,
@@ -37,7 +83,17 @@ on its stdin, and reads ONE JSON response on its stdout (the
    doubles prove the transport and fail-closed paths; they prove NOTHING
    about pandapower behaviour.
 
-## How the human build/test pass runs it (the recorded procedure)
+The same written-never-run posture holds for every package above — each
+package README's status line is the authoritative statement for that
+package.
+
+## How the human build/test pass runs things (the recorded procedures)
+
+The runtime pin lives in `requirements.txt` (grid worker only); the
+test-only tooling pin lives in `requirements-dev.txt` (pytest, for every
+package's `tests/` suite). Both are RECORDED, NEVER INSTALLED in this
+loop — installation happens at the human gate, into an isolated venv,
+after re-verifying the pins per each file's header:
 
 ```sh
 python -m venv .venv-grid-worker          # never committed
@@ -46,6 +102,15 @@ python -m venv .venv-grid-worker          # never committed
 # flexcore-sim-runner scenario-run --scenario scenarios/synthetic-portfolio/scenario-v2.json \
 #     --grid-backend worker --worker-program .venv-grid-worker/Scripts/python \
 #     --worker-script apps/worker/python/grid_worker.py --worker-timeout-ms 30000
+```
+
+```sh
+# the test-tooling pin (pytest) for every package's tests/ suite:
+pip install -r apps/worker/python/requirements-dev.txt
+# per-package example (each package README names its own command):
+PYTHONPATH=apps/worker/python/gnn_worker python -m pytest apps/worker/python/gnn_worker/tests -v
+# the in-module hand-computed self-tests run WITHOUT pytest:
+python apps/worker/python/gnn_worker/gnn_inference_worker.py --self-test
 ```
 
 The scenario-run record names the backend (`worker_process`) and carries the

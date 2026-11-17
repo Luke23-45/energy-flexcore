@@ -35,7 +35,7 @@ import {
   LoadingState,
   VerbatimStatement,
 } from '../components/honesty';
-import { RoleScopeLine } from '../components/workspaceData';
+import { RoleScopeLine, useWorkspaceResync } from '../components/workspaceData';
 import {
   DECLARED_OBJECTIVES,
   ROLL_TRIGGERS,
@@ -297,9 +297,16 @@ export function RunDetailPanel({ run }: { run: OptimizationRunDto }): JSX.Elemen
     <div data-testid="run-detail" data-candidate={run.candidate_id}>
       <h4>
         §12.6 record {run.candidate_id} — solver outcome:{' '}
-        {knownStatus
-          ? run.status
-          : `${run.status} [outside the closed §12.6 vocabulary — displayed verbatim]`}
+        {knownStatus ? (
+          /* FRV1-R9-003 (design wave 2) — ADDITIVE wrapper span only: the
+             known §12.6 outcome gets the state-chip tint; the TEXT inside
+             is the identical verbatim status string. An outcome outside
+             the closed vocabulary keeps the fail-honest plain rendering
+             (no chip, no color, displayed verbatim). */
+          <span className={`state-chip state-${run.status}`}>{run.status}</span>
+        ) : (
+          `${run.status} [outside the closed §12.6 vocabulary — displayed verbatim]`
+        )}
       </h4>
       <ul>
         <li>Problem class: {run.problem_class}</li>
@@ -377,6 +384,9 @@ export function ComparisonPanel({ assessment }: { assessment: ComparisonAssessme
           ? `COMPARABLE — all compared candidates cite the SAME input snapshot (${assessment.sharedInputSnapshotId}); only the formulation/solver tier varies.`
           : 'INCOMPARABLE — the compared candidates do not share one input snapshot (or fewer than two candidates were found). A cross-input comparison is labelled incomparable and is NOT presented as equivalent (P3.23).'}
       </p>
+      {/* FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+          horizontally inside its card instead of overflowing it. */}
+      <div className="table-scroll">
       <table>
         <caption>
           Per-candidate rows from the loaded §12.6 records. When the verdict
@@ -408,6 +418,7 @@ export function ComparisonPanel({ assessment }: { assessment: ComparisonAssessme
           ))}
         </tbody>
       </table>
+      </div>
       {assessment.missing.length > 0 ? (
         <p data-testid="comparison-missing">
           Candidate id(s) not present in the loaded records: {assessment.missing.join(', ')} —
@@ -443,6 +454,10 @@ export function SchedulesWorkspace({
   client?: ApiClient | undefined;
 }): JSX.Element {
   const [state, setState] = useState<SchedulesState>({ status: 'loading', comparisonIds: ['', ''] });
+  // P5.25 — the re-sync contract (wired in App's WorkspaceResyncContext
+  // provider): this mount-loaded read re-fetches on every stream-gap token
+  // and acknowledges once the fresh read lands.
+  const resync = useWorkspaceResync();
 
   useEffect(() => {
     let cancelled = false;
@@ -450,6 +465,7 @@ export function SchedulesWorkspace({
       try {
         const data = await loadSchedulesData(client ?? api);
         if (!cancelled) setState((prev) => ({ ...prev, status: 'loaded', data }));
+        if (!cancelled) resync?.acknowledge();
       } catch (error) {
         if (!cancelled) setState((prev) => ({ ...prev, status: 'error', error }));
       }
@@ -458,8 +474,10 @@ export function SchedulesWorkspace({
     return () => {
       cancelled = true;
     };
+    // The resync OBJECT identity changes per render; the token is the
+    // honest dependency (a fresh REST baseline per gap).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [client, resync?.token]);
   const runById = new Map(
     (state.data?.runs ?? []).map((run) => [run.candidate_id, run] as const),
   );

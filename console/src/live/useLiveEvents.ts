@@ -47,6 +47,17 @@ export interface LiveSession {
    * ordering/dedup is P5.33.
    */
   needsResync: boolean;
+  /**
+   * Monotonic counter bumped on EVERY gap the session flags (a disconnect
+   * into paused-stale, a RESYNC_REQUIRED notice, a reconnect) — never by a
+   * merely late or duplicate delivery. This is the hook consumers key a
+   * REST re-fetch on: the workspace data hooks (components/
+   * workspaceData.tsx WorkspaceResyncContext) re-read their workspace APIs
+   * whenever this value changes and then call acknowledgeResync(), which is
+   * the P5.25 re-sync contract wired end to end (it was recorded as the
+   * next integration point; FRV1-R3-006).
+   */
+  resyncToken: number;
   /** The last RESYNC_REQUIRED notice (skipped count etc.), if any. */
   lastResyncNotice: LiveResyncNotice | null;
   /** The last envelope received (kept so small views can react directly). */
@@ -75,6 +86,9 @@ export function useLiveEvents(url = '/api/v1/live'): LiveSession {
   const orderingRef = useRef(createOrderingState());
   const needsResyncRef = useRef(false);
   const [needsResync, setNeedsResync] = useState(false);
+  // The consumer-facing re-sync trigger: bumped on every gap-flagging below
+  // (see resyncToken in the LiveSession interface).
+  const [resyncToken, setResyncToken] = useState(0);
 
   useEffect(() => {
     let handle: LiveStreamHandle | null = null;
@@ -127,6 +141,7 @@ export function useLiveEvents(url = '/api/v1/live'): LiveSession {
         setOrdering(orderingDiagnostics(orderingRef.current));
         needsResyncRef.current = true;
         setNeedsResync(true);
+        setResyncToken((token) => token + 1);
         setLastResyncNotice(notice);
       },
     });
@@ -147,6 +162,7 @@ export function useLiveEvents(url = '/api/v1/live'): LiveSession {
       setOrdering(orderingDiagnostics(orderingRef.current));
       needsResyncRef.current = true;
       setNeedsResync(true);
+      setResyncToken((token) => token + 1);
     }
   }, [status]);
 
@@ -154,6 +170,7 @@ export function useLiveEvents(url = '/api/v1/live'): LiveSession {
     status,
     lastDeliveredAt,
     needsResync,
+    resyncToken,
     lastResyncNotice,
     lastEvent,
     lastAppliedEvent,

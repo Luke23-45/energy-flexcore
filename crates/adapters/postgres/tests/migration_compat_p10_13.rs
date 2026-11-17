@@ -15,7 +15,7 @@
 // replay on an EMPTY database and the RLS/outbox/SOC/enum/audit slices):
 //
 // 1. STRUCTURAL enumeration of the whole migration set (no DB needed):
-//    the embedded migrator must carry EXACTLY versions 1..=18 in ascending
+//    the embedded migrator must carry EXACTLY versions 1..=25 in ascending
 //    order with the recorded descriptions, and every up file must have a
 //    down file (the include_str! enumeration below fails the build if a
 //    down file is missing — the "every migration is reversible or its
@@ -32,7 +32,7 @@
 //    registry chain (tenant → portfolio → site → asset) THROUGH THE
 //    REPOSITORIES (the application shape, not bare SQL) plus one audit row
 //    through the runtime INSERT grant, then apply the remaining chain
-//    (0009..0018) OVER the populated schema and prove the data survives with
+//    (0009..0025) OVER the populated schema and prove the data survives with
 //    its meaning intact (0009's ADD COLUMN ... DEFAULT backfills; 0012's PK
 //    extension still serves the duplicate classification and accepts
 //    versioned corrections without mutating the original row).
@@ -98,7 +98,7 @@ use sqlx::PgPool;
 // rot silently. The record §4 carries the per-migration compatibility
 // windows; this is the set the windows are recorded FOR.
 
-const UP_FILES: [&str; 18] = [
+const UP_FILES: [&str; 25] = [
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0001_quality_enum.up.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0002_tenants.up.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0003_portfolios.up.sql")),
@@ -141,6 +141,36 @@ const UP_FILES: [&str; 18] = [
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0018_edge_device_registry_p6_06.up.sql"
     )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0019_audit_chain_p11_15.up.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0020_webhook_delivery_p13_09.up.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0021_interconnection_records_p15_15.up.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0022_market_records_p16_01.up.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0023_edge_fleet_registry_p18_12.up.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0024_worker_inbox_p1_16.up.sql"
+    )),
+    // FRV1-R5-005 (final review): the tenant-listing index on
+    // `dispatch_commands` (expand-only CREATE INDEX).
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0025_dispatch_commands_tenant_idx_p4_10.up.sql"
+    )),
 ];
 
 // The recorded down files (P1.12 §7: every migration has a down file or a
@@ -148,7 +178,7 @@ const UP_FILES: [&str; 18] = [
 // file itself). include_str! pins their presence at compile time. These are
 // REPLAY ARTIFACTS (dev/CI), never the runtime rollback path — see the
 // module header's downgrade statement.
-const DOWN_FILES: [&str; 18] = [
+const DOWN_FILES: [&str; 25] = [
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0001_quality_enum.down.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0002_tenants.down.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0003_portfolios.down.sql")),
@@ -191,11 +221,39 @@ const DOWN_FILES: [&str; 18] = [
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0018_edge_device_registry_p6_06.down.sql"
     )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0019_audit_chain_p11_15.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0020_webhook_delivery_p13_09.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0021_interconnection_records_p15_15.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0022_market_records_p16_01.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0023_edge_fleet_registry_p18_12.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0024_worker_inbox_p1_16.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0025_dispatch_commands_tenant_idx_p4_10.down.sql"
+    )),
 ];
 
 /// The recorded descriptions (sqlx derives them from the file names). Pinned
 /// so a rename or a re-order is a test failure, never a silent drift.
-const EXPECTED_DESCRIPTIONS: [&str; 18] = [
+const EXPECTED_DESCRIPTIONS: [&str; 25] = [
     "quality_enum",
     "tenants",
     "portfolios",
@@ -214,6 +272,13 @@ const EXPECTED_DESCRIPTIONS: [&str; 18] = [
     "commands_p4_10",
     "feasibility_checks_p4_30",
     "edge_device_registry_p6_06",
+    "audit_chain_p11_15",
+    "webhook_delivery_p13_09",
+    "interconnection_records_p15_15",
+    "market_records_p16_01",
+    "edge_fleet_registry_p18_12",
+    "worker_inbox_p1_16",
+    "dispatch_commands_tenant_idx_p4_10",
 ];
 
 /// The append-only surfaces of the chain and the grants flexcore_app must
@@ -345,7 +410,7 @@ fn execute_script(pool: &PgPool, script: &str) {
         if trimmed.starts_with("--") && !in_dollar_body {
             continue;
         }
-        // The migration files 0001..0018 use only the bare `$$` delimiter;
+        // The migration files 0001..0024 use only the bare `$$` delimiter;
         // a tagged delimiter would need the full tag scanned — none exists
         // (verified by inspection, recorded in the record §4). Process the
         // line character by character with a peekable iterator.
@@ -588,23 +653,23 @@ fn seed_registry_chain(
 // --- 1. Structural enumeration (NO database needed) ------------------------------
 
 #[test]
-fn the_migration_set_is_exactly_18_paired_and_ordered() {
+fn the_migration_set_is_exactly_25_paired_and_ordered() {
     static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("migrations/");
 
-    // The embedded set is EXACTLY the enumerated 18, in ascending version
+    // The embedded set is EXACTLY the enumerated 25, in ascending version
     // order (sqlx sorts by version — the forward-apply order), with the
     // recorded descriptions.
     let migrations = &*MIGRATOR.migrations;
     assert_eq!(
         migrations.len(),
-        18,
-        "the v1.0.0 candidate carries exactly 18 migrations"
+        25,
+        "the v1.0.0 candidate carries exactly 25 migrations"
     );
     for (index, migration) in migrations.iter().enumerate() {
         assert_eq!(
             migration.version,
             (index + 1) as i64,
-            "migration versions are dense 1..=18 in file order"
+            "migration versions are dense 1..=25 in file order"
         );
         assert_eq!(
             migration.description,
@@ -655,8 +720,8 @@ fn forward_apply_is_ordered_idempotent_and_drift_detecting() {
         .expect("bookkeeping query");
         assert_eq!(
             versions,
-            (1..=18).collect::<Vec<i64>>(),
-            "the bookkeeping records exactly versions 1..=18 applied"
+            (1..=25).collect::<Vec<i64>>(),
+            "the bookkeeping records exactly versions 1..=25 applied"
         );
         let failures: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM _sqlx_migrations WHERE success = false",
@@ -691,7 +756,7 @@ fn forward_apply_is_ordered_idempotent_and_drift_detecting() {
     test_runtime().block_on(async {
         assert_eq!(
             count_migrations(&pool).await,
-            18,
+            25,
             "the second run does not re-apply or duplicate bookkeeping rows"
         );
     });
@@ -744,12 +809,12 @@ fn forward_apply_is_ordered_idempotent_and_drift_detecting() {
         .run_migrations()
         .expect("the restored set applies as a no-op again");
     test_runtime().block_on(async {
-        assert_eq!(count_migrations(&pool).await, 18);
+        assert_eq!(count_migrations(&pool).await, 25);
     });
     drop_database(&admin_url, &temp_url);
 }
 
-// --- 3. Forward migration over PILOT-SHAPED data (0001..0008 seeded, then 0009..0018) ---
+// --- 3. Forward migration over PILOT-SHAPED data (0001..0008 seeded, then 0009..0025) ---
 
 #[test]
 fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
@@ -817,24 +882,24 @@ fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
     )
     .expect("the audit row inserts through the INSERT grant");
 
-    // FORWARD MIGRATION: apply the REMAINING chain (0009..0018) over the
+    // FORWARD MIGRATION: apply the REMAINING chain (0009..0025) over the
     // populated schema. The framework skips the recorded stage-1 versions
     // and runs the rest — this is the compatibility exercise.
     store
         .run_migrations()
         .expect("the remaining chain applies over pilot-shaped data");
 
-    // (a) The full bookkeeping: exactly 18 versions, none re-applied.
+    // (a) The full bookkeeping: exactly 25 versions, none re-applied.
     let versions: Vec<i64> = test_runtime().block_on(async {
         sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&app_pool)
             .await
             .expect("bookkeeping query")
     });
-    assert_eq!(versions, (1..=18).collect::<Vec<i64>>());
+    assert_eq!(versions, (1..=25).collect::<Vec<i64>>());
 
     // (b) The seeded data SURVIVED with its meaning intact: the audit row
-    // is unchanged where it was written (0009..0018 are additive to the
+    // is unchanged where it was written (0009..0025 are additive to the
     // registry/telemetry/dispatch/edge surfaces; none touches
     // audit_records' content).
     let audit_rows = test_runtime().block_on(tenant_rows(

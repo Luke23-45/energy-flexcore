@@ -104,10 +104,22 @@ before it may record the time synchronisation as verified.
 - Nothing in this directory has ever executed; the helics API usage is
   UNVERIFIED until the first federation run against the pinned version.
 - The example config's data-input paths (`replay-records.json`,
-  `grid-model.json`, `setpoints-fixture.json`) are TEMPLATES — the
-  artefacts they name must be produced and referenced by the operator;
-  the orchestrator validates only the config's structure, and the
-  federates fail closed if a path is unreadable at run time.
+  `grid-model.json`, `setpoints-fixture.json`) name committed SYNTHETIC
+  drill fixtures under `scenarios/synthetic-portfolio/` — written for the
+  P5.16 recorded co-simulation drill (final-review fix wave 3,
+  2026-11-17), not measured data, simulation only. `grid-model.json`
+  carries its provenance inline in a `_provenance` member;
+  `replay-records.json` and `setpoints-fixture.json` cannot: their
+  consumers require a pure JSON array / a pure asset-key→intervals
+  object, so their provenance is recorded HERE — both are hand-authored
+  synthetic fixtures matching the recorded
+  `apps/sim-runner/tests/helics_orchestration_p5_16.rs` federate options
+  (the replay records carry the `site-north-bess-1` stand-in UUID over
+  the drill's 15 s × 240-step window at a 15-minute sample cadence; the
+  setpoint fixture pins the same asset's two-interval schedule). For a
+  real scenario the operator still produces and references the run's own
+  artefacts; the orchestrator validates only the config's structure, and
+  the federates fail closed if a path is unreadable at run time.
 - The exit reports are the federates' SELF-reported evidence
   (granted steps, final granted time, exchange counts). The orchestrator
   cross-checks final granted times and step counts across federates, but

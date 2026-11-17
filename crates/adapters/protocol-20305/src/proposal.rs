@@ -240,24 +240,9 @@ mod tests {
     };
 
     fn scope_with_control() -> ProtocolScopeDeclaration {
-        ProtocolScopeDeclaration::new(
-            crate::ADAPTER_ID.to_string(),
-            crate::PROTOCOL_ID.to_string(),
-            vec![ProtocolRole::Server],
-            ControlScope::MonitorOnly,
-            vec![ResourceClass::Control, ResourceClass::Discovery],
-            vec![NotModelled::new(
-                "no_dispatch_authority".to_string(),
-                "the adapter never authorizes or issues; commands pass the three gates"
-                    .to_string(),
-            )
-            .expect("valid")],
-            "external control objects enter the command lifecycle at PROPOSED; this \
-             adapter is NOT a dispatch authority"
-                .to_string(),
-            Vec::new(),
-        )
-        .expect("valid scope")
+        // Delegates to the reviewed spelling in crate::scope (FRV1-R6-004,
+        // final review R6) — one reviewed constructor, no drift.
+        crate::scope::aggregator_scope(crate::ADAPTER_ID).expect("valid scope")
     }
 
     fn source() -> ExternalEventSource {

@@ -100,8 +100,9 @@ a crash, and no figure is ever fabricated.
    into an ISOLATED research environment per
    `requirements-gnn.txt`. Nothing here grants the selection.
 2. Run the pure self-tests (no framework needed):
-   `python apps/worker/python/gnn_worker/gnn_inference_worker.py`
-   — prints one PASS/FAIL line per hand-computed self-test.
+   `python apps/worker/python/gnn_worker/gnn_inference_worker.py --self-test`
+   — prints one PASS/FAIL line per hand-computed self-test (bare
+   invocation runs the documented stdin→stdout transport instead).
 3. Run the pytest suites (no framework needed for the pure tests; the
    torch-path tests skip loudly where the guard demands the real
    package):

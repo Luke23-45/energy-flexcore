@@ -212,6 +212,9 @@ function ScenarioLibrarySection(): JSX.Element {
     <div data-testid="scenario-library">
       <h3>Scenario library (the §19.3 benchmark cases, P5.20)</h3>
       <p>{SCENARIO_LIBRARY_MIRROR_NOTE}</p>
+      {/* FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+          horizontally inside its card instead of overflowing it. */}
+      <div className="table-scroll">
       <table>
         <caption>
           The library records with their pinned scenario id + version and
@@ -264,6 +267,7 @@ function ScenarioLibrarySection(): JSX.Element {
           ))}
         </tbody>
       </table>
+      </div>
       <p role="note">{SCENARIO_LIBRARY_HONESTY_NOTE}</p>
     </div>
   );
@@ -337,6 +341,9 @@ export function ReplayComparisonView({
         Tolerance rule (pre-registered in the record, verbatim):{' '}
         <code data-testid="replay-tolerance-rule">{record.tolerance_rule}</code>
       </p>
+      {/* FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+          horizontally inside its card instead of overflowing it. */}
+      <div className="table-scroll">
       <table>
         <caption>The per-leg comparisons (every named diff is listed, never truncated away).</caption>
         <thead>
@@ -380,6 +387,7 @@ export function ReplayComparisonView({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -394,6 +402,9 @@ function BenchmarkSection(): JSX.Element {
     <div data-testid="benchmark-section">
       <h3>Benchmark runs (the §19.4 metrics, P5.23 — template status)</h3>
       <p role="note">{BENCHMARK_TEMPLATE_STATUS}</p>
+      {/* FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+          horizontally inside its card instead of overflowing it. */}
+      <div className="table-scroll">
       <table data-testid="benchmark-table-a">
         <caption>
           Table A (replay-pipeline runtime, the P3.27 method) — the ×1 / ×2 /
@@ -423,7 +434,9 @@ function BenchmarkSection(): JSX.Element {
           ))}
         </tbody>
       </table>
+      </div>
       <p role="note">{BENCHMARK_WORKER_LEG_NOTE}</p>
+      <div className="table-scroll">
       <table data-testid="benchmark-table-b">
         <caption>
           Table B (the per-leg composition wall clock, the P5.23 timings
@@ -457,6 +470,7 @@ function BenchmarkSection(): JSX.Element {
           ))}
         </tbody>
       </table>
+      </div>
       <div data-testid="benchmark-not-measured">
         <p>
           <strong>Table C (per-case §19.4 outcome metrics) — the columns with
@@ -536,6 +550,9 @@ function ComparisonTable({ runs }: { runs: OptimizationRunDto[] }): JSX.Element 
         Every compared schedule outcome here is SIMULATED / solver-produced
         planning output (the 0.x line), never a measured field result.
       </p>
+      {/* FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+          horizontally inside its card instead of overflowing it. */}
+      <div className="table-scroll">
       <table>
         <caption>
           The §12.6 candidate records with their objective value (with
@@ -570,6 +587,7 @@ function ComparisonTable({ runs }: { runs: OptimizationRunDto[] }): JSX.Element 
           ))}
         </tbody>
       </table>
+      </div>
       {assessment.missing.length > 0 && (
         <p role="alert" data-testid="comparison-missing">
           Requested candidates not found in the read (named, never silently
@@ -780,6 +798,9 @@ function FaultTable({ run }: { run: ScenarioRunRecordSummaryDto }): JSX.Element 
   }
   return (
     <div data-testid="fault-table">
+      {/* FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+          horizontally inside its card instead of overflowing it. */}
+      <div className="table-scroll">
       <table>
         <caption>
           The run's fault journal (P5.21/P5.22): {journal.entries.length} fault
@@ -832,6 +853,7 @@ function FaultTable({ run }: { run: ScenarioRunRecordSummaryDto }): JSX.Element 
           })}
         </tbody>
       </table>
+      </div>
       <p>{FAULT_ALARM_NOTE}</p>
     </div>
   );

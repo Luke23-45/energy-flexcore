@@ -55,6 +55,28 @@ P11.16 Vault DEFAULT [S-74][S-75]; the SQLx pool credential-refresh
 design is written at the pool seam in the postgres adapter) — this floor
 is the Compose-shape minimum, never the production answer.
 
+## Observability profile (FRV1-R8-001, final review)
+
+The shipped P11.09 dashboards/datasource/rules tree
+([`observability/`](observability/)) is wired to live consumers by the
+INERT `observability` Compose profile — it starts nothing unless you
+request it (the recorded INERT-until-trigger pattern):
+
+```sh
+docker compose -f deploy/compose/docker-compose.yml --profile observability up
+```
+
+This adds Prometheus (scrape config + the four P11.03/P11.13 rule files:
+[`observability/prometheus/prometheus.yml`](observability/prometheus/prometheus.yml)),
+Grafana (the shipped datasource/dashboard provisioning mounts), and the
+NATS JetStream exporter the DLQ-depth alert rules read
+(`jetstream_stream_messages` — the exported family names remain UNVERIFIED
+against a live exporter, the recorded P11.13 caveat; confirm at the first
+run). Endpoints: Prometheus http://localhost:9090, Grafana
+http://localhost:3000, exporter http://localhost:7777 — all loopback-only.
+The metrics-store selection decision P11-E-2 stays OPEN (the profile runs
+Prometheus provisionally; see the config file's header note).
+
 ## Pinned image tags (re-verify at build time)
 
 | Image | Tag | Note |
@@ -62,6 +84,10 @@ is the Compose-shape minimum, never the production answer.
 | postgres | `18.6` | latest minor at the 2026-11-07 cut-off (RESEARCH.md §6); next scheduled minor 12 Nov 2026 |
 | nats | `nats:2.15.2` | exact patch at the cut-off (RESEARCH.md §5); `2.15.x` is not a valid Docker tag and never appears here. Re-check the latest 2.15 patch at build time and record the resolved tag here |
 | rust | `rust:1.99.1` | matches `rust-toolchain.toml` (P1.02) |
+| otel-collector | `otel/opentelemetry-collector-contrib:0.165.0` | release index checked 2026-11-14 (in the compose file) |
+| prometheus | `prom/prometheus:v3.16.0` | release index checked 2026-11-18 (FRV1-R8-001); ASSUMPTION — re-verify at the first build |
+| grafana | `grafana/grafana:13.3.1` | release index checked 2026-11-18 (FRV1-R8-001); ASSUMPTION — re-verify at the first build |
+| nats-exporter | `natsio/prometheus-nats-exporter:0.20.3` | release index checked 2026-11-18 (FRV1-R8-001); ASSUMPTION — re-verify at the first build |
 
 ## Smoke script
 

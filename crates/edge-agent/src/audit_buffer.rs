@@ -255,6 +255,13 @@ pub enum BufferedAuditKind {
     AuditBufferOverflow,
     /// A corrupt/truncated journal tail was cut at open (counted loss).
     AuditBufferCorruptTail,
+    // P18 — the OTA/update lifecycle (additive; the positional code is
+    // APPENDED after the last frozen value — never renumbered; FRV1-R6-005,
+    // final review R6).
+    /// An OTA/update-lifecycle event (mirrors
+    /// `EdgeAuditKind::UpdateLifecycle`): verification, activation,
+    /// rollback, interlock, drain, or conformance re-check.
+    UpdateLifecycle,
 }
 
 impl BufferedAuditKind {
@@ -280,6 +287,7 @@ impl BufferedAuditKind {
             BufferedAuditKind::ScopeDenied => "EDGE_SCOPE_DENIED",
             BufferedAuditKind::AuditBufferOverflow => "EDGE_AUDIT_BUFFER_OVERFLOW",
             BufferedAuditKind::AuditBufferCorruptTail => "EDGE_AUDIT_BUFFER_CORRUPT_TAIL",
+            BufferedAuditKind::UpdateLifecycle => "EDGE_UPDATE_LIFECYCLE",
         }
     }
 
@@ -306,6 +314,7 @@ impl BufferedAuditKind {
             BufferedAuditKind::ScopeDenied => 15,
             BufferedAuditKind::AuditBufferOverflow => 16,
             BufferedAuditKind::AuditBufferCorruptTail => 17,
+            BufferedAuditKind::UpdateLifecycle => 18,
         }
     }
 
@@ -329,6 +338,7 @@ impl BufferedAuditKind {
             15 => BufferedAuditKind::ScopeDenied,
             16 => BufferedAuditKind::AuditBufferOverflow,
             17 => BufferedAuditKind::AuditBufferCorruptTail,
+            18 => BufferedAuditKind::UpdateLifecycle,
             _ => return None,
         })
     }
@@ -352,6 +362,7 @@ impl BufferedAuditKind {
             EdgeAuditKind::CredentialExpiryWarning => BufferedAuditKind::CredentialExpiryWarning,
             EdgeAuditKind::CredentialExpired => BufferedAuditKind::CredentialExpired,
             EdgeAuditKind::RevocationUnchecked => BufferedAuditKind::RevocationUnchecked,
+            EdgeAuditKind::UpdateLifecycle => BufferedAuditKind::UpdateLifecycle,
         }
     }
 }

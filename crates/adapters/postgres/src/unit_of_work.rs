@@ -54,7 +54,7 @@ use time::OffsetDateTime;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::enum_map::{asset_type_from_text, asset_type_text};
+use crate::enum_map::{asset_type_from_text, asset_type_text, lifecycle_status_text};
 use crate::error::{
     decode_failure, map_backend, map_repository_error, referential_failure, unit_of_work_finalized,
 };
@@ -79,6 +79,7 @@ const SITE_SELECT: &str = "SELECT site_id::text AS site_id, portfolio_id::text A
 const ASSET_SELECT: &str = "SELECT asset_id::text AS asset_id, site_id::text AS site_id, \
      tenant_id::text AS tenant_id, name, description, asset_type, vendor_model, \
      rated_power_mw, rated_energy_mwh, phase, bus_reference, capability_profile, \
+     lifecycle_status, deactivation_reason, deactivated_at, \
      created_at FROM assets";
 
 /// One unit of work: the port bundle over one native transaction.
@@ -207,6 +208,20 @@ fn col_event_time(row: &PgRow, column: &'static str) -> Result<EventTime, Reposi
     EventTime::new(raw).map_err(|_| RepositoryError::Backend(decode_failure(column)))
 }
 
+/// An optional timestamptz column (UTC from the driver) as the contracts
+/// `EventTime` (the P2.03 `deactivated_at` shape).
+fn col_opt_event_time(
+    row: &PgRow,
+    column: &'static str,
+) -> Result<Option<EventTime>, RepositoryError> {
+    let raw: Option<OffsetDateTime> = row
+        .try_get(column)
+        .map_err(|_| RepositoryError::Backend(decode_failure(column)))?;
+    raw.map(EventTime::new)
+        .transpose()
+        .map_err(|_| RepositoryError::Backend(decode_failure(column)))
+}
+
 /// A descriptor jsonb column as the domain's reference string: a JSON
 /// string round-trips exactly; any other jsonb shape renders as its JSON
 /// text (rows written by this adapter always store the JSON-string form).
@@ -308,8 +323,16 @@ fn decode_asset_with(row: &PgRow, site: &Site) -> Result<Asset, RepositoryError>
     let phase = col_str(row, "phase")?;
     let bus_reference = col_str(row, "bus_reference")?;
     let capability_profile = col_json_ref(row, "capability_profile")?;
+    // P2.03 registry lifecycle (migration 0009): rebuilt through the domain
+    // transition, never a bare field write. Migration 0009's
+    // `assets_lifecycle_consistency` CHECK guarantees the reason and
+    // timestamp are present exactly when the status is 'deactivated', and
+    // rows written by this adapter always carry one of the two statuses.
+    let lifecycle_status = col_str(row, "lifecycle_status")?;
+    let deactivation_reason = col_opt_str(row, "deactivation_reason")?;
+    let deactivated_at = col_opt_event_time(row, "deactivated_at")?;
     let created_at = col_event_time(row, "created_at")?;
-    Asset::try_new(
+    let asset = Asset::try_new(
         site,
         asset_id,
         name,
@@ -323,7 +346,24 @@ fn decode_asset_with(row: &PgRow, site: &Site) -> Result<Asset, RepositoryError>
         capability_profile,
         created_at,
     )
-    .map_err(|_| RepositoryError::Backend(decode_failure("assets row")))
+    .map_err(|_| RepositoryError::Backend(decode_failure("assets row")))?;
+    match lifecycle_status.as_str() {
+        "active" => Ok(asset),
+        "deactivated" => {
+            let reason = deactivation_reason.ok_or_else(|| {
+                RepositoryError::Backend(decode_failure("assets.deactivation_reason"))
+            })?;
+            let at = deactivated_at.ok_or_else(|| {
+                RepositoryError::Backend(decode_failure("assets.deactivated_at"))
+            })?;
+            asset
+                .deactivate(reason, at)
+                .map_err(|_| RepositoryError::Backend(decode_failure("assets row")))
+        }
+        _ => Err(RepositoryError::Backend(decode_failure(
+            "assets.lifecycle_status",
+        ))),
+    }
 }
 
 // --- Parent-chain loaders (inside the caller's transaction) -------------------
@@ -881,7 +921,9 @@ impl AssetRepository for PgUnitOfWork {
             let result = sqlx::query(
                 "UPDATE assets SET name = $3, description = $4, asset_type = $5, \
                         vendor_model = $6, rated_power_mw = $7, rated_energy_mwh = $8, \
-                        phase = $9, bus_reference = $10, capability_profile = $11, updated_at = now() \
+                        phase = $9, bus_reference = $10, capability_profile = $11, \
+                        lifecycle_status = $12, deactivation_reason = $13, \
+                        deactivated_at = $14, updated_at = now() \
                  WHERE asset_id = $1::uuid AND tenant_id = $2::uuid",
             )
             .bind(uuid_text(asset.asset_id().uuid()))
@@ -895,6 +937,9 @@ impl AssetRepository for PgUnitOfWork {
             .bind(asset.phase())
             .bind(asset.bus_reference())
             .bind(Value::String(asset.capability_profile().to_string()))
+            .bind(lifecycle_status_text(asset.lifecycle_status()))
+            .bind(asset.deactivation_reason())
+            .bind(asset.deactivated_at().map(|at| at.timestamp()))
             .execute(&mut *tx)
             .await
             .map_err(|err| map_repository_error(entities::ASSETS, err))?;

@@ -124,8 +124,9 @@ impl std::error::Error for CredentialSetError {}
 
 /// The reviewed credential-binding SET of one deployment: every device
 /// (and the edge node) with its declared client id / username / secret
-/// source handle. Uniqueness enforced; the set is ordered (BTreeSet over
-/// client id) so its presentation is deterministic.
+/// source handle. Uniqueness is enforced against a `BTreeSet` of client
+/// ids at assembly; the storage is a Vec sorted by client id at
+/// construction (deterministic presentation).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CredentialBindingSet {
     bindings: Vec<DeviceCredentialBinding>,

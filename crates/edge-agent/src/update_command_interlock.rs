@@ -899,11 +899,12 @@ impl UpdateCommandInterlock {
 
     /// Records one interlock audit event through the edge `AuditSink` (the
     /// dedicated-event-name-leads-detail pattern on the closed
-    /// `EdgeAuditKind` vocabulary, as in P6.14/P9.34/P18.05).
+    /// `EdgeAuditKind` vocabulary, as in P6.14/P9.34/P18.05; classified
+    /// `EdgeAuditKind::UpdateLifecycle` — FRV1-R6-005).
     fn audit_event(&self, name: &'static str, detail: String) {
         let event = EdgeAuditEvent {
             recorded_at: self.clock.now_ingest_time(),
-            kind: EdgeAuditKind::Startup,
+            kind: EdgeAuditKind::UpdateLifecycle,
             detail: format!("{name}: {detail}"),
         };
         if let Err(error) = self.audit.record(event) {

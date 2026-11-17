@@ -116,6 +116,9 @@ function PluginsIntegrationsReady({
       </div>
 
       <h3>Registered integrations (platform-internal, not plugins)</h3>
+      {/* FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+          horizontally inside its card instead of overflowing it. */}
+      <div className="table-scroll">
       <table>
         <caption>
           The integrations that DO exist in this phase. Read at {readAt}.
@@ -148,6 +151,7 @@ function PluginsIntegrationsReady({
           ))}
         </tbody>
       </table>
+      </div>
 
       <h3>Site edge connectivity (the API-backed integration state)</h3>
       {data.rows.length === 0 ? (

@@ -83,21 +83,15 @@ CASE_FAMILIES: frozenset = frozenset(
 
 # The closed baseline-id vocabulary — EXACTLY the frozen P8.06 registry
 # (`05_06_harness_baselines.md` §3). The per-module mapping for MARL is
-# the deterministic Tier-1 LP baseline AND the rule-based baseline (§13.3).
-# A PI baseline has NO frozen id (header item 6 — recorded contract gap).
+# the deterministic Tier-1 LP baseline AND the rule-based baseline (§13.3
+# via `05_06_harness_baselines.md` §3 — the owning record for that
+# mapping; the former MARL_BASELINE_IDS constant restating it was removed
+# as dead code, final-review finding FRV1-R4-009). A PI baseline has NO
+# frozen id (header item 6 — recorded contract gap).
 FROZEN_BASELINE_IDS: frozenset = frozenset(
     {
         "baseline/highs-tier1-lp",
         "baseline/clarabel-tier2-conic",
-        "baseline/rule-based-priority-list",
-    }
-)
-
-# The baselines the MARL per-module mapping names (deterministic
-# optimization + rule-based, §13.3 via `05_06_harness_baselines.md` §3).
-MARL_BASELINE_IDS: frozenset = frozenset(
-    {
-        "baseline/highs-tier1-lp",
         "baseline/rule-based-priority-list",
     }
 )

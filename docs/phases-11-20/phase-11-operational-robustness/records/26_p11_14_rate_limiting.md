@@ -65,10 +65,13 @@ Mounted in `main.rs` between the correlation middleware (outermost, so
 429s are counted in `flexcore_http_requests_total{status="429"}` — the
 existing series, no new family) and the P11.11 idempotency middleware
 (inner), so a 429 is never cached as a stored response. Rejection
-counters exist on `RateLimitState::rejection_counters()` but are
-rendered nowhere yet — the 429 series above is the scraped signal; a
-dedicated family would need the P11.01 record amended first (handoff
-note).
+counters exist on `RateLimitState::rejection_counters()` and (final
+review, FRV1-R2-006 — the handoff note below is now closed) render on
+`/metrics` under the families `flexcore_rate_limit_rejections_total` and
+`flexcore_rate_limit_in_flight_rejections_total`, added to the P11.01
+taxonomy record as its additive amendment (families 6 and 7) BEFORE the
+families were implemented, per that record's §1 rule. The 429 series
+above remains the scraped per-status signal.
 
 ## 6. Tests (written, never run)
 

@@ -933,6 +933,14 @@ impl MarketRecordReceipt {
 /// 2. Reads are tenant-scoped: the adapter filters explicitly by the
 ///    tenant of the call AND runs under the transaction-scoped
 ///    `flexcore.tenant_id` (the P1.12 §5.1 RLS conventions).
+/// 3. Reads are PAGE-BOUNDED (FRV1-R5-009, final review): every read
+///    method takes a MANDATORY `limit` and the adapter ALWAYS applies it
+///    — there is NO unbounded query (the same rule
+///    `command_store`/`envelope_store`/`audit_read` state and enforce).
+///    Breaking the trait's earlier unbounded signatures was free while
+///    nothing consumed the trait (the store is unwired by design, see
+///    the composition-root record); the first real consumer copies this
+///    shape, not an unbounded one.
 pub trait MarketRecordsStore {
     /// Inserts one market-program record (immutable; INSERT only). A
     /// (program_id, tenant_id) collision is
@@ -942,10 +950,12 @@ pub trait MarketRecordsStore {
         row: &MarketProgramRow,
     ) -> Result<MarketRecordReceipt, MarketRecordsStoreError>;
 
-    /// Every program record for ONE tenant, ascending program_id order.
+    /// Up to `limit` program records for ONE tenant, ascending
+    /// program_id order (page-bounded — no unbounded query, FRV1-R5-009).
     fn market_program_rows_for_tenant(
         &self,
         tenant_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketProgramRow>, MarketRecordsStoreError>;
 
     /// Inserts one market-contract record.
@@ -954,12 +964,13 @@ pub trait MarketRecordsStore {
         row: &MarketContractRow,
     ) -> Result<MarketRecordReceipt, MarketRecordsStoreError>;
 
-    /// Every contract record for ONE tenant's program, ascending
-    /// contract_id order.
+    /// Up to `limit` contract records for ONE tenant's program, ascending
+    /// contract_id order (page-bounded — no unbounded query, FRV1-R5-009).
     fn market_contract_rows_for_program(
         &self,
         tenant_id: &str,
         program_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketContractRow>, MarketRecordsStoreError>;
 
     /// Inserts one per-asset enrollment record.
@@ -968,12 +979,14 @@ pub trait MarketRecordsStore {
         row: &MarketEnrollmentRow,
     ) -> Result<MarketRecordReceipt, MarketRecordsStoreError>;
 
-    /// Every enrollment record for ONE tenant's program, ascending
-    /// enrollment_id order.
+    /// Up to `limit` enrollment records for ONE tenant's program,
+    /// ascending enrollment_id order (page-bounded — no unbounded query,
+    /// FRV1-R5-009).
     fn market_enrollment_rows_for_program(
         &self,
         tenant_id: &str,
         program_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketEnrollmentRow>, MarketRecordsStoreError>;
 
     /// Inserts one market-event record.
@@ -982,12 +995,13 @@ pub trait MarketRecordsStore {
         row: &MarketEventRow,
     ) -> Result<MarketRecordReceipt, MarketRecordsStoreError>;
 
-    /// Every event record for ONE tenant's program, ascending event_id
-    /// order.
+    /// Up to `limit` event records for ONE tenant's program, ascending
+    /// event_id order (page-bounded — no unbounded query, FRV1-R5-009).
     fn market_event_rows_for_program(
         &self,
         tenant_id: &str,
         program_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketEventRow>, MarketRecordsStoreError>;
 
     /// Inserts one per-interval delivery record.
@@ -996,13 +1010,18 @@ pub trait MarketRecordsStore {
         row: &MarketDeliveryRow,
     ) -> Result<MarketRecordReceipt, MarketRecordsStoreError>;
 
-    /// Every delivery record for ONE tenant's event, ascending
+    /// Up to `limit` delivery records for ONE tenant's event, ascending
     /// (asset_id, interval_start_millis) order — the M&V evidence-assembly
-    /// read (P16.05).
+    /// read (P16.05), page-bounded (no unbounded query, FRV1-R5-009; the
+    /// per-event interval-wise delivery volume is exactly the read the
+    /// finding flagged as potentially large). A full M&V assembly walks
+    /// the pages with a keyset cursor on the caller side if the caller
+    /// needs every interval.
     fn market_delivery_rows_for_event(
         &self,
         tenant_id: &str,
         event_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketDeliveryRow>, MarketRecordsStoreError>;
 
     /// Inserts one settlement-statement record (the P16.09 ingestion
@@ -1013,12 +1032,14 @@ pub trait MarketRecordsStore {
         row: &MarketSettlementRow,
     ) -> Result<MarketRecordReceipt, MarketRecordsStoreError>;
 
-    /// Every settlement record for ONE tenant's program, ascending
-    /// settlement_id order.
+    /// Up to `limit` settlement records for ONE tenant's program,
+    /// ascending settlement_id order (page-bounded — no unbounded query,
+    /// FRV1-R5-009).
     fn market_settlement_rows_for_program(
         &self,
         tenant_id: &str,
         program_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketSettlementRow>, MarketRecordsStoreError>;
 
     /// Upserts one retention-configuration row (the ONLY mutable
@@ -1030,10 +1051,12 @@ pub trait MarketRecordsStore {
         row: &MarketRetentionConfigRow,
     ) -> Result<MarketRecordReceipt, MarketRecordsStoreError>;
 
-    /// Every retention-configuration row for ONE tenant, ascending
-    /// record_class order.
+    /// Up to `limit` retention-configuration rows for ONE tenant,
+    /// ascending record_class order (page-bounded — no unbounded query,
+    /// FRV1-R5-009).
     fn market_retention_config_rows_for_tenant(
         &self,
         tenant_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketRetentionConfigRow>, MarketRecordsStoreError>;
 }

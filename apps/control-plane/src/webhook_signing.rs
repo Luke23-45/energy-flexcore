@@ -21,17 +21,18 @@
 // RESOLVED: the format is defined ONCE by Agent A's record
 // `08_p13_08_api_keys_webhook_secret_format.md` §4 —
 // `whsec_<43 unpadded base64url characters>`, exactly 32 bytes of CSPRNG
-// entropy, strict parse rule — and is CONSUMED here by citation, never
-// restated as a second definition. This module consumes the DECODED
-// material as opaque bytes ([`WebhookSigningKey::from_bytes`], whose
-// 32-byte floor equals record 08 §4's decoded length exactly); the strict
-// `whsec_` parse and the reference→material resolution are the
-// composition's (`webhook_service::WebhookSecretResolver`, bound to the
-// P11.16 secrets posture — Vault DEFAULT, Compose file-per-host floor,
-// `docs/phases-11-20/phase-11-operational-robustness/records/
-// 32_p11_16_secrets_management.md`). The material never lives in the
-// database (record 08 §4's storage rule; migration 0020 stores references
-// + fingerprints only).
+// entropy, strict parse rule. This module consumes the record BY CITATION
+// for the FORMAT DEFINITION (never restated as a second definition) and,
+// since FRV1-R8-004 (final review R8), implements the record's STRICT
+// PARSE RULE as the pure function [`parse_webhook_secret`] beside
+// [`WebhookSigningKey`] — code, not prose, for the composition step to
+// consume (the resolver composition binds the reference→material
+// RESOLUTION to the P11.16 secrets posture — Vault DEFAULT, Compose
+// file-per-host floor, `docs/phases-11-20/phase-11-operational-robustness/
+// records/32_p11_16_secrets_management.md`; `webhook_service::
+// WebhookSecretResolver`). The material never lives in the database
+// (record 08 §4's storage rule; migration 0020 stores references +
+// fingerprints only).
 //
 // Crypto provenance (the P11.15 precedent, recorded in
 // `docs/phases-11-20/phase-11-operational-robustness/records/
@@ -326,6 +327,175 @@ impl Drop for WebhookSigningKey {
             *byte = 0;
         }
     }
+}
+
+/// The literal `whsec_` secret prefix (record 08 §4: EXACT — case
+/// sensitive, no alternate spelling accepted).
+pub const WEBHOOK_SECRET_PREFIX: &str = "whsec_";
+/// The base64url character count after the prefix (record 08 §4: exactly
+/// 43; 32 bytes encode to 43 unpadded base64url characters).
+pub const WEBHOOK_SECRET_BASE64URL_CHARS: usize = 43;
+/// The total literal length (prefix + payload): record 08 §4's "total
+/// length 49".
+pub const WEBHOOK_SECRET_TEXT_LEN: usize = 49;
+/// The decoded entropy length (record 08 §4: exactly 32 bytes — the same
+/// value as [`SECRET_MIN_BYTES`], the [`WebhookSigningKey`] floor).
+pub const WEBHOOK_SECRET_DECODED_BYTES: usize = 32;
+
+/// Why a `whsec_` secret literal was refused (record 08 §4's strict parse
+/// rule: "Anything else — wrong prefix, wrong length, padding characters,
+/// non-alphabet characters, wrong decoded length — is a named parse
+/// rejection, never a lenient accept", FRV1-R8-004). Closed vocabulary;
+/// every refusal names its class and NEVER echoes the rejected value (it
+/// may be live secret material).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebhookSecretParseError {
+    /// The literal did not start with the exact `whsec_` prefix.
+    WrongPrefix,
+    /// The part after the prefix was not exactly
+    /// [`WEBHOOK_SECRET_BASE64URL_CHARS`] characters (the reported length
+    /// is the payload length in characters, never the payload itself).
+    WrongLength { payload_len: usize },
+    /// The payload contained a base64 padding character (`=`) — the
+    /// record's format is unpadded, and padding would also change the
+    /// length class.
+    PaddingCharacter,
+    /// The payload contained a character outside the unpadded base64url
+    /// alphabet (`A–Z a–z 0–9 - _`).
+    NonAlphabetCharacter,
+    /// The payload decoded to a byte length other than
+    /// [`WEBHOOK_SECRET_DECODED_BYTES`]. Defense in depth: the
+    /// exactly-43-character check already forces a 32-byte decode, so this
+    /// class is unreachable through the current checks — it is kept as the
+    /// record's named class so a future check reordering cannot turn the
+    /// rule into a lenient accept.
+    WrongDecodedLength { length: usize },
+}
+
+impl WebhookSecretParseError {
+    /// The stable machine-readable refusal name (records, metrics).
+    pub fn name(&self) -> &'static str {
+        match self {
+            WebhookSecretParseError::WrongPrefix => "WEBHOOK_SECRET_WRONG_PREFIX",
+            WebhookSecretParseError::WrongLength { .. } => "WEBHOOK_SECRET_WRONG_LENGTH",
+            WebhookSecretParseError::PaddingCharacter => "WEBHOOK_SECRET_PADDING_CHARACTER",
+            WebhookSecretParseError::NonAlphabetCharacter => {
+                "WEBHOOK_SECRET_NON_ALPHABET_CHARACTER"
+            }
+            WebhookSecretParseError::WrongDecodedLength { .. } => {
+                "WEBHOOK_SECRET_WRONG_DECODED_LENGTH"
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for WebhookSecretParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WebhookSecretParseError::WrongPrefix => write!(
+                f,
+                "webhook secret does not start with the exact '{WEBHOOK_SECRET_PREFIX}' prefix"
+            ),
+            WebhookSecretParseError::WrongLength { payload_len } => write!(
+                f,
+                "webhook secret payload is {payload_len} characters; exactly \
+                 {WEBHOOK_SECRET_BASE64URL_CHARS} required (unpadded base64url)"
+            ),
+            WebhookSecretParseError::PaddingCharacter => write!(
+                f,
+                "webhook secret payload carries a base64 padding character; the record \
+                 08 §4 format is unpadded"
+            ),
+            WebhookSecretParseError::NonAlphabetCharacter => write!(
+                f,
+                "webhook secret payload carries a character outside the unpadded base64url \
+                 alphabet (A-Z a-z 0-9 - _)"
+            ),
+            WebhookSecretParseError::WrongDecodedLength { length } => write!(
+                f,
+                "webhook secret payload decodes to {length} bytes; exactly \
+                 {WEBHOOK_SECRET_DECODED_BYTES} required"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for WebhookSecretParseError {}
+
+/// The base64url value of one alphabet character, or `None` outside the
+/// unpadded base64url alphabet (`A–Z a–z 0–9 - _`; record 08 §4).
+fn base64url_value(byte: u8) -> Option<u32> {
+    match byte {
+        b'A'..=b'Z' => Some((byte - b'A') as u32),
+        b'a'..=b'z' => Some((byte - b'a') as u32 + 26),
+        b'0'..=b'9' => Some((byte - b'0') as u32 + 52),
+        b'-' => Some(62),
+        b'_' => Some(63),
+        _ => None,
+    }
+}
+
+/// The STRICT parse of a `whsec_` webhook signing secret (record 08 §4 §4
+/// "Parsing rule", implemented as code per FRV1-R8-004 — the composition's
+/// resolver consumes this instead of restating prose):
+///
+/// 1. the `whsec_` prefix is EXACT (case sensitive);
+/// 2. the remainder is exactly [`WEBHOOK_SECRET_BASE64URL_CHARS`]
+///    characters of the unpadded base64url alphabet (`A–Z a–z 0–9 - _`),
+///    with padding characters (`=`) rejected as their own class;
+/// 3. the remainder decodes to exactly [`WEBHOOK_SECRET_DECODED_BYTES`]
+///    (32) bytes.
+///
+/// On success the decoded 32 bytes are wrapped as a [`WebhookSigningKey`]
+/// (whose [`SECRET_MIN_BYTES`] floor equals the decoded length exactly).
+/// Every failure is a named [`WebhookSecretParseError`] rejection — never
+/// a lenient accept — and no error ever echoes the rejected value.
+/// Recorded scope note: trailing-bit canonicality of the final 6-bit group
+/// is NOT a rejection class in record 08 §4 (the rule is "decodes to
+/// exactly 32 bytes", which a 43-alphabet-character payload always
+/// satisfies); a canonical-encoding tightening would be a record
+/// amendment, not a code-side silent addition.
+pub fn parse_webhook_secret(
+    text: &str,
+) -> Result<WebhookSigningKey, WebhookSecretParseError> {
+    let payload = text
+        .strip_prefix(WEBHOOK_SECRET_PREFIX)
+        .ok_or(WebhookSecretParseError::WrongPrefix)?;
+    if payload.len() != WEBHOOK_SECRET_BASE64URL_CHARS {
+        return Err(WebhookSecretParseError::WrongLength {
+            payload_len: payload.len(),
+        });
+    }
+    if payload.as_bytes().contains(&b'=') {
+        return Err(WebhookSecretParseError::PaddingCharacter);
+    }
+    let mut decoded = [0u8; WEBHOOK_SECRET_DECODED_BYTES];
+    let mut accumulator: u32 = 0;
+    let mut bits: u32 = 0;
+    let mut out_len: usize = 0;
+    for byte in payload.as_bytes() {
+        let value = base64url_value(*byte)
+            .ok_or(WebhookSecretParseError::NonAlphabetCharacter)?;
+        accumulator = (accumulator << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            if out_len >= WEBHOOK_SECRET_DECODED_BYTES {
+                return Err(WebhookSecretParseError::WrongDecodedLength {
+                    length: out_len + 1,
+                });
+            }
+            decoded[out_len] = ((accumulator >> bits) & 0xFF) as u8;
+            out_len += 1;
+        }
+    }
+    if out_len != WEBHOOK_SECRET_DECODED_BYTES {
+        return Err(WebhookSecretParseError::WrongDecodedLength { length: out_len });
+    }
+    WebhookSigningKey::from_bytes(&decoded)
+        .map_err(|_| WebhookSecretParseError::WrongDecodedLength {
+            length: decoded.len(),
+        })
 }
 
 /// A rolling secret pair: the CURRENT signing secret and, during an
@@ -718,5 +888,110 @@ mod tests {
             Err(WebhookSigningError::SecretTooShort { length: 31 })
         );
         WebhookSigningKey::from_bytes(&[0x42; 32]).expect("at the floor passes");
+    }
+
+    // --- The strict `whsec_` parse (record 08 §4; FRV1-R8-004) -----------
+    // Every expected value below is hand-derived: 43 base64url characters
+    // of 'A' (value 0) decode to 32 zero bytes; 43 '_' characters (value
+    // 63) decode to 32 bytes of 0xFF (the two trailing bits are the
+    // recorded non-rejected remainder — "decodes to exactly 32 bytes").
+
+    const VALID_ZERO_PAYLOAD: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // 43 x 'A'
+    const VALID_FF_PAYLOAD: &str = "___________________________________________"; // 43 x '_'
+
+    #[test]
+    fn a_valid_whsec_literal_parses_to_the_decoded_key() {
+        let key = parse_webhook_secret(&format!("whsec_{VALID_ZERO_PAYLOAD}")).expect("parses");
+        assert_eq!(key.as_bytes(), &[0u8; 32]);
+        let key = parse_webhook_secret(&format!("whsec_{VALID_FF_PAYLOAD}")).expect("parses");
+        assert_eq!(key.as_bytes(), &[0xFF; 32]);
+        // The decoded key is a usable signing key (the composition consumes
+        // code, not prose).
+        let set = WebhookSecretSet::single(key);
+        let header = set.sign(NOW, RAW_BODY);
+        set.verify(&header, NOW, RAW_BODY).expect("verifies");
+    }
+
+    #[test]
+    fn a_wrong_prefix_is_a_named_rejection() {
+        let payload = VALID_ZERO_PAYLOAD;
+        for literal in [
+            format!("WHSEC_{payload}"),
+            format!("whsec{payload}"),
+            format!("whsecx_{payload}"),
+        ] {
+            assert!(matches!(
+                parse_webhook_secret(&literal),
+                Err(WebhookSecretParseError::WrongPrefix)
+            ));
+        }
+    }
+
+    #[test]
+    fn a_wrong_payload_length_is_a_named_rejection() {
+        assert!(matches!(
+            parse_webhook_secret(&format!("whsec_{}", &VALID_ZERO_PAYLOAD[..42])),
+            Err(WebhookSecretParseError::WrongLength { payload_len: 42 })
+        ));
+        assert!(matches!(
+            parse_webhook_secret(&format!("whsec_{VALID_ZERO_PAYLOAD}A")),
+            Err(WebhookSecretParseError::WrongLength { payload_len: 44 })
+        ));
+    }
+
+    #[test]
+    fn padding_characters_are_their_own_rejection_class() {
+        assert!(matches!(
+            parse_webhook_secret(&format!("whsec_{}=", &VALID_ZERO_PAYLOAD[..42])),
+            Err(WebhookSecretParseError::PaddingCharacter)
+        ));
+        assert!(matches!(
+            parse_webhook_secret(&format!("whsec_{}==", &VALID_ZERO_PAYLOAD[..41])),
+            Err(WebhookSecretParseError::PaddingCharacter)
+        ));
+    }
+
+    #[test]
+    fn non_alphabet_characters_are_a_named_rejection() {
+        for suffix in ["+", "/", " "] {
+            assert!(matches!(
+                parse_webhook_secret(&format!("whsec_{}{suffix}", &VALID_ZERO_PAYLOAD[..42])),
+                Err(WebhookSecretParseError::NonAlphabetCharacter)
+            ));
+        }
+    }
+
+    #[test]
+    fn the_refusal_names_are_pinned_and_no_error_echoes_the_value() {
+        let payload = format!("whsec_{VALID_ZERO_PAYLOAD}");
+        let cases = [
+            (
+                parse_webhook_secret(&format!("WHSEC_{VALID_ZERO_PAYLOAD}"))
+                    .expect_err("wrong prefix refused"),
+                "WEBHOOK_SECRET_WRONG_PREFIX",
+            ),
+            (
+                parse_webhook_secret(&format!("whsec_{}", &VALID_ZERO_PAYLOAD[..42]))
+                    .expect_err("wrong length refused"),
+                "WEBHOOK_SECRET_WRONG_LENGTH",
+            ),
+            (
+                parse_webhook_secret(&format!("whsec_{}=", &VALID_ZERO_PAYLOAD[..42]))
+                    .expect_err("padding refused"),
+                "WEBHOOK_SECRET_PADDING_CHARACTER",
+            ),
+            (
+                parse_webhook_secret(&format!("whsec_{}+", &VALID_ZERO_PAYLOAD[..42]))
+                    .expect_err("non-alphabet refused"),
+                "WEBHOOK_SECRET_NON_ALPHABET_CHARACTER",
+            ),
+        ];
+        for (error, expected_name) in cases {
+            assert_eq!(error.name(), expected_name);
+            // The refusal prose never echoes the rejected literal (it may
+            // be live secret material).
+            assert!(!error.to_string().contains(&payload));
+            assert!(!error.to_string().contains(VALID_ZERO_PAYLOAD));
+        }
     }
 }

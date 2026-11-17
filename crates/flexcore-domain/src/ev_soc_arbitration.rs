@@ -138,6 +138,19 @@ pub enum SocArbitrationError {
         /// The refused quality state.
         quality: TelemetryQuality,
     },
+    /// An SoC observation (OCPP MeterValues or telematics) carried a
+    /// non-measurable quality state — `MISSING` (a gap marker is not an
+    /// observation) or `ESTIMATED` (a participation input is never
+    /// model-derived without explicit approval). Distinct from
+    /// [`SocArbitrationError::PlugStateQualityUnusable`] (FRV1-R7-009): the
+    /// audit trail names the INPUT that was refused — an SoC observation,
+    /// not a plug-state observation — and carries the source it came from.
+    SocQualityUnusable {
+        /// The SoC source the refused observation arrived from.
+        source: SocSource,
+        /// The refused quality state.
+        quality: TelemetryQuality,
+    },
     /// A timestamp was outside the representable UTC range (the contracts
     /// time-model bound) while building the staleness evaluation.
     TimestampOutOfRange {
@@ -164,6 +177,14 @@ impl std::fmt::Display for SocArbitrationError {
                 f,
                 "the plug-state observation carries quality {quality:?}; participation is \
                  never decided from a MISSING marker or an ESTIMATED (model-derived) plug state"
+            ),
+            SocArbitrationError::SocQualityUnusable { source, quality } => write!(
+                f,
+                "the SoC observation from {} carries quality {quality:?}; an SoC \
+                 observation carrying MISSING or ESTIMATED is not a measurable \
+                 participation input and the arbitration refuses it (FRV1-R7-009: the \
+                 refusal names the SoC input, never the plug state)",
+                source.name(),
             ),
             SocArbitrationError::TimestampOutOfRange { value } => {
                 write!(f, "the timestamp {value} is outside the representable UTC range")
@@ -209,7 +230,11 @@ impl SocObservation {
     fn measured_quality(&self) -> Result<TelemetryQuality, SocArbitrationError> {
         match self.quality {
             TelemetryQuality::Missing | TelemetryQuality::Estimated => {
-                Err(SocArbitrationError::PlugStateQualityUnusable {
+                // FRV1-R7-009: the refusal names the SoC INPUT (its source
+                // and quality), never the plug state — the audit trail must
+                // identify the record that was actually refused.
+                Err(SocArbitrationError::SocQualityUnusable {
+                    source: self.source,
                     quality: self.quality,
                 })
             }
@@ -334,32 +359,37 @@ pub fn arbitrate_soc(
 
     let now = event_time(now_unix_ms)?;
 
-    // Rule 2: OCPP MeterValues SoC is authoritative while plugged.
-    if let Some(ocpp) = ocpp_observation {
-        let input_quality = ocpp.measured_quality()?;
-        let event = event_time(ocpp.event_time_unix_ms)?;
-        let verdict = staleness(event, now, ocpp_freshness_limit);
-        let quality = worse_with_staleness(input_quality, verdict);
-        let reason = if verdict.is_stale() {
-            format!(
-                "ocpp meter-values SoC chosen while plugged, but its age exceeds the \
-                 declared OCPP freshness limit ({} ms) — carried as STALE",
-                ocpp_freshness_limit.millis()
-            )
-        } else {
-            "ocpp meter-values SoC chosen while plugged (authoritative source)".to_string()
-        };
-        return Ok(Some(ArbitratedSoc {
-            soc: ocpp.soc,
-            source: SocSource::OcppMeterValues,
-            quality,
-            reason,
-        }));
-    }
+    // Rule 2: OCPP MeterValues SoC is authoritative while plugged AND
+    // fresh. A stale-but-present OCPP value does NOT win by itself: rule 3
+    // (`OCPP_SOC_AUTHORITATIVE_WHILE_PLUGGED_STATEMENT`) makes the
+    // telematics value the fallback when the OCPP SoC is stale or absent.
+    // The stale OCPP last-known value is still carried when no telematics
+    // fallback exists at all, honestly marked by its quality (rule 7 never
+    // upgrades).
+    let stale_ocpp: Option<(StateOfCharge, TelemetryQuality)> = match ocpp_observation {
+        Some(ocpp) => {
+            let input_quality = ocpp.measured_quality()?;
+            let event = event_time(ocpp.event_time_unix_ms)?;
+            let verdict = staleness(event, now, ocpp_freshness_limit);
+            let quality = worse_with_staleness(input_quality, verdict);
+            if !verdict.is_stale() {
+                return Ok(Some(ArbitratedSoc {
+                    soc: ocpp.soc,
+                    source: SocSource::OcppMeterValues,
+                    quality,
+                    reason: "ocpp meter-values SoC chosen while plugged (authoritative source)"
+                        .to_string(),
+                }));
+            }
+            Some((ocpp.soc, quality))
+        }
+        None => None,
+    };
 
-    // Rule 3: telematics fallback when plugged and the OCPP SoC is absent
-    // (a stale-but-present OCPP value still wins — the charge link is the
-    // authoritative path; its STALE quality marks the age honestly).
+    // Rule 3: telematics fallback when plugged and the OCPP SoC is stale
+    // or absent (the recorded statement text). An aged telematics fallback
+    // (or one the source reported during sleep, rule 5) is still chosen
+    // but carries STALE — the non-silencing rule 7 never upgrades.
     if let Some(telematics) = telematics_observation {
         let input_quality = telematics.measured_quality()?;
         let event = event_time(telematics.event_time_unix_ms)?;
@@ -372,23 +402,51 @@ pub fn arbitrate_soc(
             worse_with_staleness(input_quality, age_verdict)
         };
         let reason = if telematics.reported_sleeping {
-            "telematics SoC chosen while plugged (OCPP SoC absent); the source \
+            "telematics SoC chosen while plugged (the OCPP SoC is stale or absent); the source \
                  reported the vehicle sleeping — carried as STALE [S-138]"
                 .to_string()
         } else if age_verdict.is_stale() {
             format!(
-                "telematics SoC chosen while plugged (OCPP SoC absent), but its age \
+                "telematics SoC chosen while plugged (the OCPP SoC is stale or absent), but its age \
                  exceeds the declared telematics freshness limit ({} ms) — carried as STALE",
                 telematics_freshness_limit.millis()
             )
         } else {
-            "telematics SoC chosen while plugged (OCPP SoC absent; the vendor-agnostic \
-                 telematics port is the fallback source)"
+            "telematics SoC chosen while plugged (the OCPP SoC is stale or absent; the \
+                 vendor-agnostic telematics port is the fallback source)"
                 .to_string()
         };
         return Ok(Some(ArbitratedSoc {
             soc: telematics.soc,
             source: SocSource::TelematicsPort,
+            quality,
+            reason,
+        }));
+    }
+
+    // No telematics fallback exists: a stale-but-present OCPP value is
+    // still carried as the last-known value with its honest quality (the
+    // charge link is the authoritative path; the age is never silently
+    // hidden, and rule 7 never upgrades).
+    if let Some((soc_value, quality)) = stale_ocpp {
+        let reason = if quality == TelemetryQuality::Stale {
+            format!(
+                "ocpp meter-values SoC chosen while plugged with no telematics fallback, but \
+                 its age exceeds the declared OCPP freshness limit ({} ms) — carried as STALE",
+                ocpp_freshness_limit.millis()
+            )
+        } else {
+            format!(
+                "ocpp meter-values SoC chosen while plugged with no telematics fallback, but \
+                 its age exceeds the declared OCPP freshness limit ({} ms) — carried with its \
+                 source-reported {} quality",
+                ocpp_freshness_limit.millis(),
+                quality.name()
+            )
+        };
+        return Ok(Some(ArbitratedSoc {
+            soc: soc_value,
+            source: SocSource::OcppMeterValues,
             quality,
             reason,
         }));
@@ -536,9 +594,11 @@ mod tests {
     }
 
     #[test]
-    fn an_aged_ocpp_value_is_chosen_but_carries_stale() {
-        // Age 61 s against a 60 s limit: age > limit → STALE (the frozen
-        // boundary; age == limit would still be fresh).
+    fn a_stale_ocpp_value_falls_back_to_fresh_telematics() {
+        // Rule 3 (the recorded statement text): when the OCPP SoC is stale,
+        // the fresh telematics value is the fallback. Age 61 s against a
+        // 60 s limit → STALE (the frozen boundary; age == limit would
+        // still be fresh), so the fresh telematics value wins.
         let out = arbitrate_soc(
             Some(&plug(true)),
             Some(&ocpp(0.72, 61_000)),
@@ -549,8 +609,30 @@ mod tests {
         )
         .unwrap()
         .unwrap();
+        assert_eq!(out.source, SocSource::TelematicsPort);
+        assert_eq!(out.soc, soc(0.60));
+        assert_eq!(out.quality, TelemetryQuality::Good);
+        assert!(out.reason.contains("fallback"));
+    }
+
+    #[test]
+    fn a_stale_ocpp_value_with_no_telematics_fallback_is_carried_as_stale() {
+        // When no telematics observation exists at all, the stale OCPP
+        // last-known value is still carried — honestly marked STALE, never
+        // silently dropped and never upgraded.
+        let out = arbitrate_soc(
+            Some(&plug(true)),
+            Some(&ocpp(0.72, 120_000)),
+            None,
+            ocpp_limit(),
+            telematics_limit(),
+            1_700_000_000_120,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(out.source, SocSource::OcppMeterValues);
         assert_eq!(out.quality, TelemetryQuality::Stale);
+        assert!(out.reason.contains("STALE"));
     }
 
     #[test]
@@ -587,10 +669,12 @@ mod tests {
     }
 
     #[test]
-    fn a_stale_but_present_ocpp_value_still_outranks_fresh_telematics() {
-        // The policy is authoritative-while-plugged, not newest-wins: a
-        // stale OCPP value is chosen and honestly marked STALE; the fresh
-        // telematics value is not silently preferred.
+    fn a_stale_but_present_ocpp_value_falls_back_to_fresh_telematics() {
+        // The recorded policy is authoritative-while-FRESH, not
+        // authoritative-while-present: when the OCPP SoC is stale, the
+        // fresh telematics value is the fallback exactly as
+        // OCPP_SOC_AUTHORITATIVE_WHILE_PLUGGED_STATEMENT says (FRV1-R7-002;
+        // previously pinned as stale-OCPP-wins — corrected).
         let out = arbitrate_soc(
             Some(&plug(true)),
             Some(&ocpp(0.72, 120_000)),
@@ -601,8 +685,9 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(out.source, SocSource::OcppMeterValues);
-        assert_eq!(out.quality, TelemetryQuality::Stale);
+        assert_eq!(out.source, SocSource::TelematicsPort);
+        assert_eq!(out.soc, soc(0.60));
+        assert_eq!(out.quality, TelemetryQuality::Good);
     }
 
     #[test]
@@ -663,6 +748,9 @@ mod tests {
 
     #[test]
     fn gap_marked_and_estimated_observations_are_refused() {
+        // FRV1-R7-009: an SoC-observation quality refusal is the DISTINCT
+        // `SocQualityUnusable` variant — the audit trail names the SoC
+        // input (source + quality), never the plug state.
         for quality in [TelemetryQuality::Missing, TelemetryQuality::Estimated] {
             let mut marker = ocpp(0.7, 1_000);
             marker.quality = quality;
@@ -675,10 +763,35 @@ mod tests {
                 1_700_000_000_002,
             )
             .unwrap_err();
-            assert!(matches!(
+            assert_eq!(
                 err,
-                SocArbitrationError::PlugStateQualityUnusable { .. }
-            ));
+                SocArbitrationError::SocQualityUnusable {
+                    source: SocSource::OcppMeterValues,
+                    quality
+                }
+            );
+        }
+        // The telematics path refuses with the same named input (its own
+        // source recorded).
+        for quality in [TelemetryQuality::Missing, TelemetryQuality::Estimated] {
+            let mut marker = telematics(0.5, 1_000, false);
+            marker.quality = quality;
+            let err = arbitrate_soc(
+                Some(&plug(true)),
+                None,
+                Some(&marker),
+                ocpp_limit(),
+                telematics_limit(),
+                1_700_000_000_002,
+            )
+            .unwrap_err();
+            assert_eq!(
+                err,
+                SocArbitrationError::SocQualityUnusable {
+                    source: SocSource::TelematicsPort,
+                    quality
+                }
+            );
         }
     }
 

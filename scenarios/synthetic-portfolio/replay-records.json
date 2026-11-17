@@ -1,0 +1,72 @@
+[
+  {
+    "asset_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a01",
+    "quantity": "p_mw",
+    "event_time_unix_ms": 1780272000000,
+    "quality": "GOOD",
+    "value": 0.8
+  },
+  {
+    "asset_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a01",
+    "quantity": "q_mvar",
+    "event_time_unix_ms": 1780272000000,
+    "quality": "GOOD",
+    "value": 0.05
+  },
+  {
+    "asset_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a01",
+    "quantity": "p_mw",
+    "event_time_unix_ms": 1780272900000,
+    "quality": "GOOD",
+    "value": 0.8
+  },
+  {
+    "asset_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a01",
+    "quantity": "q_mvar",
+    "event_time_unix_ms": 1780272900000,
+    "quality": "GOOD",
+    "value": 0.05
+  },
+  {
+    "asset_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a01",
+    "quantity": "p_mw",
+    "event_time_unix_ms": 1780273800000,
+    "quality": "GOOD",
+    "value": -1.2
+  },
+  {
+    "asset_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a01",
+    "quantity": "q_mvar",
+    "event_time_unix_ms": 1780273800000,
+    "quality": "GOOD",
+    "value": -0.05
+  },
+  {
+    "asset_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a01",
+    "quantity": "p_mw",
+    "event_time_unix_ms": 1780274700000,
+    "quality": "GOOD",
+    "value": -1.2
+  },
+  {
+    "asset_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a01",
+    "quantity": "q_mvar",
+    "event_time_unix_ms": 1780274700000,
+    "quality": "GOOD",
+    "value": -0.05
+  },
+  {
+    "asset_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a01",
+    "quantity": "p_mw",
+    "event_time_unix_ms": 1780275600000,
+    "quality": "GOOD",
+    "value": 0.0
+  },
+  {
+    "asset_id": "0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a01",
+    "quantity": "q_mvar",
+    "event_time_unix_ms": 1780275600000,
+    "quality": "GOOD",
+    "value": 0.0
+  }
+]

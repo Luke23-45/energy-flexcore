@@ -96,6 +96,12 @@ pub enum RegisterError {
     /// A jurisdiction entry carries no timeline entry (a jurisdiction
     /// row without sourced dates is not a register row).
     TimelineRequired,
+    /// A jurisdiction entry carried a recorded symmetric-SDA bound that
+    /// is not finite or not in (0, 100] (FRV1-R7-005: the bound is
+    /// recorded data — a malformed one is refused, never assumed away).
+    InvalidSdaBound {
+        declared_percent: f64,
+    },
     /// The enablement references an unknown jurisdiction.
     UnknownJurisdiction {
         jurisdiction_id: String,
@@ -120,6 +126,7 @@ impl RegisterError {
             RegisterError::D1DecisionRefRequired => "REGISTER_D1_DECISION_REF_REQUIRED",
             RegisterError::AuditLinkRequired => "REGISTER_AUDIT_LINK_REQUIRED",
             RegisterError::TimelineRequired => "REGISTER_TIMELINE_REQUIRED",
+            RegisterError::InvalidSdaBound { .. } => "REGISTER_INVALID_SDA_BOUND",
             RegisterError::UnknownJurisdiction { .. } => "REGISTER_UNKNOWN_JURISDICTION",
             RegisterError::DuplicateIdentity { .. } => "REGISTER_DUPLICATE_IDENTITY",
             RegisterError::SourcedDate(_) => "REGISTER_SOURCED_DATE_ERROR",
@@ -153,6 +160,11 @@ impl std::fmt::Display for RegisterError {
                 f,
                 "a jurisdiction entry without a sourced timeline entry is not a \
                  register row: dates enter only as sourced data"
+            ),
+            RegisterError::InvalidSdaBound { declared_percent } => write!(
+                f,
+                "the recorded symmetric-SDA bound {declared_percent}% is not finite or \
+                 not in (0, 100]; the bound is recorded data and is never assumed"
             ),
             RegisterError::UnknownJurisdiction { jurisdiction_id } => write!(
                 f,
@@ -296,8 +308,9 @@ impl TimelineEntry {
 // --- The jurisdiction entry -----------------------------------------------------------
 
 /// One jurisdiction row of the register: the named jurisdiction, its
-/// participation-model posture (recorded data), and its sourced
-/// timeline. The row is DATA — it enables nothing by itself.
+/// participation-model posture (recorded data), its sourced timeline, and
+/// its RECORDED symmetric-SDA bound if one exists. The row is DATA — it
+/// enables nothing by itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JurisdictionEntry {
     jurisdiction_id: String,
@@ -307,21 +320,34 @@ pub struct JurisdictionEntry {
     participation_model_label: String,
     posture: MarketPosture,
     timeline: Vec<TimelineEntry>,
+    /// The jurisdiction's RECORDED symmetric-SDA bound in percent, as
+    /// sourced data (for CAISO, `CAISO_SDA_MAX_PERCENT` ≤20% [S-30]).
+    /// `None` = no bound is RECORDED for this jurisdiction — the baseline
+    /// engine then REFUSES an SDA under it rather than assuming a default
+    /// (FRV1-R7-005).
+    sda_max_percent: Option<f64>,
 }
 
 impl JurisdictionEntry {
     /// Builds one jurisdiction row (at least one sourced timeline
-    /// entry — a row without dates is not a register row).
+    /// entry — a row without dates is not a register row; a recorded
+    /// SDA bound, when present, must be finite and in (0, 100]).
     pub fn new(
         jurisdiction_id: String,
         display_name: String,
         participation_model_label: String,
         posture: MarketPosture,
         timeline: Vec<TimelineEntry>,
+        sda_max_percent: Option<f64>,
     ) -> Result<Self, RegisterError> {
         validate_text("jurisdiction_id", &jurisdiction_id, 64)?;
         validate_text("display_name", &display_name, 128)?;
         validate_text("participation_model_label", &participation_model_label, 256)?;
+        if let Some(bound) = sda_max_percent {
+            if !bound.is_finite() || bound <= 0.0 || bound > 100.0 {
+                return Err(RegisterError::InvalidSdaBound { declared_percent: bound });
+            }
+        }
         if timeline.is_empty() {
             return Err(RegisterError::TimelineRequired);
         }
@@ -331,6 +357,7 @@ impl JurisdictionEntry {
             participation_model_label,
             posture,
             timeline,
+            sda_max_percent,
         })
     }
 
@@ -354,6 +381,13 @@ impl JurisdictionEntry {
     /// resolved).
     pub fn timeline(&self) -> &[TimelineEntry] {
         &self.timeline
+    }
+
+    /// The jurisdiction's RECORDED symmetric-SDA bound in percent
+    /// (`None` = none is recorded — the baseline engine refuses an SDA
+    /// rather than assuming a default; FRV1-R7-005).
+    pub fn sda_max_percent(&self) -> Option<f64> {
+        self.sda_max_percent
     }
 }
 
@@ -641,6 +675,7 @@ mod tests {
             "synthetic participation model".to_string(),
             MarketPosture::Ferc2222,
             timeline,
+            None,
         )
         .expect("jurisdiction entry")
     }
@@ -801,6 +836,7 @@ mod tests {
             "synthetic".to_string(),
             MarketPosture::Ferc2222,
             timeline,
+            None,
         )
         .expect("entry");
         assert_eq!(jurisdiction.timeline().len(), 2);
@@ -814,5 +850,30 @@ mod tests {
         assert_eq!(MarketPosture::ErcotAderPilot.name(), "ERCOT_ADER_PILOT");
         assert_eq!(MarketPosture::UkLfm.name(), "UK_LFM");
         assert_eq!(MarketPosture::EuBalancing.name(), "EU_BALANCING");
+    }
+
+    #[test]
+    fn only_the_caiso_row_carries_a_recorded_sda_bound() {
+        // FRV1-R7-005: the ≤20% symmetric-SDA bound is the CAISO pack's
+        // RECORDED [S-30] data — not a universal constant. No other
+        // jurisdiction ships a bound, so the baseline engine REFUSES an
+        // SDA under them rather than assuming one.
+        let register = crate::jurisdiction_register_data::checked_in_register();
+        let caiso = register.jurisdiction("CAISO").expect("the CAISO row ships");
+        assert_eq!(
+            caiso.sda_max_percent(),
+            Some(crate::baseline_engine::CAISO_SDA_MAX_PERCENT),
+            "the CAISO pack's recorded symmetric-SDA bound is the [S-30] ≤20%"
+        );
+        for entry in register.jurisdictions() {
+            if entry.jurisdiction_id() != "CAISO" {
+                assert_eq!(
+                    entry.sda_max_percent(),
+                    None,
+                    "jurisdiction {} ships no recorded SDA bound — refuse, never assume",
+                    entry.jurisdiction_id()
+                );
+            }
+        }
     }
 }

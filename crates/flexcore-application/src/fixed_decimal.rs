@@ -296,6 +296,21 @@ impl FixedDecimal {
             scale: target,
         })
     }
+
+    /// The negated value (`−self`), overflow-checked: `i128::MIN` has no
+    /// positive `i128` counterpart, so that one case is a named refusal
+    /// ([`FixedDecimalError::MantissaOverflow`]), never a debug panic or a
+    /// release wrap into a negative "magnitude".
+    pub fn checked_neg(self) -> Result<Self, FixedDecimalError> {
+        let mantissa = self
+            .mantissa
+            .checked_neg()
+            .ok_or(FixedDecimalError::MantissaOverflow)?;
+        Ok(Self {
+            mantissa,
+            scale: self.scale,
+        })
+    }
 }
 
 // Equality and ordering compare VALUES, not renderings: operands are
@@ -514,6 +529,20 @@ mod tests {
         // Negative deviations are exact (statement under expectation).
         let diff = b.checked_sub(a).expect("aligned sub reversed");
         assert_eq!(diff.canonical_string(), "-2.50");
+    }
+
+    #[test]
+    fn checked_neg_inverts_and_refuses_the_uninvertible() {
+        let value = FixedDecimal::parse("-2.75").expect("value");
+        let negated = value.checked_neg().expect("negation");
+        assert_eq!(negated.mantissa(), 275);
+        assert_eq!(negated.scale(), value.scale());
+        assert_eq!(negated.canonical_string(), "2.75");
+        // The one mantissa with no positive i128 counterpart is a named
+        // refusal, never a debug panic or a release wrap (FRV1-R7-001).
+        let min = FixedDecimal::from_parts(i128::MIN, 0).expect("parts");
+        let err = min.checked_neg().expect_err("i128::MIN cannot be negated");
+        assert_eq!(err.name(), "FIXED_DECIMAL_MANTISSA_OVERFLOW");
     }
 
     #[test]

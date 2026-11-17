@@ -10,12 +10,20 @@
 // - THE AUTHORITATIVE SOURCE IS THE SERVER ENUM: `crates/flexcore-authz/
 //   src/action.rs` (the closed `Action` enum, P1.11 deny-by-default) plus
 //   the recorded grant sets — `phase1..phase5_default_policies` in
-//   `apps/control-plane/src/auth.rs` and `phase4_command_policies` in
-//   `crates/flexcore-authz/src/phase4_policies.rs`. This mirror CAN DRIFT
-//   until hand-updated (no generated drift test exists in the console
-//   scaffold — the same recorded limitation as the Administration
-//   workspace's action-surface mirror, 07_31_market_plugins_admin_alarms.md
-//   §2.3). The drift note is rendered wherever a denial is explained.
+//   `apps/control-plane/src/auth.rs`, `phase4_command_policies` in
+//   `crates/flexcore-authz/src/phase4_policies.rs`, and the P13.05/P13.08
+//   additive set in `crates/flexcore-authz/src/phase13_policies.rs`.
+//   This mirror CAN DRIFT until hand-updated (no generated drift test
+//   exists in the console scaffold — the same recorded limitation as the
+//   Administration workspace's action-surface mirror,
+//   07_31_market_plugins_admin_alarms.md §2.3). The drift note is rendered
+//   wherever a denial is explained.
+// - THIS IS THE SINGLE AUTHORITATIVE ROLE/ACTION MIRROR IN THE CONSOLE
+//   (FRV1-R3-003): `console/src/workspaces/adminManagement.ts` derives its
+//   role vocabulary from this module (re-export) and its phase-13 grant
+//   table must agree with the phase-13 entries below — the pinned tests on
+//   both sides assert the agreement. There is exactly one place to update
+//   the role vocabulary.
 //
 // MIRROR DISCIPLINE:
 // - Action ids are the `Action::id()` spellings, VERBATIM (lowercase dotted).
@@ -27,20 +35,33 @@
 //   recorded with the drift note on the entry — never silently narrowed.
 // - Scope kinds are recorded per entry; `command.approve` is granted ONLY at
 //   site/asset scope (§17.3: resource/site/asset-scoped approval; NO
-//   tenant-level approval grant exists in the recorded default).
+//   tenant-level approval grant exists in any recorded set — Phase 4 for
+//   tenant-admin, Phase 13 for site-approver alike).
+// - COMPOSITION STATUS IS RECORDED PER ENTRY (FRV1-R3-003): the shipped
+//   control-plane root composes only `phase5_default_policies`
+//   (apps/control-plane/src/main.rs — the FRV1-R2-009 note deliberately
+//   does NOT compose the phase13/phase16/phase4-command sets there, because
+//   no REST route evaluates them). The phase-13 entries below mirror the
+//   RECORDED grant set (phase13_policies.rs), and their drift notes state
+//   that composition status — the mirror never asserts an enforcement the
+//   shipped root does not perform.
 // - Deliberately ABSENT (asserted by the tests): `dispatch.authorize`,
 //   `dispatch.issue` (§5.7 — they do not exist on the Action surface and
 //   must never enter it), `command.issue`, `command.auto_approve`,
 //   `alarm.write`, `alarm.acknowledge`, `audit.event.write/delete/export`,
 //   `live.stream.read` (the recorded interim gate evaluates
-//   `telemetry.read` — auth.rs P5.25 drift note).
+//   `telemetry.read` — auth.rs P5.25 drift note), and the `market.*`
+//   family (recorded below as deliberately unmirrored — the phase16 set
+//   has no console consumer yet).
 
-/** The closed four-role vocabulary (policy.rs Role::id, verbatim). */
+/** The closed five-role vocabulary (policy.rs Role::id, verbatim; the
+ * P13.05 additive extension `site-approver` included — FRV1-R3-003). */
 export const ROLES = [
   'platform-admin',
   'tenant-admin',
   'operator',
   'viewer',
+  'site-approver',
 ] as const;
 
 export type RoleId = (typeof ROLES)[number];
@@ -197,15 +218,54 @@ export const CAPABILITY_MATRIX: Readonly<Record<string, CapabilityEntry>> = {
     scopeKinds: ['tenant', 'site', 'asset'],
     source: 'phase4_command_policies (flexcore-authz/phase4_policies.rs)',
   },
-  // Separation of duties by role (§17.3/P4.13 recorded default): the
-  // approving authority is NOT the proposing Operator role; approvals are
-  // resource/site/asset-scoped — NO tenant-level approval grant exists.
+  // Separation of duties by role (§17.3/P4.13 recorded default + the
+  // P13.05 additive extension, FRV1-R3-003): the approving authority is
+  // NOT the proposing Operator role; approvals are resource/site/asset-
+  // scoped — NO tenant-level approval grant exists in any recorded set.
+  // The union of two recorded grant sets: phase4_command_policies grants
+  // tenant-admin at site/asset scope; phase13_policies adds SiteApprover
+  // at the same scope kinds (phase13_policies.rs never widens existing
+  // grants, it only adds approvers).
   'command.approve': {
-    roles: ['tenant-admin'],
+    roles: ['tenant-admin', 'site-approver'],
     scopeKinds: ['site', 'asset'],
-    source: 'phase4_command_policies (flexcore-authz/phase4_policies.rs)',
+    source:
+      'phase4_command_policies (flexcore-authz/phase4_policies.rs, tenant-admin) UNION phase13_policies (flexcore-authz/phase13_policies.rs, site-approver)',
     driftNote:
-      'command.approve is granted ONLY to tenant-admin at site/asset scope (the recorded separation-of-duties default); no operator, viewer, or platform-admin grant, and no tenant-level grant, exists in the recorded set.',
+      'command.approve is granted ONLY to tenant-admin (Phase 4) and site-approver (P13.05), each at site/asset scope; no operator, viewer, or platform-admin grant, and no tenant-level grant, exists in any recorded set. COMPOSITION STATUS (FRV1-R3-003): neither gate set is composed in the shipped control-plane root (main.rs FRV1-R2-009 note — no REST route evaluates command.approve in 0.x; the command gates run via sim-runner), so this entry mirrors the recorded design grants, not a served REST enforcement.',
+  },
+  // --- Phase 13 (phase13_policies, P13.08) — the apikey.* admin surface.
+  // Recorded grant set, deliberately NOT composed in the shipped
+  // control-plane root (no apikey.* route exists in 0.x — main.rs
+  // FRV1-R2-009 note); the Administration workspace mirrors the same set
+  // (adminManagement.ts PHASE13_GRANT_TABLE, kept in sync by pinned test).
+  'apikey.create': {
+    roles: ['platform-admin', 'tenant-admin'],
+    scopeKinds: ['tenant'],
+    source: 'phase13_policies (flexcore-authz/phase13_policies.rs, P13.08)',
+    driftNote:
+      'apikey.create is a RECORDED grant (design-level), deliberately NOT composed in the shipped control-plane root: no apikey.* REST route exists in 0.x (main.rs FRV1-R2-009 note). The API neither grants nor denies it today — the action surface has no route to evaluate.',
+  },
+  'apikey.rotate': {
+    roles: ['platform-admin', 'tenant-admin'],
+    scopeKinds: ['tenant'],
+    source: 'phase13_policies (flexcore-authz/phase13_policies.rs, P13.08)',
+    driftNote:
+      'apikey.rotate is a RECORDED grant (design-level), deliberately NOT composed in the shipped control-plane root: no apikey.* REST route exists in 0.x (main.rs FRV1-R2-009 note). The API neither grants nor denies it today — the action surface has no route to evaluate.',
+  },
+  'apikey.revoke': {
+    roles: ['platform-admin', 'tenant-admin'],
+    scopeKinds: ['tenant'],
+    source: 'phase13_policies (flexcore-authz/phase13_policies.rs, P13.08)',
+    driftNote:
+      'apikey.revoke is a RECORDED grant (design-level), deliberately NOT composed in the shipped control-plane root: no apikey.* REST route exists in 0.x (main.rs FRV1-R2-009 note). The API neither grants nor denies it today — the action surface has no route to evaluate.',
+  },
+  'apikey.read': {
+    roles: ['platform-admin', 'tenant-admin'],
+    scopeKinds: ['tenant'],
+    source: 'phase13_policies (flexcore-authz/phase13_policies.rs, P13.08)',
+    driftNote:
+      'apikey.read is a RECORDED grant (design-level), deliberately NOT composed in the shipped control-plane root: no apikey.* REST route exists in 0.x (main.rs FRV1-R2-009 note). The API neither grants nor denies it today — the action surface has no route to evaluate.',
   },
   // Union of two recorded grant sets: the control-plane REST read surface
   // (phase4_default_policies) grants all four roles at tenant scope; the
@@ -261,19 +321,42 @@ export const FORBIDDEN_ACTION_IDS = [
 ] as const;
 
 /**
+ * The recorded server grant sets that are DELIBERATELY UNMIRRORED here
+ * (FRV1-R3-003): `phase16_market_policies` (the `market.*` family,
+ * crates/flexcore-authz/src/phase16_market_policies.rs) is a recorded
+ * design-level set with no console consumer in 0.x — no workspace gates on
+ * a market.* action yet, so no entry exists and none is invented. When a
+ * console surface first gates on market.*, add the entries here from the
+ * Rust source. The phase4_command_policies / phase13 sets ARE mirrored
+ * above (the command gates run via sim-runner; the Administration
+ * workspace mirrors phase13). Deliberately-unmirrored is NOT absent-by-
+ * prohibition: unlike FORBIDDEN_ACTION_IDS, these ids exist on the server
+ * Action surface.
+ */
+export const DELIBERATELY_UNMIRRORED_SETS = [
+  {
+    setId: 'phase16_market_policies',
+    actions: 'market.*',
+    reason:
+      'recorded design-level grant set (crates/flexcore-authz/src/phase16_market_policies.rs); no console consumer in 0.x — deliberately not mirrored, not composed in the shipped control-plane root (apps/control-plane/src/main.rs FRV1-R2-009 note)',
+  },
+] as const;
+
+/**
  * THE ENUM IS AUTHORITATIVE — the mirror drift note rendered wherever a
  * capability denial is explained (§17.2: the API enforces; this matrix is
  * the console's UX convenience).
  */
 export const CAPABILITY_MIRROR_NOTE =
   'RBAC note: this capability check mirrors the server authorization surface ' +
-  '(crates/flexcore-authz action.rs + the recorded phase1–5 grant sets) for ' +
-  'console UX only. THE ENUM IS AUTHORITATIVE; the mirror can drift until ' +
-  'hand-updated. Enforcement is ALWAYS the API: a request the server denies ' +
-  'is denied regardless of what this console displayed, and a denial is ' +
-  'audited SERVER-side (§16.2; P4.28 TenantDenialAuditRecord / ' +
-  'SecurityAuditSink, crates/flexcore-application/src/dispatch_security.rs) — ' +
-  'never by the console.';
+  '(crates/flexcore-authz action.rs + the recorded phase1–5 grant sets and ' +
+  'the phase13 additive set) for console UX only. THE ENUM IS AUTHORITATIVE; ' +
+  'the mirror can drift until hand-updated. Enforcement is ALWAYS the API: a ' +
+  'request the server denies is denied regardless of what this console ' +
+  'displayed, and a denial is audited SERVER-side (§16.2; P4.28 ' +
+  'TenantDenialAuditRecord / SecurityAuditSink, ' +
+  'crates/flexcore-application/src/dispatch_security.rs) — never by the ' +
+  'console.';
 
 export interface CapabilityCheck {
   allowed: boolean;
@@ -318,7 +401,7 @@ export function canAction(
   if (!(ROLES as readonly string[]).includes(role)) {
     return {
       allowed: false,
-      reason: `role '${role}' is outside the closed four-role vocabulary (${ROLES.join(', ')}); the API would reject it — deny`,
+      reason: `role '${role}' is not on the recorded role mirror (the closed five-role vocabulary: ${ROLES.join(', ')}) — this mirror knows no such role and denies by default. The API decides INDEPENDENTLY of this mirror (the server enum + grant sets are authoritative; a role the mirror does not know may or may not hold a server-side grant, and the API — not this console — is the enforcement, §17.2).`,
       actionId,
       role,
     };
@@ -342,9 +425,10 @@ export function canAction(
       role,
     };
   }
+  const allowNote = entry.driftNote ? ` ${entry.driftNote}` : '';
   return {
     allowed: true,
-    reason: `role '${role}' holds a recorded grant for '${actionId}' (scope kind(s) ${entry.scopeKinds.join(', ')}; ${entry.source}). The API enforces this independently — this console check is UX only.`,
+    reason: `role '${role}' holds a recorded grant for '${actionId}' (scope kind(s) ${entry.scopeKinds.join(', ')}; ${entry.source}). The API enforces this independently — this console check is UX only.${allowNote}`,
     actionId,
     role,
   };

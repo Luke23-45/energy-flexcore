@@ -537,16 +537,20 @@ impl CommandRecordFields {
         require_non_empty(&self.approved_limits, miss("approved_limits"))?;
         // Group 16 — authenticity.
         require_non_empty(&self.authenticity, miss("authenticity"))?;
-        // Group 17 — supersedes: only required when a replacement is
-        // declared, and then at least one direction must be named.
-        if self.supersedes_command_id.is_none() && self.superseded_by_command_id.is_none() {
-            // Both absent: legal UNLESS the record is SUPPOSED to declare a
-            // replacement — which the flat record cannot know; the
-            // `DispatchCommand` group carries that intent. The declared-but-
-            // empty case is unrepresentable (the fields are `Option` and
-            // `from_command` maps them 1:1). Both `Some` is legal (a
-            // mid-chain replacement).
-        }
+        // Group 17 — supersedes: NO flat-record check (FRV1-R1-008; this
+        // group deliberately validates nothing here). Both directions
+        // absent is legal UNLESS the record is SUPPOSED to declare a
+        // replacement — and the flat record cannot know that intent; the
+        // `DispatchCommand` aggregate carries it, and the domain's
+        // constructor already enforces the rule there
+        // (flexcore-domain dispatch_command.rs `try_new`: a declared
+        // `Supersession` with BOTH directions empty is
+        // `InvalidSupersession`, and each named id must be non-nil). The
+        // declared-but-empty case is unrepresentable in the flat record
+        // (the fields are `Option`, mapped 1:1 by `from_command`), and
+        // both `Some` is legal (a mid-chain replacement). A check here
+        // would be either vacuous or wrong; the domain gate is the real
+        // one.
         Ok(())
     }
 }

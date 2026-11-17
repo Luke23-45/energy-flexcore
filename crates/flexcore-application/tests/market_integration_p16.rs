@@ -155,6 +155,8 @@ fn baseline_engine_sda_replay_is_byte_identical_and_symmetric() {
     )
     .expect("valid config");
     config.sda = Some(flexcore_application::baseline_engine::SdaConfig::new(20.0).expect("valid cap"));
+    // The CAISO pack's recorded jurisdiction bound (FRV1-R7-005).
+    config.jurisdiction_sda_max_percent = Some(20.0);
     let days = ten_days(4);
     // Morning window over the first two intervals: the actuals run ABOVE
     // the baseline (a positive adjustment), capped at 20%.
@@ -952,6 +954,7 @@ fn enablement_none_is_enabled_by_default_and_only_d1_enables() {
                 "fixture participation model".to_string(),
                 MarketPosture::Ferc2222,
                 synthetic_timeline(),
+                None,
             )
             .expect("valid jurisdiction row"),
         )
@@ -1024,6 +1027,7 @@ fn enablement_negatives_are_all_named() {
                 "fixture participation model".to_string(),
                 MarketPosture::Ferc2222,
                 synthetic_timeline(),
+                None,
             )
             .expect("valid jurisdiction row"),
         )

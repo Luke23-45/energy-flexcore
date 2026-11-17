@@ -243,3 +243,27 @@ describe('P5.11 — the shared explicit-confirmation component', () => {
     expect(html).not.toContain('type="checkbox"');
   });
 });
+
+// --- Design wave 2 (Agent B) — APPENDED additive assertion only -------------
+// The additive .confirm-high-impact className (the deliberate safety-UI card
+// treatment in styles/design-system.css) must not move any pinned text; this
+// block pins the additive class AND the untouched label/checkbox structure
+// together. Nothing above was modified.
+describe('design wave 2 — additive .confirm-high-impact class (append-only)', () => {
+  it('the confirmation card carries the additive class; the label/checkbox pins still hold', () => {
+    const html = renderToString(
+      <ConfirmHighImpact
+        actionId="approval"
+        subject="command c-1"
+        summary="sum"
+        confirmed={false}
+        onConfirm={() => undefined}
+      />,
+    );
+    expect(html).toContain('class="confirm-high-impact"');
+    // The pre-existing a11y pins (repeated here additively, unchanged there).
+    expect(html).toMatch(/<label for="confirm-high-impact-approval">/);
+    expect(html).toMatch(/<input[^>]*id="confirm-high-impact-approval"/);
+    expect(html).toContain('confirm-high-impact-checkbox');
+  });
+});

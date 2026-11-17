@@ -350,9 +350,15 @@ pub async fn idempotency_middleware(
             Err(_) => {
                 // The stored entry stays InFlight with no stored response:
                 // remove it so a retry runs fresh instead of 409ing
-                // forever on an unreadable body.
+                // forever on an unreadable body. FRV1-R2-011 (final
+                // review): the client must never receive the original
+                // status with an EMPTY body — that would silently drop
+                // the stable error envelope (e.g. a bare 422). The
+                // terminal-response buffering failure is therefore shaped
+                // as the middleware's named infrastructure error, exactly
+                // like the request-body buffering failure above.
                 state.idempotency.remove(&tenant, &key_text);
-                Response::from_parts(response_parts, Body::empty())
+                ApiError::infrastructure().into_response()
             }
         }
     } else {

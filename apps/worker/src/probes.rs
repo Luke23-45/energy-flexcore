@@ -16,12 +16,25 @@
 //   wiring point). Same Prometheus text exposition as the control plane's
 //   `/metrics`; zero values always render (the always-render discipline).
 //
+//   FRV1-R2-003 (final review): the route now renders BOTH metric sets the
+//   worker collects — the P11.12 command-consumer families AND the P2.21
+//   telemetry families ([`crate::ingestion::IngestionMetrics::
+//   render_prometheus`], whose doc named this surface as its wiring point
+//   but which nothing called). The SAME `Arc<IngestionMetrics>` the
+//   ingestion task drives is shared with the probe state (the composition
+//   root wires both), so the counters are live, not a snapshot. When no
+//   telemetry source is composed (`FLEXCORE_SIMULATOR_SCENARIO` unset) the
+//   telemetry families render at zero — the always-render discipline, with
+//   the not-composed status recorded by the composition root's startup
+//   log line (the same honesty posture the control-plane registry's
+//   not-composed families take, FRV1-R2-003).
+//
 // P11.21 — health-check semantics PER COMPOSE SERVICE (the semantics are
 // a documented contract, not an accident of the handlers below):
 //
 // | Service            | `/health` (liveness)                | `/ready` (readiness)                                                   | `/metrics` |
 // |---|---|---|---|
-// | `flexcore-worker`  | always 200 while the process runs   | 503 when Postgres is unreachable, the NATS client is disconnected, or the worker is draining; 200 with per-dependency detail otherwise | the `flexcore_command_consumer_*` families (P11.12) |
+// | `flexcore-worker`  | always 200 while the process runs   | 503 when Postgres is unreachable, the NATS client is disconnected, or the worker is draining; 200 with per-dependency detail otherwise | the `flexcore_command_consumer_*` families (P11.12) + the `flexcore_telemetry_*` families (P2.21; FRV1-R2-003) |
 // | `flexcore-control-plane` | always 200 while running (its own module, `apps/control-plane/src/probes.rs`) | 503 with the failing named checks (`database`, `broker`) or during shutdown | the P1.20/P2.21/P11.01 registry incl. `flexcore_commands_stuck` (P11.20) |
 //
 // The infrastructure services in the Compose shape (PostgreSQL, NATS, the
@@ -51,6 +64,7 @@ use sqlx::PgPool;
 use tokio::sync::watch;
 
 use crate::command_consumer::CommandConsumerMetrics;
+use crate::ingestion::IngestionMetrics;
 
 /// State shared with the probe handlers.
 pub struct ProbeState {
@@ -63,22 +77,31 @@ pub struct ProbeState {
     /// The SAME Arc the consumer task drives (composition root wires both),
     /// so the counters are live, not a snapshot.
     command_metrics: Arc<CommandConsumerMetrics>,
+    /// FRV1-R2-003 — the P2.21 telemetry ingestion metrics the `/metrics`
+    /// route renders alongside the command families. The SAME Arc the
+    /// ingestion task drives (the composition root wires both); when no
+    /// telemetry source is composed the Arc is shared with nothing and the
+    /// families render at zero (always-render discipline).
+    ingestion_metrics: Arc<IngestionMetrics>,
 }
 
 impl ProbeState {
     /// Builds the probe state. `command_metrics` is the consumer's metric
-    /// block (P11.21 seam — the composition root passes the same Arc to
-    /// `run_command_consumer`).
+    /// block and `ingestion_metrics` the ingestion pipeline's metric block
+    /// (P11.21 seam — the composition root passes the SAME Arcs to
+    /// `run_command_consumer` and the `IngestionTask`).
     pub fn new(
         pool: PgPool,
         nats: Client,
         command_metrics: Arc<CommandConsumerMetrics>,
+        ingestion_metrics: Arc<IngestionMetrics>,
     ) -> Arc<Self> {
         Arc::new(Self {
             pool,
             nats,
             draining: AtomicBool::new(false),
             command_metrics,
+            ingestion_metrics,
         })
     }
 
@@ -120,17 +143,23 @@ async fn liveness() -> StatusCode {
 
 /// P11.21 — the worker's Prometheus exposition endpoint: the P11.12
 /// command-consumer families (`flexcore_command_consumer_*`), rendered by
-/// [`CommandConsumerMetrics::render`] (the recorded handoff seam). The
-/// same `text/plain; version=0.0.4; charset=utf-8` content type the
-/// control plane's `/metrics` serves. Zero values always render so a
-/// scrape exposes the full inventory on an idle consumer.
+/// [`CommandConsumerMetrics::render`] (the recorded handoff seam), AND —
+/// FRV1-R2-003 — the P2.21 telemetry families rendered by
+/// [`IngestionMetrics::render_prometheus`], composed into one body (the
+/// same composition discipline the control plane's registry uses: one
+/// metrics surface, no second exposition). The same
+/// `text/plain; version=0.0.4; charset=utf-8` content type the control
+/// plane's `/metrics` serves. Zero values always render so a scrape
+/// exposes the full inventory on an idle consumer.
 async fn metrics(State(state): State<Arc<ProbeState>>) -> impl IntoResponse {
+    let mut body = state.command_metrics.render();
+    body.push_str(&state.ingestion_metrics.render_prometheus());
     let mut headers = HeaderMap::new();
     headers.insert(
         axum::http::header::CONTENT_TYPE,
         HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8"),
     );
-    (StatusCode::OK, headers, state.command_metrics.render())
+    (StatusCode::OK, headers, body)
 }
 
 /// Readiness: dependencies reachable AND not draining. Non-2xx otherwise.

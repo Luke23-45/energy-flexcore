@@ -2,14 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Neryva FlexCore — Operator Console (scaffold)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- FRV1-R9-014 (orchestrator): inline SVG favicon — no binary asset,
+         no dependency; the console mark in the design-spec palette. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230A84FF'/%3E%3Crect x='14' y='14' width='36' height='36' rx='9' fill='none' stroke='white' stroke-width='4'/%3E%3Ccircle cx='32' cy='32' r='5' fill='white'/%3E%3C/svg%3E" />
+    <!-- FRV1-R9 (design_spec_console_ios.md §2): the console is designed for
+         light AND dark via prefers-color-scheme; these metas put the browser
+         chrome (form controls, scrollbars, mobile URL bar) in the same two
+         schemes the stylesheet tokens define. -->
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1C1C1E" media="(prefers-color-scheme: dark)" />
+    <title>Neryva FlexCore — Operator Console</title>
     <!--
-      P5.01 scaffold. This console is a view of the simulation-only 0.x
-      platform (§21.4): it never issues device commands and never presents
-      a simulated value as measured. The visible surface is the app shell
-      and twelve "NOT IMPLEMENTED YET" workspace stubs; the real
-      workspaces are Phase 5 waves 2–5 (ledger_phase_5.md).
+      The Neryva FlexCore operator console: the twelve §20.1 workspaces are
+      implemented (see src/workspaces/registry.ts and README.md). This
+      console is a view of the simulation-only 0.x platform (§21.4): it
+      never issues device commands and never presents a simulated value as
+      measured.
     -->
   </head>
   <body>

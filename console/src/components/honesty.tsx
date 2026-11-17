@@ -337,17 +337,25 @@ export const SIMULATED_CHAIN_STAGES_NOTE =
 /**
  * The live-stream honesty note (P5.13): the live stream (P5.25) can carry
  * dispatch-lifecycle events (live/types.ts classifies every DISPATCH_* tag
- * as a dispatch event), so a live update may advance a displayed command's
- * ISSUED/ACKNOWLEDGED/TRACKING badge. The label travels IN the badge
- * component (stateVocabulary markers + meanings), so any live-updated
- * state rendered through CommandStateBadge stays labelled — workspaces
- * must never render a live-updated lifecycle state through a different
- * path. Ordering/dedup for live events is P5.33 (not implemented here).
+ * as a dispatch event). The console RECEIVES, orders, and deduplicates
+ * those events (P5.33) and re-syncs its workspace reads from the REST APIs
+ * after any gap (the P5.25 re-sync contract, wired in App +
+ * components/workspaceData.tsx); it does NOT apply individual live events
+ * to a displayed command's badge inline — that application step is the
+ * recorded next integration point, and this note states exactly that
+ * instead of promising behaviour the code does not contain (FRV1-R3-006).
+ * The label travels IN the badge component (stateVocabulary markers +
+ * meanings), so any lifecycle state a workspace renders — fetched now or
+ * live-applied later — stays labelled through CommandStateBadge only.
  */
 export const LIVE_DISPATCH_LABEL_NOTE =
   'Live dispatch events (DISPATCH_ISSUED, DISPATCH_ACKNOWLEDGED, ' +
-  'DISPATCH_TRACKING_UPDATED, …) update the same lifecycle badge: the ' +
-  'SIMULATED qualification is carried by the badge component itself, so a ' +
-  'live-updated ISSUED/ACKNOWLEDGED/TRACKING state renders labelled exactly ' +
-  'as a fetched state does. Workspaces never render live lifecycle state ' +
-  'outside this badge.';
+  'DISPATCH_TRACKING_UPDATED, …) are received, ordered, and deduplicated ' +
+  'by the console (P5.33); after any stream gap the workspace reads ' +
+  're-fetch from the REST APIs (the P5.25 re-sync contract). Applying an ' +
+  'individual live event to a displayed lifecycle badge inline is recorded ' +
+  'as the next integration point — until then a displayed badge reflects ' +
+  'the workspace\u2019s REST read. The SIMULATED qualification is carried by ' +
+  'the badge component itself, so a live-updated ISSUED/ACKNOWLEDGED/' +
+  'TRACKING state would render labelled exactly as a fetched state does; ' +
+  'workspaces never render live lifecycle state outside this badge.';

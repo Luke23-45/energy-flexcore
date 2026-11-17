@@ -130,6 +130,15 @@ class TestGraphShapeChecks:
         edges = worker.validate_graph(2, [[0, 1], [0, 1]])
         assert edges == [[0, 1], [0, 1]]
 
+    def test_edge_index_rows_pyg_layout(self) -> None:
+        # Row 0 = all sources, row 1 = all destinations (the documented PyG
+        # `edge_index` convention), NOT the interleaved flat-then-reshape
+        # layout. HAND CHECK: [[0,1],[1,2],[2,0]] -> [[0,1,2],[1,2,0]].
+        rows = worker.edge_index_rows([[0, 1], [1, 2], [2, 0]])
+        assert rows == [[0, 1, 2], [1, 2, 0]]
+        assert worker.edge_index_rows([[0, 1]]) == [[0], [1]]
+        assert worker.edge_index_rows([]) == [[], []]
+
 
 class TestFeatureChecks:
     def _decls(self) -> list:

@@ -282,7 +282,12 @@ pub fn select_forecast_source(
         Some(reference) if now.unix_millis() < reference.computed_at.unix_millis() => {
             Some(FallbackReason::ClockBeforeComputation)
         }
-        Some(_) => match &verdict.freshness {
+        // The reference is bound HERE (FRV1-R7-010): the arm's pattern
+        // already guarantees `published` is `Some`, so the max-age arm
+        // below carries the value out of the guard scope instead of
+        // re-looking it up behind an `expect` — the value comes from the
+        // match itself, not from a reviewer-traced re-read.
+        Some(reference) => match &verdict.freshness {
             EnvelopeFreshness::Stale {
                 reason: StalenessReason::ForecastSuperseded {
                     envelope_forecast_version,
@@ -293,7 +298,6 @@ pub fn select_forecast_source(
                 published: published_forecast_version.clone(),
             }),
             _ => {
-                let reference = published.as_ref().expect("checked above");
                 let age = now.unix_millis() - reference.computed_at.unix_millis();
                 if age > i128::from(config.max_age_millis) {
                     Some(FallbackReason::MaxAgeExceeded {

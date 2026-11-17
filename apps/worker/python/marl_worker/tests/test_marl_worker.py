@@ -275,7 +275,12 @@ class TestEnvelopePosture:
         assert provenance["worker_version"] == worker.WORKER_VERSION
         assert provenance["input_snapshot_id"] == "snapshot-RECORD"
         assert provenance["request_id"] == "req-0001"
-        assert provenance["execution_ms"] == 0
+        # execution_ms is MEASURED with the monotonic clock in
+        # run_filter_probe (never the literal 0 it replaced): a
+        # non-negative int, possibly 0 on a sub-millisecond filter pass.
+        measured = provenance["execution_ms"]
+        assert isinstance(measured, int) and not isinstance(measured, bool)
+        assert measured >= 0
 
 
 class TestProposalOnlyBoundary:

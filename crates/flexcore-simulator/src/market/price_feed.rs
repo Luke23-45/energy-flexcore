@@ -131,14 +131,11 @@ impl std::error::Error for SimulatedFeedError {}
 /// in order — deterministic, no RNG).
 const TRIANGLE_WAVE: [i64; 8] = [0, 1, 2, 3, 2, 1, 0, -1];
 
-/// Renders integer tenths as wire-faithful decimal text (scale 1).
-/// `425 → "42.5"`, `-125 → "-12.5"`, `0 → "0.0"`. Exact: the integer IS
-/// the value; no float ever exists.
-pub fn render_tenths(tenths: i64) -> String {
-    let sign = if tenths < 0 { "-" } else { "" };
-    let magnitude = tenths.abs();
-    format!("{sign}{}.{:01}", magnitude / 10, magnitude % 10)
-}
+// The integer-tenths renderer has ONE home — the statement-recipe module
+// `settlement_fixtures` (FRV1-R7-008: byte-identical duplicates can drift
+// independently). Re-exported so the `price_feed::render_tenths` path
+// keeps resolving to that single definition.
+pub use super::settlement_fixtures::render_tenths;
 
 /// The validated configuration of one simulated price feed: one segment,
 /// one area, one currency, one declared cadence. All synthetic; nothing

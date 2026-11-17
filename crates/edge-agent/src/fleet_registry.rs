@@ -283,7 +283,7 @@ impl FleetStateRecord {
     /// Fail-closed: a row whose value does not parse is refused, never
     /// stored sideways. Attestation and eSIM values are validated by their
     /// owning modules (`crate::attestation::FleetAttestationState`,
-    /// `crate::esim_lifecycle::EsimeProfileState`); this method
+    /// `crate::esim_lifecycle::EsimProfileState`); this method
     /// accepts their parse functions through the `extra_value_parser`
     /// argument so the vocabulary ownership stays with the owning module.
     pub fn validate(

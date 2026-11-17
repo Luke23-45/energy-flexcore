@@ -26,6 +26,19 @@
 // `CommandRelay` capability in the manifest describes what the ADAPTER may
 // be permitted later, at composition time, through the command lifecycle —
 // never through this trait.
+//
+// **RECORDED DEFERRAL (FRV1-R6-001, final review R6, phase-14):** no
+// concrete adapter implements this trait in the v1.0.0 baseline. The
+// connection-state vocabulary travels through adapter-specific surfaces
+// today (OCPP consumes [`ConnectionReport`]/[`ConnectionState`] from its
+// `CsmsTransport` seam; the P14 adapters report transport state through
+// their own seam types). Per-adapter `ProtocolConnection`
+// implementations land with the first adapter composition; until then the
+// shipped default is [`UnwiredProtocolConnection`], which refuses every
+// lifecycle operation with the named `PROTOCOL_CONNECTION_SEAM_NOT_WIRED`
+// refusal — the same fail-closed `Unwired*` pattern as the adapter-side
+// transport seams (`UnwiredA44Transport`, `UnwiredCsmsTransport`, ...).
+// The absence of an implementation can never look like a connection.
 
 use crate::manifest::ProtocolAdapterManifest;
 
@@ -149,6 +162,72 @@ pub trait ProtocolConnection: Send {
     fn state(&self) -> ConnectionState;
 }
 
+/// The name the unwired default reports in every refusal (surfaced in the
+/// [`ProtocolPortError::Refused`] reason so a log or metric labels the
+/// unwired seam by name).
+pub const PROTOCOL_CONNECTION_SEAM_NOT_WIRED: &str = "PROTOCOL_CONNECTION_SEAM_NOT_WIRED";
+
+/// The shipped default `ProtocolConnection` implementation: refuses every
+/// lifecycle operation with the named `PROTOCOL_CONNECTION_SEAM_NOT_WIRED`
+/// refusal (the FRV1-R6-001 recorded deferral; the adapter-side
+/// `Unwired*` seam pattern lifted to the port layer). The manifest is held
+/// by value exactly as a concrete adapter would hold it, so the port's
+/// introspection surface stays honest while the lifecycle stays CLOSED:
+/// `state()` always reports [`ConnectionState::Closed`] and `connect` /
+/// `disconnect` always refuse. A wired connection can only arrive as a
+/// deliberate, composed implementation — never as a silent default.
+#[derive(Debug)]
+pub struct UnwiredProtocolConnection {
+    /// The validated manifest held by value (the P14.01 discipline).
+    manifest: ProtocolAdapterManifest,
+}
+
+impl UnwiredProtocolConnection {
+    /// Wraps an already-validated manifest. The manifest itself is NOT
+    /// revalidated here — construction with a valid manifest is the
+    /// composition root's reviewed step, as for every adapter.
+    pub fn new(manifest: ProtocolAdapterManifest) -> Self {
+        Self { manifest }
+    }
+}
+
+impl ProtocolConnection for UnwiredProtocolConnection {
+    fn id(&self) -> &str {
+        &self.manifest.adapter_id
+    }
+
+    fn manifest(&self) -> &ProtocolAdapterManifest {
+        &self.manifest
+    }
+
+    fn connect(&mut self) -> Result<ConnectionReport, ProtocolPortError> {
+        Err(ProtocolPortError::Refused {
+            operation: "connect",
+            reason: format!(
+                "{PROTOCOL_CONNECTION_SEAM_NOT_WIRED}: no adapter implements the \
+                 ProtocolConnection port in this baseline (FRV1-R6-001 recorded \
+                 deferral); per-adapter connection reporting lands with the first \
+                 adapter composition"
+            ),
+        })
+    }
+
+    fn disconnect(&mut self) -> Result<ConnectionReport, ProtocolPortError> {
+        Err(ProtocolPortError::Refused {
+            operation: "disconnect",
+            reason: format!(
+                "{PROTOCOL_CONNECTION_SEAM_NOT_WIRED}: no adapter implements the \
+                 ProtocolConnection port in this baseline (FRV1-R6-001 recorded \
+                 deferral)"
+            ),
+        })
+    }
+
+    fn state(&self) -> ConnectionState {
+        ConnectionState::Closed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,5 +322,30 @@ mod tests {
             manifest().authority,
             AuthorityDeclaration::SupervisoryRelayOnly
         );
+    }
+
+    #[test]
+    fn the_unwired_default_refuses_every_lifecycle_operation_by_name() {
+        // The FRV1-R6-001 recorded deferral: the shipped default fails
+        // closed with the named seam refusal — never a fabricated
+        // connection.
+        let mut connection = UnwiredProtocolConnection::new(manifest());
+        assert_eq!(connection.id(), "test.adapter");
+        assert_eq!(connection.manifest().adapter_id, "test.adapter");
+        assert_eq!(connection.state(), ConnectionState::Closed);
+
+        let error = connection.connect().expect_err("unwired connect refuses");
+        assert!(matches!(error, ProtocolPortError::Refused { .. }));
+        assert!(error.to_string().contains(PROTOCOL_CONNECTION_SEAM_NOT_WIRED));
+        assert!(error.to_string().contains("connect"));
+
+        let error = connection
+            .disconnect()
+            .expect_err("unwired disconnect refuses");
+        assert!(matches!(error, ProtocolPortError::Refused { .. }));
+        assert!(error.to_string().contains(PROTOCOL_CONNECTION_SEAM_NOT_WIRED));
+
+        // A refused connect never leaves a fabricated state behind.
+        assert_eq!(connection.state(), ConnectionState::Closed);
     }
 }

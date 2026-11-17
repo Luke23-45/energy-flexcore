@@ -224,6 +224,9 @@ function OverviewReady({ data, readAt }: { data: OverviewData; readAt: string })
         />
       ) : (
         <>
+          {/* FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+              horizontally inside its card instead of overflowing it. */}
+          <div className="table-scroll">
           <table>
             <caption>
               Active schedule revisions (ID + revision; §20.1 item 1). Read
@@ -254,6 +257,7 @@ function OverviewReady({ data, readAt }: { data: OverviewData; readAt: string })
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
 
@@ -331,6 +335,8 @@ function QualitySample({ assetStates }: { assetStates: CurrentStateDto[] }): JSX
     );
   }
   return (
+    // FRV1-R9-001 (wave 2): wide-table containment (see the comment above).
+    <div className="table-scroll">
     <table>
       <caption>
         Sample of the frozen six-state telemetry quality (§10.4) and the §20.2
@@ -363,7 +369,8 @@ function QualitySample({ assetStates }: { assetStates: CurrentStateDto[] }): JSX
             </td>
           </tr>
         ))}
-      </tbody>
-    </table>
-  );
+          </tbody>
+        </table>
+    </div>
+      );
 }

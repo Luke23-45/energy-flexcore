@@ -302,8 +302,11 @@ def test_identity_failure_blocks_verdict():
 
 
 def test_non_reproducing_marked_for_exclusion():
-    primary = rerun_check._exact_record()
-    rerun = rerun_check._exact_record()
+    # Declared class AND injected class are within_tolerance (they must
+    # agree — a mismatch is its own named outcome, see
+    # test_tolerance_class_conflict_named).
+    primary = rerun_check._within_tolerance_record()
+    rerun = rerun_check._within_tolerance_record()
     rerun["outputs_comparable"] = {
         "objective": 8.3,
         "feasible_interval_count": 96.0,
@@ -319,6 +322,33 @@ def test_reproduced_exact_verdict_outcome():
     rerun = rerun_check._exact_record()
     verdict = rerun_check.rerun_verdict(primary, rerun, _EXACT_TOLERANCE)
     assert verdict["outcome"] == "REPRODUCED_EXACT"
+
+
+def test_tolerance_class_conflict_named():
+    # An exact-class record rerun under an injected within_tolerance
+    # tolerance (identical outputs — the numbers alone would "pass") is
+    # NOT labeled REPRODUCED_EXACT: the declared and injected classes
+    # disagree, so the named conflict outcome is produced instead.
+    primary = rerun_check._exact_record()
+    rerun = rerun_check._exact_record()
+    verdict = rerun_check.rerun_verdict(primary, rerun, _WITHIN_TOLERANCE)
+    assert verdict["outcome"] == "TOLERANCE_CLASS_CONFLICT"
+    assert verdict["findings"] == [
+        "TOLERANCE_CLASS_CONFLICT:record declares 'exact' but the "
+        "injected pre-registered tolerance is class 'within_tolerance'"
+    ]
+
+
+def test_reproduced_within_tolerance_verdict_outcome():
+    # Declared class and injected class agree (within_tolerance);
+    # 8.25 - 8.0 = 0.25 <= 0.25 -> reproduced within the pre-registered
+    # tolerance.
+    primary = rerun_check._within_tolerance_record()
+    rerun = rerun_check._within_tolerance_record()
+    primary["outputs_comparable"] = {"objective": 8.0}
+    rerun["outputs_comparable"] = {"objective": 8.25}
+    verdict = rerun_check.rerun_verdict(primary, rerun, _WITHIN_TOLERANCE)
+    assert verdict["outcome"] == "REPRODUCED_WITHIN_PRE_REGISTERED_TOLERANCE"
 
 
 def test_string_outputs_exact_compared():

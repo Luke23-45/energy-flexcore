@@ -232,13 +232,18 @@ function PluginArticle({ plugin }: { plugin: PluginRecordDto }): JSX.Element {
         <dd data-testid={`lifecycle-state-${plugin.plugin_id}`}>
           {lifecycle === 'NOT_REPORTED' ? (
             <>
-              <strong>[{lifecycle}]</strong> — no plugin host reporter is
+              {/* FRV1-R9-003 (design wave 2) — ADDITIVE className only:
+                  state-chip state-<lifecycle lowercase> keys the §5.6
+                  frozen vocabulary to its §6-family tint; the text (and
+                  the pinned testid) is unchanged, and NOT_REPORTED keeps
+                  the neutral gray fail-safe. */}
+              <strong className={`state-chip state-${lifecycle.toLowerCase()}`}>[{lifecycle}]</strong> — no plugin host reporter is
               composed, so NO lifecycle state is known. This is an explicit
               gap, never a silent READY or STOPPED.
             </>
           ) : (
             <>
-              <strong>[{lifecycle}]</strong> — the §5.6 state as the composed
+              <strong className={`state-chip state-${lifecycle.toLowerCase()}`}>[{lifecycle}]</strong> — the §5.6 state as the composed
               source reported it; the only serving state is READY.
             </>
           )}
@@ -254,7 +259,10 @@ function PluginArticle({ plugin }: { plugin: PluginRecordDto }): JSX.Element {
             />
           ) : (
             <p data-testid={`health-verbatim-${plugin.plugin_id}`}>
-              <strong>[{health.healthState}]</strong> readiness{' '}
+              {/* FRV1-R9-003 (design wave 2) — ADDITIVE className only:
+                  any FAILING_* health state keys red via the
+                  [class*="state-failing"] tint rule; text unchanged. */}
+              <strong className={`state-chip state-${health.healthState.toLowerCase()}`}>[{health.healthState}]</strong> readiness{' '}
               <code>{health.readiness}</code>
               {health.blocksDependentActions
                 ? ' — a FAILING_* state BLOCKS dependent actions (P7.20).'
@@ -282,6 +290,9 @@ function ProfileCompositionTable({ profiles }: { profiles: ProfileRecordDto[] })
     );
   }
   return (
+    // FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+    // horizontally inside its card instead of overflowing it.
+    <div className="table-scroll">
     <table>
       <caption>
         The recorded composition profiles. The control-authority column is
@@ -328,6 +339,7 @@ function ProfileCompositionTable({ profiles }: { profiles: ProfileRecordDto[] })
         })}
       </tbody>
     </table>
+    </div>
   );
 }
 

@@ -33,11 +33,12 @@
 //    be visually separate, but NO emergency action is defined for this
 //    phase — recorded as an OPEN ITEM (ledger P5.06 step 5), not a feature;
 //    this console renders no emergency control and invents none.
-// 7. P5.26 — the approval action is capability-gated (useCan over the
-//    recorded server grant mirror: command.approve is tenant-admin at
-//    site/asset scope only, §17.3); a denial renders the REASON instead of
-//    a broken button. The API enforces independently — hiding is not the
-//    enforcement. After explicit confirmation (ConfirmHighImpact, P5.11),
+// 7. P5.26 — the approval action is capability-gated (useCanInMode over the
+//    recorded server grant mirror: command.approve is tenant-admin (Phase
+//    4) / site-approver (P13.05) at site/asset scope only, §17.3); a
+//    denial renders the REASON instead of a broken button. The API
+//    enforces independently — hiding is not the enforcement. After
+//    explicit confirmation (ConfirmHighImpact, P5.11),
 //    the flow requires the STEP-UP panel (components/stepUpApproval.tsx):
 //    typed target confirmation + fresh dev-session re-validation. No
 //    approval is performed from the console regardless (rule 3).
@@ -75,9 +76,9 @@ import {
   recordStepUpDenial,
   StepUpApproval,
 } from '../components/stepUpApproval';
-import { useCan, type CapabilityCheck } from '../security/useCan';
-import { combineChecks, gateActionForMode } from '../security/modeControl';
-import { RoleScopeLine } from '../components/workspaceData';
+import type { CapabilityCheck } from '../security/useCan';
+import { combineChecks, gateActionForMode, useCanInMode } from '../security/modeControl';
+import { RoleScopeLine, useWorkspaceResync } from '../components/workspaceData';
 import { getSession, type SessionClaims } from '../state/tenantContext';
 
 /** The mirrored action id of the authorization gate (§14.1/P4.13) — the
@@ -398,8 +399,9 @@ export function ApprovalFlow({
   /**
    * Optional capability-check override (tests / a precomputed check). When
    * omitted, the check is derived from the claims-derived session via
-   * useCan('command.approve') against the recorded grant mirror. When the
-   * check denies, the flow renders the REASON — never a broken button.
+   * useCanInMode('command.approve') — the useCan semantics ∩ the P5.27
+   * mode gate — against the recorded grant mirror. When the check denies,
+   * the flow renders the REASON — never a broken button.
    */
   capability?: CapabilityCheck;
   /**
@@ -412,14 +414,15 @@ export function ApprovalFlow({
 }): JSX.Element {
   // The capability gate runs on every render (rules of hooks): the role
   // comes from the claims-derived session store — never from user input.
-  const hookCheck = useCan(APPROVAL_ACTION_ID);
-  // P5.27 — the §21.4 control-authority MODE gate composes WITH the
-  // capability gate (intersection: BOTH must allow; both denial reasons
-  // render). The mode comes from the deployment configuration
-  // (security/modeControl.ts); the API still enforces independently —
-  // this composition is defence-in-depth UI, not the enforcement.
+  // P5.27 (FRV1-R3-010) — the composition is routed through the recorded
+  // combined-gate hook (useCanInMode = useCan semantics ∩ the mode gate),
+  // so the P5.27 gate statement has a real consumer here; the optional
+  // capability override keeps its explicit combineChecks path.
+  const hookCombined = useCanInMode(APPROVAL_ACTION_ID);
+  // The mode check is re-derived for the override path only (the hook
+  // above already composed the same deployment-configuration mode gate).
   const modeCheck = gateActionForMode(APPROVAL_ACTION_ID);
-  const check = combineChecks(capability ?? hookCheck, modeCheck);
+  const check = capability ? combineChecks(capability, modeCheck) : hookCombined;
   const parameters = approvalParameters(command, claims);
   const resolution = resolveApprovalAction(command);
   const [stepUpTyped, setStepUpTyped] = useState('');
@@ -631,6 +634,11 @@ export function DispatchWorkspace({
     detailStatus: 'idle',
   });
   const claims = getSession();
+  // P5.25 — the re-sync contract (wired in App's WorkspaceResyncContext
+  // provider): the mount-loaded list re-fetches on every stream-gap token
+  // (keeping the current filter) and acknowledges once the fresh read
+  // lands.
+  const resync = useWorkspaceResync();
 
   useEffect(() => {
     let cancelled = false;
@@ -638,6 +646,7 @@ export function DispatchWorkspace({
       try {
         const list = await loadCommandList(apiClient, state.stateFilter === '' ? undefined : state.stateFilter);
         if (!cancelled) setState((prev) => ({ ...prev, list, listStatus: 'loaded' }));
+        if (!cancelled) resync?.acknowledge();
       } catch (error) {
         if (!cancelled) setState((prev) => ({ ...prev, listStatus: 'error', listError: error }));
       }
@@ -646,8 +655,10 @@ export function DispatchWorkspace({
     return () => {
       cancelled = true;
     };
+    // The resync OBJECT identity changes per render; the token is the
+    // honest dependency (a fresh REST baseline per gap).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.stateFilter]);
+  }, [state.stateFilter, resync?.token]);
 
   useEffect(() => {
     if (state.selectedCommandId === undefined) return;
@@ -665,8 +676,10 @@ export function DispatchWorkspace({
     return () => {
       cancelled = true;
     };
+    // A displayed detail also re-fetches on a stream-gap token (P5.25
+    // re-sync contract; the resync object identity is not a dependency).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.selectedCommandId]);
+  }, [state.selectedCommandId, resync?.token]);
 
   return (
     <section aria-label="Dispatch">
@@ -691,9 +704,10 @@ export function DispatchWorkspace({
         label="simulation-only boundary (P4.32 handover §2)"
         statement={SIMULATION_ONLY_BOUNDARY_STATEMENT}
       />
-      {/* P5.13 — the live-stream honesty note: a live dispatch event updates
-          the same lifecycle badge, so live-updated ISSUED/ACKNOWLEDGED/
-          TRACKING state stays labelled. */}
+      {/* P5.13 — the live-stream honesty note: live dispatch events are
+          received/ordered/deduplicated (P5.33) and workspace reads re-fetch
+          after a gap (P5.25); inline badge application is the recorded next
+          integration point. */}
       <p role="note" data-testid="live-dispatch-label-note">
         {LIVE_DISPATCH_LABEL_NOTE}
       </p>

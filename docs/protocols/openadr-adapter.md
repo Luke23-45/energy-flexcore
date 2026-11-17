@@ -40,7 +40,7 @@
 | Topic | Design position |
 |---|---|
 | Delivery planning | The planner produces a per-VEN PLAN (a record); execution belongs to the serving seam |
-| Connection states | The common `ProtocolConnection` vocabulary (CLOSED/CONNECTING/CONNECTED/DEGRADED/UNREACHABLE) — consumed by the P11 taxonomy, never redefined |
+| Connection states | The common `ProtocolConnection` vocabulary (CLOSED/CONNECTING/CONNECTED/DEGRADED/UNREACHABLE) — vocabulary only: no adapter implements the port in this baseline (the recorded FRV1-R6-001 deferral; the shipped default refuses fail-closed by name), so connection reporting rides the adapter's own seam surface until the first adapter composition. The P11 taxonomy consumes the names, never redefines them |
 | Failure modes | Test events refused by name; ambiguous power signals refused; non-power units refused; nil command ids refused; out-of-scope mappings refused; unknown/not-accepted VENs refused |
 | Unit handling | kW/MW payloads convert to canonical `ActivePowerMW` at the adapter boundary (frozen P > 0 = export); reactive power is deliberately NOT mapped — OpenADR events carry no reactive-sign convention, and the platform never assumes one |
 

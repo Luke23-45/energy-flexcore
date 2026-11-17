@@ -197,7 +197,8 @@ pub enum ScheduleRevisionUsability {
 /// The store seam over the P4.10 command-record persistence surface. The
 /// composition root implements it over
 /// `flexcore_storage::command_store::CommandRecordStore` (the error
-/// vocabulary maps 1:1; see [`CommandGateStoreError`]).
+/// vocabulary is an APPROXIMATE mapping of `CommandStoreError`, recorded
+/// per variant in [`CommandGateStoreError`]; see FRV1-R1-007).
 pub trait CommandGateStore {
     /// Inserts one NEW command record (always PROPOSED — the freeze's
     /// initial marker). A duplicate is [`CommandGateStoreError::Conflict`].
@@ -287,24 +288,51 @@ impl CommandGateView {
     }
 }
 
-/// Errors of the store seam — the 1:1 mapping of the P4.10
+/// Errors of the store seam — the seam's vocabulary over the P4.10
 /// `CommandStoreError` vocabulary the composition root implements over.
+/// The mapping is NOT 1:1 (FRV1-R1-007); the recorded reality, per variant:
+///
+/// | `CommandStoreError` (8 variants) | `CommandGateStoreError` |
+/// |---|---|
+/// | `Conflict` | `Conflict` (1:1) |
+/// | `NotFound` | `NotFound` (1:1) |
+/// | `ScheduleRevisionSuperseded` | `RevisionSuperseded` (1:1, renamed) |
+/// | `ScheduleRevisionUnknown` | `RevisionUnknown` (1:1, renamed) |
+/// | `TransitionConflict` | `TransitionConflict` — LOSES `actual_state` (the seam carries only `expected_from`; the actual state is recoverable from the journal a `load_command` read returns) |
+/// | `IllegalTransition` | NO seam counterpart — maps to `Backend` (fail-closed) with a recorded code; the seam's `journal_transition` takes the domain `CommandTransition`, so its callers cannot express this variant |
+/// | `InvalidRecord` | NO seam counterpart — maps to `Backend` (fail-closed) with a recorded code |
+/// | `Backend` | `Backend` (1:1) |
+///
+/// The two collapsed variants are fail-closed BY CONSTRUCTION: folding a
+/// storage-level `IllegalTransition`/`InvalidRecord` into `Backend` never
+/// widens what the gates can do — it only loses error-taxonomy detail in
+/// what the gates surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandGateStoreError {
     /// A command with this ID already exists (a re-proposal is a NEW
-    /// command; command rows are immutable).
+    /// command; command rows are immutable). From
+    /// `CommandStoreError::Conflict`.
     Conflict { command_id: String },
-    /// The command does not exist in the caller's tenant scope.
+    /// The command does not exist in the caller's tenant scope. From
+    /// `CommandStoreError::NotFound`.
     NotFound { command_id: String },
-    /// The referenced schedule revision is SUPERSEDED.
+    /// The referenced schedule revision is SUPERSEDED. From
+    /// `CommandStoreError::ScheduleRevisionSuperseded`.
     RevisionSuperseded { schedule_id: String, revision: u64 },
     /// The referenced schedule revision does not exist in the caller's
-    /// tenant scope (unknown is never usable).
+    /// tenant scope (unknown is never usable). From
+    /// `CommandStoreError::ScheduleRevisionUnknown`.
     RevisionUnknown { schedule_id: String, revision: u64 },
     /// The compare-and-swap transition lost: the command's stored state is
-    /// not the state the caller transitioned from.
+    /// not the state the caller transitioned from. From
+    /// `CommandStoreError::TransitionConflict`, which DROPS the storage
+    /// error's `actual_state` field (FRV1-R1-007): the seam records only
+    /// the caller's expected state.
     TransitionConflict { command_id: String, expected_from: String },
-    /// Storage backend failure — opaque code + message only.
+    /// Storage backend failure — opaque code + message only. Also the
+    /// fail-closed destination of the two storage variants this seam
+    /// cannot express (`IllegalTransition`, `InvalidRecord`) — see the
+    /// enum-level mapping table above (FRV1-R1-007).
     Backend { code: String, message: String },
 }
 

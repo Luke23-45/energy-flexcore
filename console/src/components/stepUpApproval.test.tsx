@@ -257,3 +257,35 @@ describe('composition with the P5.10–P5.12 wave (structural, source scan)', ()
     expect(stepUp).toBeLessThan(childrenEnd);
   });
 });
+
+// --- Design wave 2 (Agent B) — APPENDED additive assertion only -------------
+// The additive .step-up-approval className (the deliberate step-up card
+// treatment in styles/design-system.css) must not change any pinned text or
+// testid; this block pins the additive class AND the unchanged testids
+// together. Nothing above was modified.
+describe('design wave 2 — additive .step-up-approval class (append-only)', () => {
+  it('the step-up card carries the additive class; the pending/status testids are unchanged', () => {
+    const check = evaluateStepUp({
+      confirmTargetId: 'cmd-1',
+      typedValue: '',
+      claims: CLAIMS,
+      tokenValue: '',
+    });
+    const html = renderToString(
+      <StepUpApproval
+        actionLabel="approval"
+        confirmTargetId="cmd-1"
+        typedValue=""
+        tokenValue=""
+        claims={CLAIMS}
+        onTypedChange={() => undefined}
+        onTokenChange={() => undefined}
+        check={check}
+      />,
+    );
+    expect(html).toContain('class="step-up-approval"');
+    expect(html).toContain('data-testid="step-up-pending"');
+    expect(html).toContain('data-testid="step-up-confirmation-status"');
+    expect(html).toContain('data-testid="step-up-reauth-status"');
+  });
+});

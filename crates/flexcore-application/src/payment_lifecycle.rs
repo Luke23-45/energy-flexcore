@@ -148,6 +148,11 @@ pub enum PaymentLifecycleError {
     EmptyField {
         field: &'static str,
     },
+    /// A timestamp field carried a negative value — not an empty field, a
+    /// negative one (named separately: FRV1-R7-007).
+    NegativeTimestamp {
+        field: &'static str,
+    },
     /// A text field exceeded its bound (`field` names it).
     FieldTooLong {
         field: &'static str,
@@ -164,6 +169,14 @@ pub enum PaymentLifecycleError {
     ChainLinkMismatch {
         expected: Option<String>,
         given: Option<String>,
+    },
+    /// The transition's `transition_id` duplicates an earlier transition
+    /// in the same chain — a duplicate would make a later
+    /// `previous_transition_id` reference ambiguous, so the linear record
+    /// is only verifiable with unique ids (FRV1-R7-003).
+    DuplicateTransitionId {
+        /// The duplicated transition id.
+        transition_id: String,
     },
     /// The EARNED transition carried no earned-basis reference.
     EarnedBasisRequired,
@@ -189,10 +202,14 @@ impl PaymentLifecycleError {
         match self {
             PaymentLifecycleError::InvalidTransition { .. } => "PAYMENT_INVALID_TRANSITION",
             PaymentLifecycleError::EmptyField { .. } => "PAYMENT_EMPTY_FIELD",
+            PaymentLifecycleError::NegativeTimestamp { .. } => "PAYMENT_NEGATIVE_TIMESTAMP",
             PaymentLifecycleError::FieldTooLong { .. } => "PAYMENT_FIELD_TOO_LONG",
             PaymentLifecycleError::LifecycleAlreadyOpen => "PAYMENT_LIFECYCLE_ALREADY_OPEN",
             PaymentLifecycleError::LifecycleNotFound => "PAYMENT_LIFECYCLE_NOT_FOUND",
             PaymentLifecycleError::ChainLinkMismatch { .. } => "PAYMENT_CHAIN_LINK_MISMATCH",
+            PaymentLifecycleError::DuplicateTransitionId { .. } => {
+                "PAYMENT_DUPLICATE_TRANSITION_ID"
+            }
             PaymentLifecycleError::EarnedBasisRequired => "PAYMENT_EARNED_BASIS_REQUIRED",
             PaymentLifecycleError::PaidBasisRequired => "PAYMENT_PAID_BASIS_REQUIRED",
             PaymentLifecycleError::CurrencyMismatchInChain { .. } => {
@@ -217,6 +234,9 @@ impl std::fmt::Display for PaymentLifecycleError {
             PaymentLifecycleError::EmptyField { field } => {
                 write!(f, "the payment-lifecycle field '{field}' must be non-empty")
             }
+            PaymentLifecycleError::NegativeTimestamp { field } => {
+                write!(f, "the payment-lifecycle field '{field}' must be non-negative")
+            }
             PaymentLifecycleError::FieldTooLong { field, len, max } => write!(
                 f,
                 "the payment-lifecycle field '{field}' is {len} characters; the bound is {max}"
@@ -236,6 +256,12 @@ impl std::fmt::Display for PaymentLifecycleError {
                 "the transition's chain link ({given:?}) does not match the chain's \
                  actual head ({expected:?}); the payment chain is linear and exact — a \
                  broken or fabricated chain is refused"
+            ),
+            PaymentLifecycleError::DuplicateTransitionId { transition_id } => write!(
+                f,
+                "the transition id '{transition_id}' already exists in this payment \
+                 chain; chain ids must be unique — a duplicate would make a later \
+                 previous-transition reference ambiguous"
             ),
             PaymentLifecycleError::EarnedBasisRequired => write!(
                 f,
@@ -319,7 +345,7 @@ impl PaymentTransitionRecord {
         Self::validate_text("program_id", &program_id, 64)?;
         Self::validate_text("recorded_by", &recorded_by, 128)?;
         if recorded_at_unix_ms < 0 {
-            return Err(PaymentLifecycleError::EmptyField {
+            return Err(PaymentLifecycleError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }
@@ -451,7 +477,7 @@ impl PaymentLifecycle {
         Self::validate_text("program_id", &program_id, 64)?;
         Self::validate_text("recorded_by", &recorded_by, 128)?;
         if recorded_at_unix_ms < 0 {
-            return Err(PaymentLifecycleError::EmptyField {
+            return Err(PaymentLifecycleError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }
@@ -568,8 +594,9 @@ impl PaymentLifecycleStore {
 
     /// Applies one transition: the frozen-edge check, the basis
     /// requirement for the destination state, the exact chain-linkage
-    /// check, and the one-currency-per-chain check. The lifecycle's
-    /// state advances ONLY through this method.
+    /// check, the per-chain transition-id uniqueness check, and the
+    /// one-currency-per-chain check. The lifecycle's state advances ONLY
+    /// through this method.
     pub fn apply_transition(
         &mut self,
         record: PaymentTransitionRecord,
@@ -602,13 +629,35 @@ impl PaymentLifecycleStore {
                 },
             });
         }
+        // EVERY check above and below runs BEFORE any storage mutation
+        // (FRV1-R7-003): a refused transition must leave no observable
+        // state change — in particular no empty chain entry for a chain
+        // that never had a successful transition. The chain is therefore
+        // read here (never `entry().or_default()` before the checks).
+        let chain = self.chains.get(&key);
         // The exact chain linkage.
-        let chain = self.chains.entry(key.clone()).or_default();
-        let expected: Option<String> = chain.last().map(|t| t.transition_id().to_string());
+        let expected: Option<String> =
+            chain.and_then(|c| c.last()).map(|t| t.transition_id().to_string());
         if record.previous_transition_id() != expected.as_deref() {
             return Err(PaymentLifecycleError::ChainLinkMismatch {
                 expected,
                 given: record.previous_transition_id().map(|s| s.to_string()),
+            });
+        }
+        // Per-chain transition-id uniqueness (FRV1-R7-003): two
+        // transitions with the same id would make a later
+        // `previous_transition_id` reference ambiguous — the verifiable
+        // linear record (EVERY_TRANSITION_CHAIN_LINKED_STATEMENT) holds
+        // only with unique ids.
+        if chain
+            .map(|c| {
+                c.iter()
+                    .any(|t| t.transition_id() == record.transition_id())
+            })
+            .unwrap_or(false)
+        {
+            return Err(PaymentLifecycleError::DuplicateTransitionId {
+                transition_id: record.transition_id().to_string(),
             });
         }
         // One currency per chain.
@@ -620,13 +669,22 @@ impl PaymentLifecycleStore {
                 });
             }
         }
-        // Append; advance the state.
+        // Append; advance the state (the first mutation of the chain —
+        // reached only after every check passed).
         let to_state = record.to_state();
-        chain.push(record);
+        self.chains.entry(key.clone()).or_default().push(record);
+        // The SAME lifecycle entry the checks above read (FRV1-R7-010):
+        // nothing between the first lookup and here removes from
+        // `self.lifecycles` — the only intervening mutation is
+        // `self.chains` — so the entry provably exists and this can never
+        // refuse. The named refusal (the crate's no-panic rule, not an
+        // `expect`) keeps the invariant reviewer-traceable instead of
+        // panic-relied-on; if the invariant were ever broken the
+        // transition refuses fail-closed rather than panicking.
         let lifecycle = self
             .lifecycles
             .get_mut(&key)
-            .expect("checked above");
+            .ok_or(PaymentLifecycleError::LifecycleNotFound)?;
         lifecycle.state = to_state;
         Ok(())
     }
@@ -915,6 +973,106 @@ mod tests {
                 .name(),
             "PAYMENT_CURRENCY_MISMATCH_IN_CHAIN"
         );
+    }
+
+    #[test]
+    fn a_duplicate_transition_id_is_refused() {
+        // FRV1-R7-003: two transitions with the same id in one chain would
+        // make a later previous_transition_id reference ambiguous — the
+        // verifiable linear record holds only with unique ids.
+        let mut store = PaymentLifecycleStore::new();
+        open(&mut store);
+        store
+            .apply_transition(transition(
+                "t-1",
+                PaymentState::Forecasted,
+                PaymentState::Earned,
+                "owner-statement:stmt-1:asset-1",
+                None,
+                Some("150.00"),
+            ))
+            .expect("earned");
+        // A transition whose id duplicates the chain's head — the chain
+        // link matches (the head IS t-1), so the refusal must come from
+        // the uniqueness rule, not the linkage rule.
+        let duplicate = transition(
+            "t-1",
+            PaymentState::Earned,
+            PaymentState::Paid,
+            "payment-record:inv-2026-0001",
+            Some("t-1"),
+            Some("150.00"),
+        );
+        assert_eq!(
+            store
+                .apply_transition(duplicate)
+                .expect_err("duplicate id refused")
+                .name(),
+            "PAYMENT_DUPLICATE_TRANSITION_ID"
+        );
+        // The chain still holds exactly the one real transition.
+        let chain = store
+            .chain_of("tenant-1", "asset-1", "program-1")
+            .expect("chain");
+        assert_eq!(chain.len(), 1);
+    }
+
+    #[test]
+    fn a_refused_transition_leaves_no_observable_chain() {
+        // FRV1-R7-003: every check runs BEFORE any storage mutation — a
+        // refused transition must not leave an empty chain entry for a
+        // lifecycle that never had a successful transition.
+        let mut store = PaymentLifecycleStore::new();
+        open(&mut store);
+        // A currency-refused transition (no chain entry may appear).
+        let eur_transition = PaymentTransitionRecord::new(
+            "t-1".to_string(),
+            "tenant-1".to_string(),
+            "asset-1".to_string(),
+            "program-1".to_string(),
+            PaymentState::Forecasted,
+            PaymentState::Earned,
+            "owner-statement:stmt-1:asset-1".to_string(),
+            Some(MoneyAmount::parse("150.00", "EUR".to_string()).expect("eur")),
+            link(),
+            None,
+            1_700_000_100_000,
+            "recorder".to_string(),
+        )
+        .expect("record");
+        assert_eq!(
+            store
+                .apply_transition(eur_transition)
+                .expect_err("mixed currency refused")
+                .name(),
+            "PAYMENT_CURRENCY_MISMATCH_IN_CHAIN"
+        );
+        assert!(
+            store
+                .chain_of("tenant-1", "asset-1", "program-1")
+                .is_none(),
+            "a refused transition leaves NO observable chain — not even an empty one"
+        );
+        // The state did not move either.
+        assert_eq!(
+            store.state_of("tenant-1", "asset-1", "program-1"),
+            Some(PaymentState::Forecasted)
+        );
+        // The first SUCCESSFUL transition then opens the chain normally.
+        store
+            .apply_transition(transition(
+                "t-1",
+                PaymentState::Forecasted,
+                PaymentState::Earned,
+                "owner-statement:stmt-1:asset-1",
+                None,
+                Some("150.00"),
+            ))
+            .expect("earned");
+        let chain = store
+            .chain_of("tenant-1", "asset-1", "program-1")
+            .expect("chain");
+        assert_eq!(chain.len(), 1);
     }
 
     #[test]

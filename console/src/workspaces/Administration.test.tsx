@@ -91,8 +91,16 @@ describe('the administration honesty statements (the gap inventory)', () => {
     for (const excluded of AUTHZ_EXCLUDED_ACTIONS) {
       expect(allActions).not.toContain(excluded);
     }
-    // The four roles, verbatim:
-    expect(AUTHZ_ROLES).toEqual(['platform-admin', 'tenant-admin', 'operator', 'viewer']);
+    // The five roles, verbatim (the P13.05 site-approver extension
+    // included; AUTHZ_ROLES is derived from the capabilityMatrix ROLES,
+    // FRV1-R3-003):
+    expect(AUTHZ_ROLES).toEqual([
+      'platform-admin',
+      'tenant-admin',
+      'operator',
+      'viewer',
+      'site-approver',
+    ]);
   });
 
   it('shows retention as the configuration shape (seven classes, no values)', () => {

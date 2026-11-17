@@ -109,6 +109,7 @@ filled difference without a recorded basis is a finding:
 | A-P20.13-2 | The Vault DEFAULT mechanism descriptions are P11.16's [S-74][S-75]-documented behavior of those tools | Consumed by citation; no FlexCore deployment of any secrets manager exists |
 | F-P20.13-1 | No second environment exists, so parity is UNVERIFIABLE today by construction | Binding honesty statement |
 | F-P20.13-2 | Agent A's P20.01/P20.05 records were first consumed by EXPECTED PATH and reconciled to the landed paths during the same wave | Landed: `records/01_p20_01_capacity_model_framework.md` (the cardinality budget, §4) and `records/05_p20_05_helm_chart_design.md`; reconciliation note in the close-out record |
+| A-P20.13-3 | The local-developer environment's observability wiring is the INERT `observability` Compose profile (prometheus + grafana + nats-exporter, added by the final-review fix FRV1-R8-001) | Profiles start only when requested; nothing has been pulled/run (the recorded INERT-until-trigger pattern). The P11.09 dashboards/datasource/rules tree now has its consumer at dev level only; staging/prod observability targets stay `<EMPTY>` (§3 row above) until real environments exist |
 
 Status: **WRITTEN-UNRUN** — a parity contract cannot be verified with one
 environment; the staging and production environments, their

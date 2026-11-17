@@ -295,12 +295,23 @@ impl MetricsRegistry {
 
     // -----------------------------------------------------------------------
     // P2.21 — telemetry metric recording (see the module header for the
-    // recorded cardinality decisions)
+    // recorded cardinality decisions).
+    //
+    // FRV1-R2-003 (final review): the control-plane binary composes NO
+    // telemetry-ingest producer in 0.x — ingestion lives in the worker
+    // (whose `IngestionMetrics` collects these counters and, since that
+    // fix, renders them on the worker's own `/metrics`), and the
+    // control-plane telemetry READ port is `None` (routes fail closed).
+    // These recording APIs therefore have no call site in the shipped
+    // binary and their families render at zero (the always-render
+    // discipline): the zeros are the honest "not composed here" state,
+    // never a healthy-pipeline claim.
     // -----------------------------------------------------------------------
 
     /// Counts one telemetry domain event appended to the outbox, by frozen
     /// event type (the §15.3 names — anything else is not counted; the
-    /// vocabulary is closed).
+    /// vocabulary is closed). No producer is composed in the control-plane
+    /// binary in 0.x (FRV1-R2-003 — see the section note above).
     pub fn record_telemetry_event(&self, event_type: &str) {
         if !TELEMETRY_EVENT_TYPES.contains(&event_type) {
             return;
@@ -380,16 +391,29 @@ impl MetricsRegistry {
     }
 
     /// Marks one request as served (in-flight count down; saturating —
-    /// a lopsided call can never drive the gauge negative).
+    /// a lopsided call can never drive the gauge negative). FRV1-R2-005
+    /// (final review): a plain `fetch_sub` WRAPS on underflow, which would
+    /// render one unbalanced `leave_request` as `u64::MAX`; the decrement
+    /// is a compare-and-saturate loop so the documented property is the
+    /// implemented one (the lopsided case is pinned by the in-module test).
     pub fn leave_request(&self) {
-        self.api_in_flight_requests.fetch_sub(1, Ordering::Relaxed);
+        let _ = self.api_in_flight_requests.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |current| current.checked_sub(1),
+        );
     }
 
     /// Observes one command-accept duration into the command-lifecycle
     /// accept-latency SLI histogram (no labels — recorded decision). The
     /// command-submission route (Agent B's files) calls this with the
     /// elapsed milliseconds from request arrival to the committed
-    /// PROPOSED record (record 01 §5 handoff note).
+    /// PROPOSED record (record 01 §5 handoff note). FRV1-R2-003: NO
+    /// command-submission route exists in this binary (the §15.2
+    /// dispatch-command resource is READ-ONLY by recorded decision), so
+    /// no producer is composed in 0.x — the family renders at zero, and
+    /// its HELP text says so rather than implying an operable command
+    /// path.
     pub fn record_command_accept_duration_millis(&self, millis: u64) {
         let mut histogram = self
             .command_accept_duration
@@ -403,7 +427,11 @@ impl MetricsRegistry {
     /// the edge `(from, to)` must be one of the 27 legal frozen edges —
     /// anything else is a vocabulary violation and is IGNORED here rather
     /// than inventing a series (deny-by-default, same as the P2.21
-    /// quality-state recorder).
+    /// quality-state recorder). FRV1-R2-003: this binary never COMMITS a
+    /// transition (the P4.11–P4.18 gates are driven from `apps/sim-runner`;
+    /// the control plane only READS command records and journals), so no
+    /// producer is composed in 0.x — the family renders at zero and its
+    /// HELP text says so.
     pub fn record_command_state_transition(&self, from: &str, to: &str) {
         let Some(from_state) = CommandState::ALL.iter().copied().find(|s| s.name() == from) else {
             return;
@@ -441,7 +469,11 @@ impl MetricsRegistry {
     /// letters"). The recommended alert threshold is registered in
     /// `webhook_service.rs::DEAD_LETTER_ALERT_THRESHOLD_RECOMMENDED` and
     /// the P13.09 decision record; the threshold itself is an operator
-    /// decision on the monitoring side. WRITTEN-UNRUN.
+    /// decision on the monitoring side. WRITTEN-UNRUN. FRV1-R2-003 /
+    /// FRV1-R8-005: the scanner is NOT composed in 0.x — the store
+    /// implementation exists (the Postgres adapter's `webhook_delivery`,
+    /// composed in `main.rs`), but the recording loop has no hosting task
+    /// yet, so the gauge renders at zero and its HELP text says so.
     pub fn set_webhook_dead_letters(&self, count: u64) {
         self.webhook_dead_letters.store(count, Ordering::Relaxed);
     }
@@ -566,11 +598,11 @@ impl MetricsRegistry {
             render_duration_histogram(
                 &mut out,
                 "flexcore_command_accept_duration_milliseconds",
-                "command-lifecycle accept-latency SLI: request arrival to committed PROPOSED record (fixed registered buckets; no labels by recorded decision).",
+                "command-lifecycle accept-latency SLI: request arrival to committed PROPOSED record (fixed registered buckets; no labels by recorded decision). NO PRODUCER IS COMPOSED IN 0.x — the command gates are driven outside this binary (FRV1-R2-003); a zero series is the not-composed state, never a healthy one.",
                 &histogram,
             );
         }
-        out.push_str("# HELP flexcore_command_state_transitions_total Committed command-lifecycle gate transitions over the frozen 14-state/27-edge lifecycle (from,to is bounded by the frozen vocabulary; terminal-state ratio is derived in queries, not stored).\n");
+        out.push_str("# HELP flexcore_command_state_transitions_total Committed command-lifecycle gate transitions over the frozen 14-state/27-edge lifecycle (from,to is bounded by the frozen vocabulary; terminal-state ratio is derived in queries, not stored). NO PRODUCER IS COMPOSED IN 0.x — this binary commits no transition (the gates run in apps/sim-runner; FRV1-R2-003); a zero series is the not-composed state, never a healthy one.\n");
         out.push_str("# TYPE flexcore_command_state_transitions_total counter\n");
         if let Ok(map) = self.command_state_transitions.lock() {
             for ((from, to), count) in map.iter() {
@@ -590,7 +622,7 @@ impl MetricsRegistry {
         // the plan §2.3 contract: "its depth is a metric with a registered
         // alert threshold; nothing is silently dropped") ---
         let dead_letters = self.webhook_dead_letters.load(Ordering::Relaxed);
-        out.push_str("# HELP flexcore_webhook_dead_letters Unresolved webhook deliveries that exhausted their bounded retry schedule and landed in the dead-letter table (migration 0020); no labels by recorded decision, per-delivery reasons stay in the bookkeeping rows.\n");
+        out.push_str("# HELP flexcore_webhook_dead_letters Unresolved webhook deliveries that exhausted their bounded retry schedule and landed in the dead-letter table (migration 0020); no labels by recorded decision, per-delivery reasons stay in the bookkeeping rows. NO SCANNER IS COMPOSED IN 0.x — the delivery store is composed (FRV1-R8-005) but the recording loop has no hosting task (FRV1-R2-003); a zero value is the not-composed state, never \"no dead letters\".\n");
         out.push_str("# TYPE flexcore_webhook_dead_letters gauge\n");
         out.push_str(&format!("flexcore_webhook_dead_letters {dead_letters}\n"));
         out
@@ -1145,7 +1177,8 @@ mod tests {
         assert!(registry.render().contains("flexcore_api_in_flight_requests 1"));
         registry.leave_request();
         registry.leave_request();
-        // A lopsided leave saturates at zero, never negative.
+        // A lopsided leave saturates at zero, never negative (FRV1-R2-005:
+        // the decrement must not wrap — pinned on the rendered series).
         assert!(registry.render().contains("flexcore_api_in_flight_requests 0"));
     }
 

@@ -39,6 +39,49 @@
 // mismatch when A's record lands is a recorded edit, never a silent
 // reinterpretation.
 //
+// # Production-caller status (FRV1-R2-004, final review; RECORDED SEAM)
+//
+// As of this tree [`route_ev_inbound`] has NO production caller: the OCPP
+// CSMS adapter's inbound path (`crates/adapters/protocol-ocpp`) still has
+// no MeterValues/proposal payload decode and constructs no
+// [`EvInboundFrame`], and the worker's composition root hosts no CSMS
+// transport loop (the P1.19 recorded posture: the worker is not a second
+// API server; its only frame producer today is the P2.14 simulator source
+// bridge, which feeds the queue directly). The bridge is therefore an
+// HONESTLY RECORDED SEAM, not a wired path — statically unreached in both
+// directions, exactly as the finding records it. The named follow-up that
+// closes the seam: A's adapter inbound loop (or the worker task hosting
+// the CSMS transport) decodes each inbound OCPP message, constructs the
+// [`EvInboundFrame`], and calls [`route_ev_inbound`] with the composed
+// [`crate::ingestion::IngestionQueue`] as the [`TelemetryOffer`] seam, a
+// `SignedMeterValueSink` implementation, and the deployment's
+// [`EvIngestBridgeConfig`]. Nothing here is faked to appear wired: the
+// routing function is internally consistent and never-auto-command by
+// construction (see the tests).
+//
+// # The SoC-arbitration seam status (FRV1-R7-006, final review; RECORDED
+// SEAM)
+//
+// `flexcore_domain::ev_soc_arbitration::arbitrate_soc` (P17.08) has zero
+// consumers. Its meeting point — the record where BOTH an OCPP
+// MeterValues SoC observation and a telematics SoC observation exist for
+// one charging session/asset, with the plug-state observation and the
+// per-source freshness limits the arbitration requires — does NOT exist
+// in the shipped surface: this bridge forwards MeterValues frames to the
+// EXISTING pipeline (which stores single-source records and never holds a
+// dual-source session state), no telematics port implementation exists
+// (P17-E-3 DEFAULT (a) stays the recorded open decision — a vendor-agnostic
+// PORT with no implementation), no plug-state observation is produced
+// anywhere, and the OCPP adapter decodes no SoC sampled value. The
+// arbitration is therefore NOT wired here, and no meeting point is
+// invented: per the P17.08 policy the arbitration belongs at the point
+// where the dual-source session record is assembled, which is the
+// integration the FRV1-R2-004 seam above names (an adapter/CSMS hosting
+// loop plus a telematics port implementation). Until that lands,
+// non-consumption is a RECORDED DECISION of this module header, not an
+// oversight — the RAINFLOW_EXTRACTION_SEAM pattern
+// (`crates/flexcore-domain/src/bess_degradation.rs`).
+//
 // # Message-name honesty
 //
 // The OCPP message-family names in [`EV_TELEMETRY_FAMILIES`] and

@@ -1,16 +1,11 @@
 // P5.01 — the §20.1 workspace registry: the twelve console areas, in
-// report order. Each entry has ONE component. The registry PATTERN is
-// unchanged since the scaffold; the implementations behind the entries
-// progress with the phase-5 waves (ledger_phase_5.md):
-// - IMPLEMENTED (P5.02–P5.04, decision record 02_04_workspaces_a.md):
-//   overview, portfolios, sites, assets, grid — real components rendering
-//   tenant-scoped API data with honest empty/error/loading states; the
-//   same export names the P5.01 stubs used are kept, so App.tsx and this
-//   registry needed no structural change.
-// - STILL STUBS (waves 2b+): schedules, dispatch, market-programs,
-//   simulation-lab, plugins-integrations, audit-reports, administration —
-//   each renders the honest "NOT IMPLEMENTED YET" placeholder
-//   (./WorkspacePlaceholder.tsx); no fabricated data.
+// report order. Each entry has ONE component. All twelve workspaces are
+// IMPLEMENTED (P5.02–P5.09 and the P6/P7/P8/P13 additive extensions — see
+// README.md for the shipped surface): every entry renders a real
+// component with tenant-scoped API reads and honest empty/error/loading
+// states — no fabricated data, no remaining "NOT IMPLEMENTED YET"
+// placeholders. (./WorkspacePlaceholder.tsx is retained as the recorded
+// pattern for any future stub, but has no consumers.)
 //
 // This registry is the single source of truth for the router, the
 // navigation, and the tests that pin the §20.1 coverage (registry.test.ts

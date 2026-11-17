@@ -30,10 +30,18 @@
 // Control status: data for the simulation-only 0.x line. This file
 // enables nothing, connects to nothing, and claims nothing.
 
+use crate::baseline_engine::CAISO_SDA_MAX_PERCENT;
 use crate::capacity_market_records::{RESEARCH_CUTOFF, SourcedDate};
 use crate::jurisdiction_register::{
     JurisdictionEntry, MarketJurisdictionRegister, MarketPosture, TimelineEntry,
 };
+
+/// Jurisdictions without a RECORDED symmetric-SDA bound (FRV1-R7-005):
+/// `None` — the baseline engine REFUSES an SDA under such a jurisdiction
+/// rather than assuming a default bound.
+fn no_recorded_sda_bound() -> Option<f64> {
+    None
+}
 
 /// A summary of what the checked-in register carries (pinned by
 /// tests): the named jurisdictions, their postures, and the fact that
@@ -95,6 +103,10 @@ fn checked_in_entries() -> Vec<JurisdictionEntry> {
                  (settlements as of Nov 1 2024)",
                 None,
             )],
+            // The CAISO recorded symmetric-SDA bound (FRV1-R7-005): SOURCED [S-30],
+            // re-verified at use — every other jurisdiction carries its OWN
+            // recorded bound or refuses an SDA outright.
+            Some(CAISO_SDA_MAX_PERCENT),
         )
         .expect("CAISO row"),
         JurisdictionEntry::new(
@@ -118,6 +130,7 @@ fn checked_in_entries() -> Vec<JurisdictionEntry> {
                     None,
                 ),
             ],
+            no_recorded_sda_bound(),
         )
         .expect("ISO-NE row"),
         JurisdictionEntry::new(
@@ -144,6 +157,7 @@ fn checked_in_entries() -> Vec<JurisdictionEntry> {
                           carried, neither selected; re-verified at use"),
                 ),
             ],
+            no_recorded_sda_bound(),
         )
         .expect("NYISO row"),
         JurisdictionEntry::new(
@@ -173,6 +187,7 @@ fn checked_in_entries() -> Vec<JurisdictionEntry> {
                           NEITHER selected; re-verified against PJM's tariff at use"),
                 ),
             ],
+            no_recorded_sda_bound(),
         )
         .expect("PJM row"),
         JurisdictionEntry::new(
@@ -194,6 +209,7 @@ fn checked_in_entries() -> Vec<JurisdictionEntry> {
                     None,
                 ),
             ],
+            no_recorded_sda_bound(),
         )
         .expect("MISO row"),
         JurisdictionEntry::new(
@@ -207,6 +223,7 @@ fn checked_in_entries() -> Vec<JurisdictionEntry> {
                 "[S-26] FERC Order 2222 explainer",
                 None,
             )],
+            no_recorded_sda_bound(),
         )
         .expect("SPP row"),
         // --- The ERCOT ADER pilot posture [S-100][S-101] ---
@@ -231,6 +248,7 @@ fn checked_in_entries() -> Vec<JurisdictionEntry> {
                     None,
                 ),
             ],
+            no_recorded_sda_bound(),
         )
         .expect("ERCOT ADER row"),
         // --- The UK Local Flexibility Market [S-36][S-37][S-115] ---
@@ -256,6 +274,7 @@ fn checked_in_entries() -> Vec<JurisdictionEntry> {
                     None,
                 ),
             ],
+            no_recorded_sda_bound(),
         )
         .expect("GB LFM row"),
         // --- The EU balancing / EBGL posture [S-107][S-108][S-109] ---
@@ -272,6 +291,7 @@ fn checked_in_entries() -> Vec<JurisdictionEntry> {
                  RTE 15-minute ISP transition",
                 None,
             )],
+            no_recorded_sda_bound(),
         )
         .expect("EU EBGL row"),
         // --- The FERC 2222 regulatory-calendar row [S-26][S-27] ---
@@ -288,6 +308,7 @@ fn checked_in_entries() -> Vec<JurisdictionEntry> {
                 "[S-26] FERC Order 2222 explainer; [S-27] NARUC 2222 tracker",
                 None,
             )],
+            no_recorded_sda_bound(),
         )
         .expect("FERC 2222 calendar row"),
     ]

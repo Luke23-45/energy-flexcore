@@ -137,6 +137,7 @@ FORBIDDEN_RESULT_KEYS: frozenset = frozenset(
         "dispatch",
         "dispatchable",
         "approval",
+        "approved",
         "approval_token",
     }
 )

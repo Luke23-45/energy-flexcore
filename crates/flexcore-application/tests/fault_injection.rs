@@ -1110,6 +1110,7 @@ fn f4_clock_skew_forward_past_validity_refuses_the_issue_and_the_sweep_expires()
         command_id,
         state: h.store.state_of(command_id),
         valid_until_millis: VALID_UNTIL_MILLIS,
+        scope: None,
     };
     let decisions = sweep_validity_windows(&[candidate], h.clock.now_unix_millis());
     assert_eq!(decisions.len(), 1, "the expired command is swept");
@@ -1381,6 +1382,7 @@ fn f7_missing_telemetry_holds_the_command_and_the_sweep_expires_it() {
         command_id,
         state: h.store.state_of(command_id),
         valid_until_millis: VALID_UNTIL_MILLIS,
+        scope: None,
     };
     let decisions = sweep_validity_windows(&[candidate], h.clock.now_unix_millis());
     assert_eq!(decisions.len(), 1);

@@ -187,8 +187,12 @@ impl MarketRecordsStore for PgUnitOfWork {
     fn market_program_rows_for_tenant(
         &self,
         tenant_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketProgramRow>, MarketRecordsStoreError> {
         validate_uuid_field(tenant_id, "tenant_id")?;
+        // The limit is ALWAYS applied (no unbounded query, FRV1-R5-009 —
+        // the same page-bound discipline as command_store/envelope_store).
+        let limit = i64::from(limit);
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard)
@@ -203,9 +207,11 @@ impl MarketRecordsStore for PgUnitOfWork {
                         supersedes_program_id::text AS supersedes_program_id, \
                         audit_record_id::text AS audit_record_id, \
                         recorded_at_unix_ms, recorded_by \
-                 FROM market_programs WHERE tenant_id = $1::uuid ORDER BY program_id ASC",
+                 FROM market_programs WHERE tenant_id = $1::uuid \
+                 ORDER BY program_id ASC LIMIT $2",
             )
             .bind(tenant_id)
+            .bind(limit)
             .fetch_all(&mut *tx)
             .await
             .map_err(backend_error)?;
@@ -272,9 +278,11 @@ impl MarketRecordsStore for PgUnitOfWork {
         &self,
         tenant_id: &str,
         program_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketContractRow>, MarketRecordsStoreError> {
         validate_uuid_field(tenant_id, "tenant_id")?;
         validate_uuid_field(program_id, "program_id")?;
+        let limit = i64::from(limit);
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard)
@@ -290,10 +298,11 @@ impl MarketRecordsStore for PgUnitOfWork {
                         audit_record_id::text AS audit_record_id, \
                         recorded_at_unix_ms, recorded_by \
                  FROM market_contracts WHERE tenant_id = $1::uuid AND program_id = $2::uuid \
-                 ORDER BY contract_id ASC",
+                 ORDER BY contract_id ASC LIMIT $3",
             )
             .bind(tenant_id)
             .bind(program_id)
+            .bind(limit)
             .fetch_all(&mut *tx)
             .await
             .map_err(backend_error)?;
@@ -373,9 +382,11 @@ impl MarketRecordsStore for PgUnitOfWork {
         &self,
         tenant_id: &str,
         program_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketEnrollmentRow>, MarketRecordsStoreError> {
         validate_uuid_field(tenant_id, "tenant_id")?;
         validate_uuid_field(program_id, "program_id")?;
+        let limit = i64::from(limit);
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard)
@@ -392,10 +403,11 @@ impl MarketRecordsStore for PgUnitOfWork {
                         audit_record_id::text AS audit_record_id, \
                         recorded_at_unix_ms, recorded_by \
                  FROM market_enrollments WHERE tenant_id = $1::uuid AND program_id = $2::uuid \
-                 ORDER BY enrollment_id ASC",
+                 ORDER BY enrollment_id ASC LIMIT $3",
             )
             .bind(tenant_id)
             .bind(program_id)
+            .bind(limit)
             .fetch_all(&mut *tx)
             .await
             .map_err(backend_error)?;
@@ -462,9 +474,11 @@ impl MarketRecordsStore for PgUnitOfWork {
         &self,
         tenant_id: &str,
         program_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketEventRow>, MarketRecordsStoreError> {
         validate_uuid_field(tenant_id, "tenant_id")?;
         validate_uuid_field(program_id, "program_id")?;
+        let limit = i64::from(limit);
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard)
@@ -480,10 +494,11 @@ impl MarketRecordsStore for PgUnitOfWork {
                         audit_record_id::text AS audit_record_id, \
                         recorded_at_unix_ms, recorded_by \
                  FROM market_events WHERE tenant_id = $1::uuid AND program_id = $2::uuid \
-                 ORDER BY event_id ASC",
+                 ORDER BY event_id ASC LIMIT $3",
             )
             .bind(tenant_id)
             .bind(program_id)
+            .bind(limit)
             .fetch_all(&mut *tx)
             .await
             .map_err(backend_error)?;
@@ -552,9 +567,11 @@ impl MarketRecordsStore for PgUnitOfWork {
         &self,
         tenant_id: &str,
         event_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketDeliveryRow>, MarketRecordsStoreError> {
         validate_uuid_field(tenant_id, "tenant_id")?;
         validate_uuid_field(event_id, "event_id")?;
+        let limit = i64::from(limit);
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard)
@@ -571,10 +588,11 @@ impl MarketRecordsStore for PgUnitOfWork {
                         audit_record_id::text AS audit_record_id, \
                         recorded_at_unix_ms, recorded_by \
                  FROM market_deliveries WHERE tenant_id = $1::uuid AND event_id = $2::uuid \
-                 ORDER BY asset_id ASC, interval_start_millis ASC",
+                 ORDER BY asset_id ASC, interval_start_millis ASC LIMIT $3",
             )
             .bind(tenant_id)
             .bind(event_id)
+            .bind(limit)
             .fetch_all(&mut *tx)
             .await
             .map_err(backend_error)?;
@@ -655,9 +673,11 @@ impl MarketRecordsStore for PgUnitOfWork {
         &self,
         tenant_id: &str,
         program_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketSettlementRow>, MarketRecordsStoreError> {
         validate_uuid_field(tenant_id, "tenant_id")?;
         validate_uuid_field(program_id, "program_id")?;
+        let limit = i64::from(limit);
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard)
@@ -675,10 +695,11 @@ impl MarketRecordsStore for PgUnitOfWork {
                         audit_record_id::text AS audit_record_id, \
                         recorded_at_unix_ms, recorded_by \
                  FROM market_settlements WHERE tenant_id = $1::uuid AND program_id = $2::uuid \
-                 ORDER BY settlement_id ASC",
+                 ORDER BY settlement_id ASC LIMIT $3",
             )
             .bind(tenant_id)
             .bind(program_id)
+            .bind(limit)
             .fetch_all(&mut *tx)
             .await
             .map_err(backend_error)?;
@@ -739,8 +760,10 @@ impl MarketRecordsStore for PgUnitOfWork {
     fn market_retention_config_rows_for_tenant(
         &self,
         tenant_id: &str,
+        limit: u32,
     ) -> Result<Vec<MarketRetentionConfigRow>, MarketRecordsStoreError> {
         validate_uuid_field(tenant_id, "tenant_id")?;
+        let limit = i64::from(limit);
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard)
@@ -753,9 +776,10 @@ impl MarketRecordsStore for PgUnitOfWork {
                 "SELECT tenant_id::text AS tenant_id, record_class, retention_state, \
                         period_days, basis, set_by, set_at_unix_ms \
                  FROM market_record_retention_config WHERE tenant_id = $1::uuid \
-                 ORDER BY record_class ASC",
+                 ORDER BY record_class ASC LIMIT $2",
             )
             .bind(tenant_id)
+            .bind(limit)
             .fetch_all(&mut *tx)
             .await
             .map_err(backend_error)?;

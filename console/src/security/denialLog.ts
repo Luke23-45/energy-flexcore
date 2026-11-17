@@ -11,6 +11,11 @@
 // user saw — it is never a substitute for the server audit trail, and it
 // carries no claims data beyond the role id already displayed on screen.
 //
+// DISPLAY SURFACE (FRV1-R3-011): the log is rendered by
+// `components/denialLogDiagnostics.tsx` on the Administration route
+// (count + most recent entry + the audit-boundary note). It is a display
+// of local UI events only — never the server audit record.
+//
 // No secrets rule (P5.26): entries carry the action id, the role id, the
 // reason text, and a timestamp — never a token, never a subject id beyond
 // what the workspace already renders, never a request credential.

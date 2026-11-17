@@ -225,6 +225,9 @@ function AssetSection({
           reason="No current state was returned for this asset (P2.18). No value is fabricated; a missing value is never shown as zero."
         />
       ) : (
+        /* FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+           horizontally inside its card instead of overflowing it. */
+        <div className="table-scroll">
         <table>
           <caption>
             Latest record per quantity (latest by event_time, P2.18), each
@@ -269,6 +272,7 @@ function AssetSection({
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       <h4>Alarms</h4>

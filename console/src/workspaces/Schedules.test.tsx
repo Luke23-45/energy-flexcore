@@ -297,3 +297,45 @@ describe('data loading over a mocked fetch', () => {
     });
   });
 });
+
+// --- Design wave 2 (FRV1-R9-003) — APPENDED additive assertions only -------
+// The wave-2 additive edit (a state-chip span around a KNOWN §12.6 outcome
+// in RunDetailPanel) must not change any pinned text; this block pins the
+// additive wrapper AND the unchanged verbatim strings together. Nothing
+// above was modified.
+
+describe('design wave 2 (FRV1-R9-003) — additive solver-outcome chip (append-only)', () => {
+  it('a known §12.6 outcome renders inside the additive state-chip span with the verbatim text', () => {
+    const html = renderToString(<RunDetailPanel run={runFixture({})} />);
+    expect(html).toContain('class="state-chip state-optimal"');
+    expect(html).toContain('>optimal</span>');
+    // The pinned detail strings are byte-identical.
+    expect(html).toContain('solver outcome:');
+    expect(html).toContain('HiGHS');
+  });
+
+  it('an outcome outside the closed vocabulary keeps the fail-honest plain rendering (no chip)', () => {
+    const html = renderToString(
+      <RunDetailPanel run={runFixture({ status: 'EXOTIC' })} />,
+    );
+    expect(html).toContain('EXOTIC [outside the closed §12.6 vocabulary — displayed verbatim]');
+    expect(html).not.toContain('state-chip');
+  });
+});
+
+// --- FRV1-R9-001 (wave 2, Agent B, APPENDED — nothing above was modified) ----
+// Structural pin for the additive wide-table containment wrappers (see
+// Overview.test.tsx for the full rationale).
+import { readFileSync as readSourceFs } from 'node:fs';
+import { join as joinSourcePath, dirname as dirnameSourcePath } from 'node:path';
+import { fileURLToPath as fileUrlToSourcePath } from 'node:url';
+
+describe('FRV1-R9-001 (wave 2): .table-scroll containment wrappers (source-pinned)', () => {
+  it('the candidate-comparison table is wrapped in an additive table-scroll div', () => {
+    const source = readSourceFs(
+      joinSourcePath(dirnameSourcePath(fileUrlToSourcePath(import.meta.url)), 'Schedules.tsx'),
+      'utf-8',
+    );
+    expect(source.split('<div className="table-scroll">').length - 1).toBe(1);
+  });
+});

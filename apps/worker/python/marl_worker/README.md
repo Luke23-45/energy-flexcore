@@ -159,8 +159,10 @@ pass-through, and no figure is ever fabricated.
 3. Run the pure self-tests (no framework needed):
    `python apps/worker/python/marl_worker/safety_filter.py`,
    `python apps/worker/python/marl_worker/shadow_log.py`,
-   `python apps/worker/python/marl_worker/marl_worker.py`
-   — each prints one PASS/FAIL line per hand-computed self-test.
+   `python apps/worker/python/marl_worker/marl_worker.py --self-test`
+   — each prints one PASS/FAIL line per hand-computed self-test (a bare
+   `marl_worker.py` invocation runs the documented stdin→stdout
+   transport instead).
 4. Run the pytest suites (no framework needed for the pure tests; the
    guarded-path tests skip loudly where the guard demands the real
    package):

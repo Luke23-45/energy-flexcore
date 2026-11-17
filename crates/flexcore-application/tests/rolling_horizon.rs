@@ -219,6 +219,55 @@ fn the_mid_horizon_dropout_respects_realised_soc_freezes_the_past_and_keeps_the_
 }
 
 #[test]
+fn a_mid_interval_boundary_snaps_the_reoptimization_window_to_the_next_grid_boundary() {
+    // FRV1-R1-001: a mid-horizon boundary that falls INSIDE an interval (not
+    // on the grid) is legal — the in-progress interval is frozen
+    // start-inclusive — and the re-optimization window starts at the NEXT
+    // grid boundary, so the projection remains grid-aligned and continuous.
+    let prior = prior_revision();
+    let mut realised = dropout_realised_state();
+    // The boundary falls halfway through interval 3 ([T0+3h, T0+4h)).
+    realised.executed_until_millis = T0 + 3 * HOUR + HOUR / 2;
+    let request = RollRequest {
+        trigger: RollTrigger::ForecastUpdate,
+        trigger_detail: "forecast refresh at T0+3.5h".to_string(),
+        realised,
+    };
+    let plan = plan_rolling_horizon_roll(&prior, &request)
+        .expect("the mid-interval boundary roll plans");
+
+    // The in-progress interval 3 (started at T0+3h, before the boundary) is
+    // frozen; the re-optimization window starts at the NEXT grid boundary.
+    assert_eq!(plan.frozen_intervals.len(), 4);
+    assert_eq!(plan.frozen_intervals[3].interval_start_millis, T0 + 3 * HOUR);
+    assert_eq!(plan.reoptimize_start_millis, T0 + 4 * HOUR);
+    assert_eq!(plan.reoptimize_end_millis, T0 + 8 * HOUR);
+
+    // The partial execution is recorded honestly in the plan notes.
+    assert!(plan
+        .notes
+        .iter()
+        .any(|n| n.contains("the execution boundary falls inside the interval")
+            && n.contains("realised history")));
+
+    // The projection pastes the frozen set (including the partially executed
+    // in-progress interval) and the re-optimized future continuously.
+    let mut future = Vec::new();
+    for hour in 4..8 {
+        let start = T0 + hour * HOUR;
+        future.push(IntervalPlan {
+            interval_start_millis: start,
+            interval_end_millis: start + HOUR,
+            setpoints: vec![AssetSetpoint { asset_key: "bess".to_string(), p_mw: -0.5 }],
+        });
+    }
+    let projection = project_rolling_schedule(&plan, future).expect("the projection pastes");
+    assert_eq!(projection.intervals.len(), 8);
+    assert_eq!(projection.intervals[3].interval_start_millis, T0 + 3 * HOUR);
+    assert_eq!(projection.intervals[4].interval_start_millis, T0 + 4 * HOUR);
+}
+
+#[test]
 fn the_projection_pastes_frozen_and_future_continuously_with_the_optout_enforced() {
     let prior = prior_revision();
     let request = RollRequest {

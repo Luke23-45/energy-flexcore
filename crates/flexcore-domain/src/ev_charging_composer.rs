@@ -845,6 +845,9 @@ pub fn reconcile_composite_schedule(
         }
         match observed_iter.peek() {
             Some(observed) if observed.start_offset_s == planned.start_offset_s => {
+                // Invariant: `peek()` returned `Some` on this same iterator
+                // above and nothing consumed it since — `next()` cannot fail
+                // here (final-review FRV1-R7-010: guarded, not hidden).
                 let observed = observed_iter.next().expect("peeked");
                 if (observed.limit - planned.limit).abs() > COMPOSER_EVALUATION_TOLERANCE {
                     details.push(ReconciliationMismatch::LimitDeviation {

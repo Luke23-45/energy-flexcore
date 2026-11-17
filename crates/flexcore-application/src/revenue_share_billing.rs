@@ -118,6 +118,11 @@ pub enum BillingError {
     EmptyField {
         field: &'static str,
     },
+    /// A timestamp field carried a negative value — not an empty field, a
+    /// negative one (named separately: FRV1-R7-007).
+    NegativeTimestamp {
+        field: &'static str,
+    },
     /// A text field exceeded its bound (`field` names it).
     FieldTooLong {
         field: &'static str,
@@ -198,6 +203,7 @@ impl BillingError {
     pub fn name(&self) -> &'static str {
         match self {
             BillingError::EmptyField { .. } => "BILLING_EMPTY_FIELD",
+            BillingError::NegativeTimestamp { .. } => "BILLING_NEGATIVE_TIMESTAMP",
             BillingError::FieldTooLong { .. } => "BILLING_FIELD_TOO_LONG",
             BillingError::UnparseableShare { .. } => "BILLING_UNPARSEABLE_SHARE",
             BillingError::ShareOutOfBounds { .. } => "BILLING_SHARE_OUT_OF_BOUNDS",
@@ -223,6 +229,9 @@ impl std::fmt::Display for BillingError {
         match self {
             BillingError::EmptyField { field } => {
                 write!(f, "the billing field '{field}' must be non-empty")
+            }
+            BillingError::NegativeTimestamp { field } => {
+                write!(f, "the billing field '{field}' must be non-negative")
             }
             BillingError::FieldTooLong { field, len, max } => write!(
                 f,
@@ -326,6 +335,46 @@ fn validate_text(field: &'static str, value: &str, max: usize) -> Result<(), Bil
     Ok(())
 }
 
+// --- The percent-only fixed constants (FRV1-R7-010) ----------------------------
+//
+// INVARIANT-NOTE EXCEPTION to the crate's named-refusal rule: the helpers
+// below build the FIXED percent constants once, at definition, with the
+// invariant that makes them infallible recorded HERE rather than repeated
+// as reviewer-traced `expect`s at every call site (FRV1-R7-010).
+// `FixedDecimal::from_parts` can only fail when `scale > MAX_SCALE`
+// (fixed_decimal.rs); these literals carry scale 0, so the constructions
+// are infallible by construction. The synthetic `NOSPEC` currency is a
+// SHAPE-valid code (1–8 ASCII alphanumeric, `MoneyAmount::new`) used only
+// for the percent-only exact-sum check — it is rendered as a percent
+// number, never as money, and never leaves this module's checks.
+
+/// The exact zero percent (scale 0; infallible — see the invariant note).
+fn percent_zero() -> FixedDecimal {
+    FixedDecimal::from_parts(0, 0)
+        .expect("scale 0 cannot exceed MAX_SCALE — infallible by construction (FRV1-R7-010 invariant note)")
+}
+
+/// The exact 100 percent (scale 0; infallible — see the invariant note).
+fn percent_hundred() -> FixedDecimal {
+    FixedDecimal::from_parts(100, 0)
+        .expect("scale 0 cannot exceed MAX_SCALE — infallible by construction (FRV1-R7-010 invariant note)")
+}
+
+/// The synthetic percent-only amount for the closed-world 100% check
+/// (infallible: a validated scale-0 percent value plus the fixed
+/// shape-valid `NOSPEC` currency — see the invariant note).
+fn percent_amount(percent: FixedDecimal) -> MoneyAmount {
+    MoneyAmount::new(percent, "NOSPEC".to_string()).expect(
+        "the currency is the fixed shape-valid NOSPEC code — infallible by \
+         construction (FRV1-R7-010 invariant note)",
+    )
+}
+
+/// The exact 100% reference amount for the closed-world check.
+fn percent_hundred_amount() -> MoneyAmount {
+    percent_amount(percent_hundred())
+}
+
 /// The exact share computation `total × percent` (percent in [0, 100],
 /// expressed as the exact decimal it was declared as). Computed in
 /// checked integer arithmetic on the mantissas: the mantissas multiply
@@ -337,8 +386,10 @@ pub fn percent_of_amount(
     total: &MoneyAmount,
     percent: &FixedDecimal,
 ) -> Result<MoneyAmount, BillingError> {
-    let zero = FixedDecimal::from_parts(0, 0).expect("zero is a valid decimal");
-    let hundred = FixedDecimal::from_parts(100, 0).expect("100 is a valid decimal");
+    // The fixed percent constants (FRV1-R7-010): built once by the
+    // documented infallible helpers, no per-call `expect` here.
+    let zero = percent_zero();
+    let hundred = percent_hundred();
     if percent.partial_cmp(&zero) == Some(Ordering::Less) {
         return Err(BillingError::ShareOutOfBounds {
             asset_id: String::new(),
@@ -437,7 +488,7 @@ impl RevenueShareConfiguration {
         validate_text("basis_label", &basis_label, 128)?;
         validate_text("recorded_by", &recorded_by, 128)?;
         if recorded_at_unix_ms < 0 {
-            return Err(BillingError::EmptyField {
+            return Err(BillingError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }
@@ -445,6 +496,10 @@ impl RevenueShareConfiguration {
             return Err(BillingError::EmptyShares);
         }
         let mut shares = BTreeMap::new();
+        // The fixed percent bounds (FRV1-R7-010): built once by the
+        // documented infallible helpers, not re-`expect`ed per share.
+        let zero = percent_zero();
+        let hundred = percent_hundred();
         for (asset_id, text) in &shares_text {
             validate_text("share asset_id", asset_id, 64)?;
             let percent = FixedDecimal::parse(text).map_err(|err| {
@@ -453,8 +508,6 @@ impl RevenueShareConfiguration {
                     reason: err.to_string(),
                 }
             })?;
-            let zero = FixedDecimal::from_parts(0, 0).expect("zero is a valid decimal");
-            let hundred = FixedDecimal::from_parts(100, 0).expect("100 is a valid decimal");
             if percent.partial_cmp(&zero) == Some(Ordering::Less)
                 || percent.partial_cmp(&hundred) == Some(Ordering::Greater)
             {
@@ -465,18 +518,11 @@ impl RevenueShareConfiguration {
             shares.insert(asset_id.clone(), percent);
         }
         // The closed-world check: the shares sum to EXACTLY 100% —
-        // never normalized.
-        let hundred = MoneyAmount::new(
-            FixedDecimal::from_parts(100, 0).expect("100 is a valid decimal"),
-            "NOSPEC".to_string(),
-        )
-        .expect("synthetic currency for the percent-only check");
-        sums_exactly(
-            shares.values().map(|p| {
-                MoneyAmount::new(*p, "NOSPEC".to_string()).expect("bounded share")
-            }),
-            &hundred,
-        )
+        // never normalized. The percent-only amounts go through the
+        // documented infallible `percent_amount` helper (FRV1-R7-010);
+        // every share in `shares` is already bounded [0, 100] above.
+        let hundred = percent_hundred_amount();
+        sums_exactly(shares.values().map(|p| percent_amount(*p)), &hundred)
         .map_err(|remainder| {
             // The remainder is rendered as a percent number, not money.
             BillingError::SharesDoNotSumTo100 {
@@ -589,13 +635,22 @@ impl PooledRevenueDisaggregation {
         validate_text("settlement_statement_ref", &settlement_statement_ref, 256)?;
         validate_text("recorded_by", &recorded_by, 128)?;
         if recorded_at_unix_ms < 0 {
-            return Err(BillingError::EmptyField {
+            return Err(BillingError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }
         let mut per_asset = BTreeMap::new();
         for (asset_id, percent) in configuration.shares() {
-            let share = percent_of_amount(&pooled_total, percent)?;
+            // FRV1-R7-007: the out-of-bounds refusal carries THIS asset's
+            // identity — never a placeholder. `percent_of_amount` is a
+            // pure money function without asset context, so the caller
+            // names the asset the offending share belongs to.
+            let share = percent_of_amount(&pooled_total, percent).map_err(|error| match error {
+                BillingError::ShareOutOfBounds { .. } => BillingError::ShareOutOfBounds {
+                    asset_id: asset_id.clone(),
+                },
+                error => error,
+            })?;
             per_asset.insert(asset_id.clone(), share);
         }
         sums_exactly(per_asset.values().cloned(), &pooled_total)
@@ -740,7 +795,7 @@ impl OwnerStatementRecord {
         validate_text("program_id", &program_id, 64)?;
         validate_text("recorded_by", &recorded_by, 128)?;
         if recorded_at_unix_ms < 0 {
-            return Err(BillingError::EmptyField {
+            return Err(BillingError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }
@@ -1063,7 +1118,7 @@ impl InvoicingRecord {
         validate_text("statement_id", &statement_id, 64)?;
         validate_text("recorded_by", &recorded_by, 128)?;
         if recorded_at_unix_ms < 0 {
-            return Err(BillingError::EmptyField {
+            return Err(BillingError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }

@@ -31,7 +31,8 @@
 //   generator that counts every generation.
 // - [`FakeTelemetryReader`] — an in-memory `TelemetryReader` (P2.12 read
 //   surface: query, current state, quarantine) for the API tests; the
-//   Postgres implementation of the port is the recorded P2.06-adjacent gap.
+//   persistence-adapter implementation of the port is the recorded
+//   P2.06-adjacent gap (FRV1-R1-003).
 // - [`FakeTelemetryIngestStore`] / [`FakeIngestionInbox`] /
 //   [`FakeTelemetrySource`] — in-memory doubles of the P2.09/P2.10 ingest
 //   surface (duplicate classification, quarantine evidence, inbox

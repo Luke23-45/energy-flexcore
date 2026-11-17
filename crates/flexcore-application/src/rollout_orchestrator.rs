@@ -570,6 +570,12 @@ impl MemoryRolloutAuditSink {
 
     /// The records in emission order (append-only).
     pub fn records(&self) -> Vec<RolloutAuditRecord> {
+        // Invariant note (FRV1-R1-010): the only `expect` panics on this
+        // sink are mutex-POISONING paths — the mutex guards a plain
+        // append-only Vec and no caller input reaches a panic inside the
+        // critical sections; the crate policy is that a poisoned
+        // coordination primitive is not recoverable state (never a silent
+        // fallback).
         self.records
             .lock()
             .expect("poisoned rollout audit sink mutex")
@@ -579,6 +585,8 @@ impl MemoryRolloutAuditSink {
 
 impl RolloutAuditSink for MemoryRolloutAuditSink {
     fn record(&self, record: RolloutAuditRecord) {
+        // Invariant note (FRV1-R1-010): mutex-poisoning expect only — see
+        // `MemoryRolloutAuditSink::records` for the recorded policy.
         self.records
             .lock()
             .expect("poisoned rollout audit sink mutex")

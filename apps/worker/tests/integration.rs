@@ -83,8 +83,10 @@ async fn outbox_publish_and_idempotent_consume_end_to_end() {
 
     let store = FlexCoreStore::connect(&db_url).expect("store connects");
     store.run_migrations().expect("migrations apply");
+    // FRV1-R5-004: the inbox table is created by migration
+    // 0024_worker_inbox_p1_16 (applied by the migrations above); the
+    // runtime `ensure_table` was removed with the promotion.
     let inbox = PgInboxStore::new(store.pool().clone()).expect("inbox store starts");
-    inbox.ensure_table().expect("inbox table exists");
 
     // --- Broker and topology ----------------------------------------------
 

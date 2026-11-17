@@ -39,11 +39,19 @@
 // unknown-action alert — recorded in the decision document).
 import { useState } from 'react';
 import type { JSX } from 'react';
-import { HonestEmpty } from '../components/workspaceData';
+import {
+  ErrorBlock,
+  HonestEmpty,
+  LoadingLine,
+  RoleScopeLine,
+  useWorkspaceData,
+  type LoadState,
+} from '../components/workspaceData';
 import { FreshnessLine } from '../components/ValueType';
 import { formatUnixMillis, NOT_PRESENT } from '../components/format';
 import {
   COMMAND_PATH_REQUEST_NOTE,
+  loadSitesEdgeStatus,
   recordCommandPathEnablementRequest,
   type EdgeStatusData,
   type EdgeStatusRow,
@@ -57,6 +65,29 @@ const EXPIRY_TREATMENT_LABEL: Record<string, string> = {
   valid: 'VALID — beyond the rotation window',
   'not-reported': 'NOT REPORTED — the record carries no expiry; never read as "valid forever"',
 };
+
+/**
+ * FRV1-R3-004 (final review): the SELF-LOADING wrapper the App shell
+ * composes BELOW the Sites workspace on the `sites` route (the P7.25
+ * `PluginsInventorySection` pattern: the workspace component above it is
+ * not modified; the sections render in sequence). The header's claim that
+ * "the Sites workspace embeds this extension as a per-edge status panel"
+ * is made TRUE by this wiring: the loader reads the tenant-scoped site
+ * registry for the sites' edge identities and fetches each edge's status
+ * (`loadSitesEdgeStatus`), then the panel renders — with the additive
+ * composition the recorded P6.25 module header describes.
+ */
+export function SitesEdgeStatusPanel(): JSX.Element {
+  const state = useWorkspaceData(loadSitesEdgeStatus);
+  return (
+    <section aria-label="Edge status (Sites extension)" data-testid="sites-edge-status-panel">
+      <RoleScopeLine />
+      {state.status === 'loading' && <LoadingLine what="the per-edge status" />}
+      {state.status === 'error' && <ErrorBlock what="The per-edge status" error={state.error} />}
+      {state.status === 'ready' && <SitesEdgeStatusSection data={state.data} />}
+    </section>
+  );
+}
 
 export function SitesEdgeStatusSection({ data }: { data: EdgeStatusData }): JSX.Element {
   return (

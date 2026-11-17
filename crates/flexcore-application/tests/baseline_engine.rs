@@ -244,6 +244,10 @@ fn capped_symmetric_sda_applies_the_cap_and_records_both_ratios() {
         ProgramBaselineConfig::new("tenant-1".to_string(), "program-1".to_string(), "CBL_10_IN_10".to_string())
             .expect("config is valid");
     config.sda = Some(SdaConfig::new(CAISO_SDA_MAX_PERCENT).expect("the CAISO bound cap is valid"));
+    // The CAISO pack's RECORDED jurisdiction bound (FRV1-R7-005): the
+    // bound is the pack's declared data, never the engine's universal
+    // constant.
+    config.jurisdiction_sda_max_percent = Some(CAISO_SDA_MAX_PERCENT);
     let days = ten_flat_days(2.0, 4);
     // The morning window [0,2): baseline sum = 4.0; actual sum = 6.4 ⇒
     // raw ratio = +60%, capped to +20%.
@@ -269,6 +273,10 @@ fn the_sda_cap_is_symmetric_downward() {
         ProgramBaselineConfig::new("tenant-1".to_string(), "program-1".to_string(), "CBL_10_IN_10".to_string())
             .expect("config is valid");
     config.sda = Some(SdaConfig::new(CAISO_SDA_MAX_PERCENT).expect("the CAISO bound cap is valid"));
+    // The CAISO pack's RECORDED jurisdiction bound (FRV1-R7-005): the
+    // bound is the pack's declared data, never the engine's universal
+    // constant.
+    config.jurisdiction_sda_max_percent = Some(CAISO_SDA_MAX_PERCENT);
     let days = ten_flat_days(2.0, 4);
     // The morning window [0,2): baseline sum = 4.0; actual sum = 2.0 ⇒
     // raw ratio = −50%, capped to −20%.
@@ -293,6 +301,10 @@ fn a_declared_sda_without_its_window_is_a_recorded_gap() {
         ProgramBaselineConfig::new("tenant-1".to_string(), "program-1".to_string(), "CBL_10_IN_10".to_string())
             .expect("config is valid");
     config.sda = Some(SdaConfig::new(CAISO_SDA_MAX_PERCENT).expect("the CAISO bound cap is valid"));
+    // The CAISO pack's RECORDED jurisdiction bound (FRV1-R7-005): the
+    // bound is the pack's declared data, never the engine's universal
+    // constant.
+    config.jurisdiction_sda_max_percent = Some(CAISO_SDA_MAX_PERCENT);
     let days = ten_flat_days(2.0, 4);
     let outcome = compute_baseline(&config, &days, 4, None, &clock);
     match outcome {
@@ -315,6 +327,10 @@ fn an_sda_window_outside_the_interval_grid_is_a_recorded_gap() {
         ProgramBaselineConfig::new("tenant-1".to_string(), "program-1".to_string(), "CBL_10_IN_10".to_string())
             .expect("config is valid");
     config.sda = Some(SdaConfig::new(CAISO_SDA_MAX_PERCENT).expect("the CAISO bound cap is valid"));
+    // The CAISO pack's RECORDED jurisdiction bound (FRV1-R7-005): the
+    // bound is the pack's declared data, never the engine's universal
+    // constant.
+    config.jurisdiction_sda_max_percent = Some(CAISO_SDA_MAX_PERCENT);
     let days = ten_flat_days(2.0, 4);
     // The event window carries 4 intervals; the declared window ends at
     // index 6 — outside the grid.
@@ -340,9 +356,11 @@ fn an_sda_cap_above_the_jurisdiction_bound_is_a_recorded_gap() {
     let mut config =
         ProgramBaselineConfig::new("tenant-1".to_string(), "program-1".to_string(), "CBL_10_IN_10".to_string())
             .expect("config is valid");
-    // 25% exceeds the CAISO-documented ≤20% bound [S-30] (the recorded
-    // sourced bound this engine carries).
+    // 25% exceeds the CAISO-documented ≤20% bound [S-30] — the CAISO
+    // pack's RECORDED jurisdiction bound (FRV1-R7-005: every jurisdiction
+    // refuses against its OWN bound; a pack without one refuses outright).
     config.sda = Some(SdaConfig::new(25.0).expect("25 is in (0, 100]"));
+    config.jurisdiction_sda_max_percent = Some(20.0);
     let days = ten_flat_days(2.0, 4);
     let sda_window =
         SdaWindowInput::new((0, 2), vec![1.0, 1.0]).expect("the SDA window input is valid");
@@ -359,6 +377,112 @@ fn an_sda_cap_above_the_jurisdiction_bound_is_a_recorded_gap() {
         }
         BaselineOutcome::Computed(_) => {
             panic!("a cap above the jurisdiction bound must never be applied")
+        }
+    }
+}
+
+#[test]
+fn an_sda_without_a_recorded_jurisdiction_bound_is_a_recorded_gap() {
+    // FRV1-R7-005: a jurisdiction with NO recorded symmetric-SDA bound
+    // refuses an SDA outright — the bound is never assumed, and no
+    // universal default exists.
+    let clock = FixedClock::at_unix_millis(PINNED_NOW_UNIX_MS);
+    let mut config =
+        ProgramBaselineConfig::new("tenant-1".to_string(), "program-1".to_string(), "CBL_10_IN_10".to_string())
+            .expect("config is valid");
+    config.sda = Some(SdaConfig::new(15.0).expect("15 is in (0, 100]"));
+    // jurisdiction_sda_max_percent stays None: nothing is recorded for
+    // this program's jurisdiction.
+    let days = ten_flat_days(2.0, 4);
+    let sda_window =
+        SdaWindowInput::new((0, 2), vec![3.0, 3.0]).expect("the SDA window input is valid");
+    let outcome = compute_baseline(&config, &days, 4, Some(&sda_window), &clock);
+    match outcome {
+        BaselineOutcome::Gap(gap) => {
+            assert!(matches!(
+                gap.reason,
+                flexcore_application::baseline_engine::BaselineGapReason::SdaJurisdictionBoundUnrecorded
+            ));
+        }
+        BaselineOutcome::Computed(_) => {
+            panic!("an SDA under a jurisdiction without a recorded bound must never be applied")
+        }
+    }
+}
+
+#[test]
+fn a_jurisdiction_refuses_against_its_own_recorded_bound_not_the_caiso_constant() {
+    // FRV1-R7-005: the 20% constant is the CAISO pack's recorded bound —
+    // it is NOT universal. A jurisdiction whose recorded bound is 30%
+    // accepts a 25% cap and refuses a 35% one against ITS OWN bound.
+    let clock = FixedClock::at_unix_millis(PINNED_NOW_UNIX_MS);
+    let mut config =
+        ProgramBaselineConfig::new("tenant-1".to_string(), "program-1".to_string(), "CBL_10_IN_10".to_string())
+            .expect("config is valid");
+    config.sda = Some(SdaConfig::new(25.0).expect("25 is in (0, 100]"));
+    config.jurisdiction_sda_max_percent = Some(30.0);
+    let days = ten_flat_days(2.0, 4);
+    let sda_window =
+        SdaWindowInput::new((0, 2), vec![3.2, 3.2]).expect("the SDA window input is valid");
+    let outcome = compute_baseline(&config, &days, 4, Some(&sda_window), &clock);
+    match outcome {
+        BaselineOutcome::Computed(profile) => {
+            let sda = profile.sda_applied.expect("the SDA was applied");
+            assert!((sda.applied_ratio - 0.25).abs() < 1e-12,
+                "25% is within this jurisdiction's OWN 30% recorded bound");
+        }
+        BaselineOutcome::Gap(gap) => {
+            panic!("25% must be accepted under the jurisdiction's own 30% bound: {gap:?}")
+        }
+    }
+    // Above the jurisdiction's own bound: refused with THAT bound named.
+    let mut config = ProgramBaselineConfig::new("tenant-1".to_string(), "program-1".to_string(), "CBL_10_IN_10".to_string())
+        .expect("config is valid");
+    config.sda = Some(SdaConfig::new(35.0).expect("35 is in (0, 100]"));
+    config.jurisdiction_sda_max_percent = Some(30.0);
+    let outcome = compute_baseline(&config, &days, 4, Some(&sda_window), &clock);
+    match outcome {
+        BaselineOutcome::Gap(gap) => {
+            assert!(matches!(
+                gap.reason,
+                flexcore_application::baseline_engine::BaselineGapReason::SdaCapExceedsJurisdictionBound {
+                    declared_percent: 35.0,
+                    jurisdiction_bound_percent: 30.0,
+                }
+            ));
+        }
+        BaselineOutcome::Computed(_) => {
+            panic!("a cap above the jurisdiction's own bound must never be applied")
+        }
+    }
+}
+
+#[test]
+fn an_sda_over_a_zero_baseline_window_sum_is_a_recorded_gap() {
+    // FRV1-R7-004: a baseline reference window summing to zero has NO
+    // representable adjustment ratio — a RECORDED GAP, never a silent
+    // no-op "applied" adjustment (LR-073).
+    let clock = FixedClock::at_unix_millis(PINNED_NOW_UNIX_MS);
+    let mut config =
+        ProgramBaselineConfig::new("tenant-1".to_string(), "program-1".to_string(), "CBL_10_IN_10".to_string())
+            .expect("config is valid");
+    config.sda = Some(SdaConfig::new(CAISO_SDA_MAX_PERCENT).expect("the CAISO bound cap is valid"));
+    config.jurisdiction_sda_max_percent = Some(CAISO_SDA_MAX_PERCENT);
+    // All-zero eligible days ⇒ the baseline reference window sums to 0.0,
+    // while the day-of actuals are non-zero.
+    let days = ten_flat_days(0.0, 4);
+    let sda_window =
+        SdaWindowInput::new((0, 2), vec![3.0, 3.0]).expect("the SDA window input is valid");
+    let outcome = compute_baseline(&config, &days, 4, Some(&sda_window), &clock);
+    match outcome {
+        BaselineOutcome::Gap(gap) => {
+            assert!(matches!(
+                gap.reason,
+                flexcore_application::baseline_engine::BaselineGapReason::SdaReferenceWindowZero
+            ));
+        }
+        BaselineOutcome::Computed(profile) => {
+            panic!("a zero reference window must never pass as a no-op applied adjustment: {profile:?}")
         }
     }
 }

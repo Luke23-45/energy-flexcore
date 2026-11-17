@@ -76,15 +76,20 @@
 //!    service, not testcontainers) and skip cleanly when it is unset.**
 //!    Database-gated variants (`FLEXCORE_TEST_DATABASE_URL`) cannot live in
 //!    this crate yet: the durable `InboxStore` implementation is the
-//!    postgres adapter's (decision 2), so those tests land with it. This is
+//!    worker composition root's (`apps/worker/src/inbox.rs`, decision 1 as
+//!    amended — FRV1-R5-007), so those tests land with it. This is
 //!    recorded here and in the README rather than simulated.
-//! 6. **Subject-scheme verification (P1.14 §9 binding).** See the README:
-//!    the scheme *shape* matches P1.14 D-J1 (`flexcore.v1.<area>.<slug>`,
-//!    lower_snake_case slugs, no tenant token, wildcards rejected) but the
-//!    flexcore-events area tokens diverge from the P1.14 §3 area tokens on
-//!    8 of 26 events. The publisher is scheme-agnostic (it publishes the
-//!    outbox `destination_subject` verbatim), so the reconciliation is
-//!    required in flexcore-events, not masked here.
+//! 6. **Subject-scheme verification (P1.14 §9 binding) — RECONCILED**
+//!    (final review, FRV1-R5-006; supersedes the recorded "8 of 26 events
+//!    diverge" defect, which is CLOSED). See the README: the scheme
+//!    matches P1.14 D-J1 in shape (`flexcore.v1.<area>.<slug>`,
+//!    lower_snake_case slugs, no tenant token, wildcards rejected) AND in
+//!    area tokens — all 26 frozen events map onto the exact P1.14 §3
+//!    area tokens through the single mapping home
+//!    `crates/flexcore-events/src/subject.rs` (`event_area`), and the
+//!    topology test pins the subject-to-stream mapping. The publisher is
+//!    scheme-agnostic (it publishes the outbox `destination_subject`
+//!    verbatim); no re-mapping exists or is needed here.
 //!
 //! # Scope and control status
 //!

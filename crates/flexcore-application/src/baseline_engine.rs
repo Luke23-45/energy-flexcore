@@ -40,11 +40,14 @@
 // pin).
 //
 // SOURCED BOUNDS: the symmetric SDA cap is program configuration bounded
-// by the jurisdiction's rule — for CAISO the documented bound is ≤20%
-// (`CAISO_SDA_MAX_PERCENT`, cited [S-30], re-verified at use). The cap
-// is SYMMETRIC: the same bound applies to upward and downward
-// adjustments, and the adjustment is capped, never clipped into
-// silence — the pre-cap ratio is recorded alongside the applied one.
+// by the program's JURISDICTION — the bound is RECORDED DATA carried on
+// the jurisdiction record pack (for CAISO the documented bound is ≤20%,
+// `CAISO_SDA_MAX_PERCENT`, cited [S-30], re-verified at use). A
+// jurisdiction with NO recorded bound refuses an SDA (a recorded gap) —
+// never an assumed default (FRV1-R7-005). The cap is SYMMETRIC: the same
+// bound applies to upward and downward adjustments, and the adjustment is
+// capped, never clipped into silence — the pre-cap ratio is recorded
+// alongside the applied one.
 //
 // Control status: pure computation for the simulation-only 0.x line. No
 // I/O, no store, no dispatch authority (ADR-010: baselines are inputs
@@ -65,7 +68,11 @@ pub const FLEXCORE_NEVER_CHOOSES_STATEMENT: &str = "FlexCore NEVER chooses the b
      never a FlexCore-chosen substitute.";
 
 /// The CAISO symmetric-SDA bound in percent, cited from [S-30] (the CAISO
-/// BPM for Demand Response). SOURCED DATA with the re-verify-at-use rule.
+/// BPM for Demand Response). SOURCED DATA with the re-verify-at-use rule —
+/// the CAISO jurisdiction record pack's declared bound
+/// (`jurisdiction_register_data`); other jurisdictions carry their OWN
+/// recorded bounds, and a jurisdiction without one refuses an SDA rather
+/// than assuming this constant (FRV1-R7-005).
 pub const CAISO_SDA_MAX_PERCENT: f64 = 20.0;
 
 /// The closed supported-method vocabulary (the canonical spellings).
@@ -103,12 +110,23 @@ pub enum BaselineGapReason {
     /// adjustment window was not supplied (an SDA is never silently
     /// skipped).
     MissingSdaWindow,
-    /// The SDA configuration exceeded the jurisdiction's bound (for a
-    /// CAISO pack, above `CAISO_SDA_MAX_PERCENT` [S-30]).
+    /// The SDA configuration exceeded the program's OWN recorded
+    /// jurisdiction bound (for a CAISO pack, above
+    /// `CAISO_SDA_MAX_PERCENT` [S-30]; every other jurisdiction refuses
+    /// against its own recorded bound — FRV1-R7-005).
     SdaCapExceedsJurisdictionBound {
         declared_percent: f64,
         jurisdiction_bound_percent: f64,
     },
+    /// The program declares an SDA but its jurisdiction carries NO
+    /// recorded symmetric-SDA bound — the bound is never assumed
+    /// (FRV1-R7-005), so no SDA can be applied.
+    SdaJurisdictionBoundUnrecorded,
+    /// The SDA's baseline (reference) window sums to zero or less, so the
+    /// adjustment ratio is not representable (the ratio divides by the
+    /// reference window). Recorded as a gap — never a silent no-op
+    /// "applied" adjustment (FRV1-R7-004).
+    SdaReferenceWindowZero,
     /// The declared SDA window fell outside the event window's interval
     /// grid (an adjustment is never computed against indices that do
     /// not exist).
@@ -152,6 +170,17 @@ impl std::fmt::Display for BaselineGapReason {
                 f,
                 "the declared SDA cap {declared_percent}% exceeds the jurisdiction bound \
                  {jurisdiction_bound_percent}%"
+            ),
+            BaselineGapReason::SdaJurisdictionBoundUnrecorded => write!(
+                f,
+                "the program declares an SDA but its jurisdiction carries no recorded \
+                 symmetric-SDA bound — the bound is never assumed, so no SDA is applied"
+            ),
+            BaselineGapReason::SdaReferenceWindowZero => write!(
+                f,
+                "the SDA's baseline reference window sums to zero or less; the adjustment \
+                 ratio is not representable — recorded as a gap, never a silent no-op \
+                 adjustment"
             ),
             BaselineGapReason::InvalidSdaWindow => write!(
                 f,
@@ -202,7 +231,7 @@ impl BaselineGapRecord {
             }
         }
         if recorded_at_unix_ms < 0 {
-            return Err(BaselineEngineError::EmptyField {
+            return Err(BaselineEngineError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }
@@ -224,6 +253,18 @@ pub enum BaselineEngineError {
     EmptyField {
         field: &'static str,
     },
+    /// A timestamp field carried a negative value — not an empty field, a
+    /// negative one (named separately: FRV1-R1-009).
+    NegativeTimestamp {
+        /// The offending field.
+        field: &'static str,
+    },
+    /// A numeric field carried a NaN or infinite value — not an empty
+    /// field, a non-finite one (named separately: FRV1-R7-007).
+    NonFiniteValue {
+        /// The offending field.
+        field: &'static str,
+    },
     /// The declared SDA cap was not in (0, 100].
     InvalidSdaCap {
         declared_percent: f64,
@@ -235,6 +276,12 @@ impl std::fmt::Display for BaselineEngineError {
         match self {
             BaselineEngineError::EmptyField { field } => {
                 write!(f, "the baseline-engine field '{field}' must be non-empty")
+            }
+            BaselineEngineError::NegativeTimestamp { field } => {
+                write!(f, "the baseline-engine field '{field}' must be non-negative")
+            }
+            BaselineEngineError::NonFiniteValue { field } => {
+                write!(f, "the baseline-engine field '{field}' must be finite")
             }
             BaselineEngineError::InvalidSdaCap { declared_percent } => write!(
                 f,
@@ -277,10 +324,12 @@ pub struct WeatherIndexFilter {
     pub tolerance: f64,
 }
 
-/// The program's SDA configuration: the symmetric cap in percent. For a
-/// CAISO pack the bound is `CAISO_SDA_MAX_PERCENT` (≤20% [S-30]);
-/// exceeding the declared jurisdiction bound is a RECORDED GAP, never a
-/// widened cap.
+/// The program's SDA configuration: the symmetric cap in percent. The cap
+/// is refused against the program's OWN recorded jurisdiction bound
+/// (`ProgramBaselineConfig::jurisdiction_sda_max_percent`; for a CAISO
+/// pack that bound is `CAISO_SDA_MAX_PERCENT`, ≤20% [S-30]); exceeding
+/// the recorded jurisdiction bound is a RECORDED GAP, never a widened
+/// cap.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SdaConfig {
     pub cap_percent: f64,
@@ -308,6 +357,13 @@ pub struct ProgramBaselineConfig {
     pub day_type_filter: Option<DayTypeFilter>,
     pub weather_filter: Option<WeatherIndexFilter>,
     pub sda: Option<SdaConfig>,
+    /// The program's jurisdiction's RECORDED symmetric-SDA bound in
+    /// percent, as declared data (read by the caller from the jurisdiction
+    /// record pack; for a CAISO pack it is `CAISO_SDA_MAX_PERCENT` [S-30]).
+    /// `None` = the jurisdiction carries NO recorded bound — a program
+    /// declaring an SDA under it is a RECORDED GAP, never an assumed
+    /// default (FRV1-R7-005).
+    pub jurisdiction_sda_max_percent: Option<f64>,
     /// The declared selection rule (required for `DAY_MATCHING`; the
     /// CBL methods derive theirs from the method name).
     pub selection: Option<BaselineSelectionRule>,
@@ -336,6 +392,7 @@ impl ProgramBaselineConfig {
             day_type_filter: None,
             weather_filter: None,
             sda: None,
+            jurisdiction_sda_max_percent: None,
             selection: None,
         })
     }
@@ -373,7 +430,7 @@ impl DayProfile {
             return Err(BaselineEngineError::EmptyField { field: "day_key" });
         }
         if interval_values_mw.iter().any(|v| !v.is_finite()) {
-            return Err(BaselineEngineError::EmptyField {
+            return Err(BaselineEngineError::NonFiniteValue {
                 field: "interval_values_mw",
             });
         }
@@ -611,17 +668,24 @@ pub fn compute_baseline(
         return gap(BaselineGapReason::UnsupportedMethod);
     }
 
-    // The SDA configuration is validated before anything else: a cap
-    // exceeding the jurisdiction bound is a RECORDED GAP (for a CAISO
-    // pack the bound is ≤20% [S-30]); this check applies to every
-    // program — the jurisdiction's bound is declared BY the pack, and
-    // the CAISO constant is the recorded sourced bound.
+    // The SDA configuration is validated before anything else: the cap is
+    // refused against the program's OWN recorded jurisdiction bound — the
+    // bound is declared data carried on the configuration (read from the
+    // jurisdiction record pack; for a CAISO pack that recorded bound is
+    // `CAISO_SDA_MAX_PERCENT` ≤20% [S-30]). A jurisdiction with NO
+    // recorded bound refuses an SDA outright — never an assumed default
+    // (FRV1-R7-005).
     if let Some(sda) = &config.sda {
-        if sda.cap_percent > CAISO_SDA_MAX_PERCENT {
-            return gap(BaselineGapReason::SdaCapExceedsJurisdictionBound {
-                declared_percent: sda.cap_percent,
-                jurisdiction_bound_percent: CAISO_SDA_MAX_PERCENT,
-            });
+        match config.jurisdiction_sda_max_percent {
+            Some(bound) => {
+                if sda.cap_percent > bound {
+                    return gap(BaselineGapReason::SdaCapExceedsJurisdictionBound {
+                        declared_percent: sda.cap_percent,
+                        jurisdiction_bound_percent: bound,
+                    });
+                }
+            }
+            None => return gap(BaselineGapReason::SdaJurisdictionBoundUnrecorded),
         }
         if sda_window.is_none() {
             return gap(BaselineGapReason::MissingSdaWindow);
@@ -670,19 +734,21 @@ pub fn compute_baseline(
         *value /= count;
     }
 
-    // The capped symmetric SDA (declared by the program; CAISO bound
-    // ≤20% [S-30], enforced above). Both ratios are recorded — the cap
-    // is applied, never clipped into silence.
+    // The capped symmetric SDA (declared by the program; the recorded
+    // jurisdiction bound, enforced above). Both ratios are recorded — the
+    // cap is applied, never clipped into silence. A baseline reference
+    // window summing to zero or less has NO representable adjustment
+    // ratio — a RECORDED GAP, never a silent no-op "applied" adjustment
+    // (FRV1-R7-004).
     let sda_applied = match (&config.sda, sda_window) {
         (Some(sda), Some(window)) => {
             let (start, end) = window.window_interval_indices;
             let baseline_window_sum: f64 = baseline[start..end].iter().sum();
             let actual_window_sum: f64 = window.actual_mw.iter().sum();
-            let raw_ratio = if baseline_window_sum > 0.0 {
-                (actual_window_sum - baseline_window_sum) / baseline_window_sum
-            } else {
-                0.0
-            };
+            if baseline_window_sum <= 0.0 {
+                return gap(BaselineGapReason::SdaReferenceWindowZero);
+            }
+            let raw_ratio = (actual_window_sum - baseline_window_sum) / baseline_window_sum;
             let cap = sda.cap_percent / 100.0;
             let applied_ratio = raw_ratio.clamp(-cap, cap);
             for value in &mut baseline {

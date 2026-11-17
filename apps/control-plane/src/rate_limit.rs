@@ -198,8 +198,13 @@ impl RateLimitState {
     fn try_consume(&self, class: PrincipalClass, tenant: &str) -> Result<(), u64> {
         let mut buckets = self.buckets.lock().expect("rate-limit mutex poisoned");
         let key = (class.as_str().to_string(), tenant.to_string());
-        let bucket = buckets.entry(key).or_insert_with(|| TokenBucket::new(class));
-        if buckets.len() > MAX_TRACKED_BUCKETS {
+        // FRV1-R2-006 (final review): the eviction check runs BEFORE the
+        // insert, so the map never transiently holds MAX+1 entries and the
+        // eviction scan can never drop the bucket the caller is about to
+        // use. A key that already has a bucket inserts nothing and needs
+        // no eviction. Post-insert the map holds at most
+        // MAX_TRACKED_BUCKETS entries — the stated bound, not one past it.
+        if !buckets.contains_key(&key) && buckets.len() >= MAX_TRACKED_BUCKETS {
             // Bounded map: evict the least-recently-refilled bucket. A
             // linear scan is acceptable at the registered cap.
             if let Some(oldest) = buckets
@@ -210,6 +215,7 @@ impl RateLimitState {
                 buckets.remove(&oldest);
             }
         }
+        let bucket = buckets.entry(key).or_insert_with(|| TokenBucket::new(class));
         bucket.try_consume()
     }
 
@@ -228,15 +234,38 @@ impl RateLimitState {
         Ok(())
     }
 
-    /// The rejection counters (rendered nowhere yet — see the handoff
-    /// note in the P11.14 record; the 429 responses ARE counted in the
-    /// existing `flexcore_http_requests_total{status="429"}` series by the
+    /// The rejection counters, rendered on `/metrics` under their own
+    /// families (FRV1-R2-006: the counters were incremented but rendered
+    /// nowhere — the P11.14 record §5 handoff note is closed by the
+    /// additive P11.01 taxonomy amendment, families 6 and 7; the 429
+    /// responses remain counted in the existing
+    /// `flexcore_http_requests_total{status="429"}` series by the
     /// outermost correlation middleware).
     pub fn rejection_counters(&self) -> (u64, u64) {
         (
             self.rejected_total.load(Ordering::Relaxed),
             self.in_flight_rejected_total.load(Ordering::Relaxed),
         )
+    }
+
+    /// Renders the two rejection-counter families in the Prometheus text
+    /// exposition format (appended to the P1.20 registry body by the
+    /// `/metrics` handler). Always renders, zero values included (the
+    /// always-render discipline of the P1.20/P11.01 registries); no
+    /// labels (the recorded cardinality decision — per-class breakdowns
+    /// travel in the correlation log line, never as label axes).
+    pub fn render_rejection_metrics(&self) -> String {
+        let (rate_limited, in_flight_rejected) = self.rejection_counters();
+        let mut out = String::new();
+        out.push_str("# HELP flexcore_rate_limit_rejections_total Requests rejected with 429 by the P11.14 token-bucket limiter (probes and /metrics are never rate limited).\n");
+        out.push_str("# TYPE flexcore_rate_limit_rejections_total counter\n");
+        out.push_str(&format!("flexcore_rate_limit_rejections_total {rate_limited}\n"));
+        out.push_str("# HELP flexcore_rate_limit_in_flight_rejections_total Command-submission requests rejected with 429 by the per-tenant in-flight cap (the cap releases as requests complete).\n");
+        out.push_str("# TYPE flexcore_rate_limit_in_flight_rejections_total counter\n");
+        out.push_str(&format!(
+            "flexcore_rate_limit_in_flight_rejections_total {in_flight_rejected}\n"
+        ));
+        out
     }
 }
 
@@ -447,5 +476,61 @@ mod tests {
             state.enter_in_flight(class, "tenant-a").is_ok(),
             "released on drop"
         );
+    }
+
+    /// FRV1-R2-006 (final review): the rejection counters are rendered
+    /// under their own families on `/metrics` — every 429 increments the
+    /// matching counter, and the rendered body exposes both families with
+    /// the incremented values (the always-render, zero-included
+    /// discipline).
+    #[test]
+    fn rejection_counters_render_under_their_own_families() {
+        let state = RateLimitState::default();
+        let class = PrincipalClass::Plugin;
+        for _ in 0..class.burst() as usize {
+            let _ = state.try_consume(class, "tenant-a");
+        }
+        let _ = state.try_consume(class, "tenant-a"); // 429 (bucket empty)
+        let _ = state.enter_in_flight(class, "tenant-a");
+        let _ = state.enter_in_flight(class, "tenant-a"); // over the cap
+        let body = state.render_rejection_metrics();
+        assert!(
+            body.contains("flexcore_rate_limit_rejections_total 1"),
+            "the token-bucket rejection must render: {body}"
+        );
+        assert!(
+            body.contains("flexcore_rate_limit_in_flight_rejections_total 1"),
+            "the in-flight-cap rejection must render: {body}"
+        );
+        let fresh = RateLimitState::default();
+        let body = fresh.render_rejection_metrics();
+        assert!(body.contains("flexcore_rate_limit_rejections_total 0"));
+        assert!(body.contains("flexcore_rate_limit_in_flight_rejections_total 0"));
+    }
+
+    /// FRV1-R2-006 (final review): the eviction check runs BEFORE the
+    /// insert, so the bucket map never exceeds the registered cap — the
+    /// just-inserted bucket survives its own insertion.
+    #[test]
+    fn the_bucket_map_stays_bounded_across_eviction() {
+        let state = RateLimitState::default();
+        // Drive the map past the cap with distinct keys; every key still
+        // gets a usable bucket (Ok or a bounded-map rejection — never a
+        // panic), and the map can never hold more than the cap.
+        for i in 0..(MAX_TRACKED_BUCKETS + 50) {
+            let _ = state.try_consume(PrincipalClass::Plugin, &format!("tenant-{i}"));
+        }
+        let buckets = state.buckets.lock().expect("rate-limit mutex poisoned");
+        assert!(
+            buckets.len() <= MAX_TRACKED_BUCKETS,
+            "the map must never exceed the registered cap (held {})",
+            buckets.len()
+        );
+        // The most recent key was inserted after the last eviction and is
+        // still present.
+        assert!(buckets.contains_key(&(
+            PrincipalClass::Plugin.as_str().to_string(),
+            format!("tenant-{}", MAX_TRACKED_BUCKETS + 49)
+        )));
     }
 }

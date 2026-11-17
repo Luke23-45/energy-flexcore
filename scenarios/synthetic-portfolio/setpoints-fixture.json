@@ -1,0 +1,6 @@
+{
+  "site-north-bess-1": [
+    { "from_seconds": 0, "p_mw": 0.8 },
+    { "from_seconds": 1800, "p_mw": -1.2 }
+  ]
+}

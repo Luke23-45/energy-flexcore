@@ -754,3 +754,26 @@ describe('P5.08/P5.27 mode interaction on the workspace', () => {
     expect(html).toContain('ONLY against the simulator');
   });
 });
+
+// --- FRV1-R9-001 (wave 2, Agent B, APPENDED — nothing above was modified) ----
+// Structural pin for the additive wide-table containment wrappers (see
+// Overview.test.tsx for the full rationale). Six SimulationLab tables are
+// wide enough to overflow a fixed-radius card: the scenario library (9
+// columns), the replay per-leg comparisons, benchmark tables A and B, the
+// §12.6 candidate comparison, and the fault journal.
+import { readFileSync as readSourceFs } from 'node:fs';
+import { join as joinSourcePath, dirname as dirnameSourcePath } from 'node:path';
+import { fileURLToPath as fileUrlToSourcePath } from 'node:url';
+
+describe('FRV1-R9-001 (wave 2): .table-scroll containment wrappers (source-pinned)', () => {
+  it('the six wide SimulationLab tables are wrapped in additive table-scroll divs', () => {
+    const source = readSourceFs(
+      joinSourcePath(
+        dirnameSourcePath(fileUrlToSourcePath(import.meta.url)),
+        'SimulationLab.tsx',
+      ),
+      'utf-8',
+    );
+    expect(source.split('<div className="table-scroll">').length - 1).toBe(6);
+  });
+});

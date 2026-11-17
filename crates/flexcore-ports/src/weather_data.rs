@@ -46,7 +46,11 @@
 // vendor account, token, or endpoint exists (the API key is a HUMAN GATE
 // input, UNSIGNED until registered — P15-E-1). The PV forecasting service
 // that consumes this port is the P15.03/P15.16 design; nothing here
-// produces a forecast.
+// produces a forecast. The port's only shipped implementation is the
+// fail-closed [`UnwiredWeatherDataProvider`] default below (FRV1-R1-003
+// recorded deferral): it refuses every read by name, so the seam is
+// visible in any composition that has not deliberately wired a real
+// adapter.
 
 use flexcore_contracts::quality::TelemetryQuality;
 use flexcore_contracts::time_model::EventTime;
@@ -256,9 +260,12 @@ impl WeatherSample {
 /// The weather-data ingestion port (P15.03). The port defines the
 /// interface ONLY; the implementing adapter is the composition root's
 /// choice once P15-E-1 is closed (DEFAULT/RECOMMENDATION: a commercial
-/// irradiance/power service, ingested as DATA with provenance). No
-/// implementation ships in this crate, and no vendor, product, protocol,
-/// or endpoint is named here — the crate's vendor-name grep gate holds.
+/// irradiance/power service, ingested as DATA with provenance). No ADAPTER
+/// implementation ships in this crate — the only shipped implementation is
+/// the fail-closed [`UnwiredWeatherDataProvider`] default (FRV1-R1-003
+/// recorded deferral), which refuses every read by name — and no vendor,
+/// product, protocol, or endpoint is named here — the crate's vendor-name
+/// grep gate holds.
 ///
 /// Control status: an INPUT seam for forecasting (ADR-010 extension,
 /// conventions §6.3). Nothing here authorizes, issues, or dispatches
@@ -343,6 +350,69 @@ impl std::fmt::Display for WeatherPortError {
 
 impl std::error::Error for WeatherPortError {}
 
+// --- The unwired shipped default ---------------------------------------------
+
+/// The name the unwired default reports in every refusal code (surfaced in
+/// the [`WeatherPortError::ProviderUnavailable`] code so a log or metric
+/// labels the unwired seam by name).
+pub const WEATHER_PROVIDER_SEAM_NOT_WIRED: &str = "WEATHER_PROVIDER_SEAM_NOT_WIRED";
+
+/// The shipped default [`WeatherDataProvider`] implementation: refuses
+/// every read with the named `WEATHER_PROVIDER_SEAM_NOT_WIRED` refusal
+/// (FRV1-R1-003 recorded deferral; the fail-closed `Unwired*` seam idiom
+/// this workspace already uses at the protocol-port layer, lifted to this
+/// port). No adapter implements the weather port anywhere in the 0.x
+/// baseline — the build-vs-buy decision P15-E-1 is a registered OPEN human
+/// gate (its DEFAULT/RECOMMENDATION names a commercial service class, and
+/// the concrete vendor/technology belongs to a future adapter, never to
+/// this port — the vendor-name gate holds), so NO vendor integration is
+/// invented here. A wired provider can only arrive as a deliberate,
+/// composed adapter implementation — never as a silent default.
+///
+/// Fail-closed by construction: both reads answer
+/// [`WeatherPortError::ProviderUnavailable`] (a missing weather provider is
+/// never answered with synthetic weather), so a composition that wires this
+/// default by mistake refuses loudly instead of feeding fabricated data
+/// into the P15.16 staleness rules.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnwiredWeatherDataProvider;
+
+impl WeatherDataProvider for UnwiredWeatherDataProvider {
+    fn latest_observation(
+        &self,
+        _ctx: &TenantContext,
+        _site_id: &SiteId,
+        _quantity: WeatherQuantity,
+    ) -> Result<Option<WeatherSample>, WeatherPortError> {
+        Err(WeatherPortError::ProviderUnavailable {
+            code: WEATHER_PROVIDER_SEAM_NOT_WIRED.to_string(),
+            message: "no adapter implements the WeatherDataProvider port in this \
+                      baseline (FRV1-R1-003 recorded deferral; the P15-E-1 \
+                      provider decision is an open human gate) — per-site weather \
+                      lands with the first adapter composition"
+                .to_string(),
+        })
+    }
+
+    fn forecast_series(
+        &self,
+        _ctx: &TenantContext,
+        _site_id: &SiteId,
+        _quantity: WeatherQuantity,
+        _valid_from_millis: i64,
+        _valid_until_millis: i64,
+    ) -> Result<Vec<WeatherSample>, WeatherPortError> {
+        Err(WeatherPortError::ProviderUnavailable {
+            code: WEATHER_PROVIDER_SEAM_NOT_WIRED.to_string(),
+            message: "no adapter implements the WeatherDataProvider port in this \
+                      baseline (FRV1-R1-003 recorded deferral; the P15-E-1 \
+                      provider decision is an open human gate) — per-site weather \
+                      lands with the first adapter composition"
+                .to_string(),
+        })
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests (WRITTEN-UNRUN — no cargo command was executed in this loop; the
 // human build/test gate owns the run. Every expected value below is a
@@ -363,6 +433,23 @@ mod tests {
 
     fn valid_at() -> EventTime {
         EventTime::from_unix_millis(1_780_272_000_000).expect("fixture instant is representable")
+    }
+
+    /// The only path a read can take to a tenant scope: authenticated
+    /// claims → tenant context. There is no other constructor.
+    fn tenant_context() -> TenantContext {
+        use flexcore_domain::ids::TenantId;
+        use flexcore_domain::tenant_context::{AuthenticatedClaims, VerifiedClaims};
+        use flexcore_contracts::ids::FlexUuid;
+        TenantContext::from_authenticated_claims(AuthenticatedClaims::from_verified(
+            VerifiedClaims {
+                tenant_id: TenantId::new(
+                    FlexUuid::parse("0192a800-0000-7000-8000-00000000000a")
+                        .expect("fixture tenant id is a valid uuid"),
+                ),
+                subject: "user:weather-port-test".to_string(),
+            },
+        ))
     }
 
     #[test]
@@ -493,5 +580,25 @@ mod tests {
         for error in errors {
             assert!(!error.to_string().is_empty());
         }
+    }
+
+    // FRV1-R1-003 — the unwired default is a named fail-closed refusal,
+    // never synthetic weather.
+    #[test]
+    fn the_unwired_default_refuses_every_read_by_name() {
+        let provider = UnwiredWeatherDataProvider;
+        let err = provider
+            .latest_observation(&tenant_context(), &site(), WeatherQuantity::AirTemperatureDegC)
+            .expect_err("the unwired default refuses");
+        assert_eq!(err.name(), "WEATHER_PROVIDER_UNAVAILABLE");
+        let rendered = err.to_string();
+        assert!(rendered.contains(WEATHER_PROVIDER_SEAM_NOT_WIRED));
+        assert!(rendered.contains("FRV1-R1-003"));
+
+        let err = provider
+            .forecast_series(&tenant_context(), &site(), WeatherQuantity::AirTemperatureDegC, 0, 1)
+            .expect_err("the unwired default refuses");
+        assert_eq!(err.name(), "WEATHER_PROVIDER_UNAVAILABLE");
+        assert!(err.to_string().contains(WEATHER_PROVIDER_SEAM_NOT_WIRED));
     }
 }

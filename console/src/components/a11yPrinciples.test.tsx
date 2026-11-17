@@ -128,15 +128,25 @@ describe('P5.12 — interactive elements are labelled', () => {
 // --- P5.12 step 1: role-specific screens --------------------------------------
 
 describe('P5.12 — the role model is the closed authz vocabulary, displayed per workspace', () => {
-  it('the console does not invent roles: the vocabulary is the four authz roles', () => {
-    // Mirrors crates/flexcore-authz/src/policy.rs (adminData.ts AUTHZ_ROLES).
-    // The subtask brief's "auditor" maps onto the audit-read actions a role
-    // holds — there is NO auditor role in the vocabulary, and none is added.
+  it('the console does not invent roles: the vocabulary is the five authz roles, derived from one mirror', () => {
+    // Mirrors crates/flexcore-authz/src/policy.rs — via the SINGLE
+    // authoritative role mirror (capabilityMatrix.ts ROLES, FRV1-R3-003):
+    // adminData.ts AUTHZ_ROLES is DERIVED (re-exported), not redeclared,
+    // so the role id literals live in exactly one place. The subtask
+    // brief's "auditor" maps onto the audit-read actions a role holds —
+    // there is NO auditor role in the vocabulary, and none is added.
     const source = readFileSync(new URL('../workspaces/adminData.ts', import.meta.url), 'utf8');
-    expect(source).toContain("'platform-admin'");
-    expect(source).toContain("'tenant-admin'");
-    expect(source).toContain("'operator'");
-    expect(source).toContain("'viewer'");
+    expect(source).toContain("from '../security/capabilityMatrix'");
+    const matrixSource = readFileSync(
+      new URL('../security/capabilityMatrix.ts', import.meta.url),
+      'utf8',
+    );
+    expect(matrixSource).toContain("'platform-admin'");
+    expect(matrixSource).toContain("'tenant-admin'");
+    expect(matrixSource).toContain("'operator'");
+    expect(matrixSource).toContain("'viewer'");
+    expect(matrixSource).toContain("'site-approver'");
+    expect(matrixSource).not.toContain("'auditor'");
     expect(source).not.toContain("'auditor'");
   });
 

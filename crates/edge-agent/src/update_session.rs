@@ -844,11 +844,12 @@ impl ExtendedUpdateGate {
     }
 
     /// Records one audit event through the edge `AuditSink` (the same
-    /// dedicated-event-name-leads-detail pattern as the P9.34 module).
+    /// dedicated-event-name-leads-detail pattern as the P9.34 module;
+    /// classified `EdgeAuditKind::UpdateLifecycle` — FRV1-R6-005).
     fn audit_event(&self, name: &'static str, detail: String) {
         let event = EdgeAuditEvent {
             recorded_at: self.clock.now_ingest_time(),
-            kind: EdgeAuditKind::Startup,
+            kind: EdgeAuditKind::UpdateLifecycle,
             detail: format!("{name}: {detail}"),
         };
         if let Err(error) = self.audit.record(event) {

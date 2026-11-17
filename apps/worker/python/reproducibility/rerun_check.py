@@ -51,7 +51,13 @@
 #    zero deviation. A "within_tolerance" record (ML inference reruns,
 #    with GPU nondeterminism DISCLOSED in the record, P8.38) is compared
 #    at the pre-registered value. Which class applies is recorded on the
-#    record (record_schema.v1 tolerance_class), never inferred here.
+#    record (record_schema.v1 tolerance_class), never inferred here — and
+#    the declared class and the injected pre-registered tolerance's class
+#    must AGREE: a disagreement is the named outcome
+#    TOLERANCE_CLASS_CONFLICT (a fail-closed refusal, never silently
+#    labeled from one side — an exact-class record rerun under a
+#    within-tolerance comparison is not a reproduction of the recorded
+#    discipline, whichever way the numbers came out).
 # 6. REPORTING ONLY — NEVER A DISPATCH INPUT (ADR-010). The namespace
 #    contains NO dispatch/issue/authorize/approve/command-shaped callable
 #    (pinned by a self-test); a rerun verdict is reproducibility
@@ -329,7 +335,15 @@ def rerun_verdict(
          failure: the rerun is not of the recorded result);
       2. a "distribution"-class primary -> BLOCKED_DISTRIBUTION (P8.38
          owns the procedure);
-      3. otherwise the output comparison under the injected
+      3. a tolerance refusal from the comparison (no injected tolerance,
+         malformed, distribution-class, ...) -> BLOCKED_<refusal>;
+      4. a declared-vs-injected tolerance-CLASS conflict -> the named
+         outcome TOLERANCE_CLASS_CONFLICT (the comparison is never
+         labeled from the record's class alone: the record declares the
+         class, the injected tolerance enforces it, and the two must
+         agree — an exact-class record compared at a nonzero tolerance is
+         not REPRODUCED_EXACT, whatever the deviations read);
+      5. otherwise the output comparison under the injected
          pre-registered tolerance, with the exclusion marking on a
          non-reproducing result.
 
@@ -372,6 +386,32 @@ def rerun_verdict(
             "outcome": "BLOCKED_" + comparison["refusal"],
             "findings": [],
             "detail": comparison["detail"],
+            "usage": REPORTING_ONLY_STATEMENT,
+        }
+    # The class must agree on BOTH sides before any reproduction verdict
+    # is labeled: the record's declared tolerance_class and the injected
+    # pre-registered tolerance's class. Labeling from the record alone
+    # would let an exact-class record "reproduce" under a nonzero
+    # tolerance (and vice versa) — the exact mislabeling the header's
+    # item-5 discipline forbids (final-review finding FRV1-R4-004).
+    injected_class = comparison.get("tolerance_class")
+    if injected_class != tolerance_class:
+        return {
+            "outcome": "TOLERANCE_CLASS_CONFLICT",
+            "findings": [
+                f"TOLERANCE_CLASS_CONFLICT:record declares {tolerance_class!r} "
+                f"but the injected pre-registered tolerance is class "
+                f"{injected_class!r}"
+            ],
+            "detail": (
+                "the record's declared tolerance class and the injected "
+                "pre-registered tolerance's class disagree — no "
+                "reproduction verdict is labeled from a conflicting "
+                "comparison; re-run under the pre-registered tolerance "
+                "that matches the record's declared class (P8.38 owns the "
+                "pre-registration)"
+            ),
+            "comparison": comparison,
             "usage": REPORTING_ONLY_STATEMENT,
         }
     if comparison["verdict"] == "REPRODUCED":
@@ -428,6 +468,17 @@ def _exact_record() -> dict:
         "tolerance_class": "exact",
         "outputs_comparable": {"objective": 8.0, "feasible_interval_count": 96.0},
     }
+
+
+def _within_tolerance_record() -> dict:
+    """The same HAND-CONSTRUCTED record body with the tolerance_class a
+    within-tolerance module declares — used by the verdict tests whose
+    injected tolerance is within_tolerance, so the declared and injected
+    classes AGREE (a mismatch is its own named outcome, tested
+    separately)."""
+    record = _exact_record()
+    record["tolerance_class"] = "within_tolerance"
+    return record
 
 
 def run_self_tests() -> list:
@@ -520,13 +571,20 @@ def run_self_tests() -> list:
         "objective": 8.3,
         "feasible_interval_count": 96.0,
     }
-    verdict = rerun_verdict(primary_pair, rerun_pair, within_tolerance)
+    within_primary_pair = _within_tolerance_record()
+    within_rerun_pair = _within_tolerance_record()
+    within_rerun_pair["outputs_comparable"] = {
+        "objective": 8.3,
+        "feasible_interval_count": 96.0,
+    }
+    verdict = rerun_verdict(within_primary_pair, within_rerun_pair, within_tolerance)
     check(
         "non_reproducing_marked_for_exclusion",
         verdict["outcome"] == "NOT_REPRODUCED_MARKED_FOR_EXCLUSION"
         and verdict["exclusion_statement"] is not None
         and "EXCLUDED" in verdict["exclusion_statement"],
-        "ledger step 4 in code: a non-reproducing result carries the "
+        "ledger step 4 in code: a non-reproducing result (declared class "
+        "within_tolerance, injected class within_tolerance) carries the "
         "exclusion marking P8.26 must honour",
     )
 
@@ -665,6 +723,47 @@ def run_self_tests() -> list:
         "string_number_mismatch_refused",
         result.get("refusal") == "OUTPUT_VALUE_TYPE_MISMATCH",
         "8.0 vs 'eight' is a type mismatch — refused, never coerced",
+    )
+
+    # (17) Declared-vs-injected tolerance-CLASS conflict -> the named
+    #      outcome TOLERANCE_CLASS_CONFLICT, never a reproduction verdict:
+    #      an exact-class record rerun under an injected within_tolerance
+    #      tolerance (identical outputs, so the numbers alone would "pass")
+    #      is NOT labeled REPRODUCED_EXACT — the comparison enforced a
+    #      different discipline than the record declares.
+    conflict_primary = _exact_record()
+    conflict_rerun = _exact_record()
+    verdict = rerun_verdict(conflict_primary, conflict_rerun, within_tolerance)
+    check(
+        "tolerance_class_conflict_named",
+        verdict["outcome"] == "TOLERANCE_CLASS_CONFLICT"
+        and verdict["findings"]
+        == [
+            "TOLERANCE_CLASS_CONFLICT:record declares 'exact' but the "
+            "injected pre-registered tolerance is class 'within_tolerance'"
+        ],
+        "hand-checked: exact-class record + injected within_tolerance "
+        "tolerance + identical outputs -> the named conflict outcome, "
+        "never REPRODUCED_EXACT (the label must not come from the record "
+        "alone when the injected class disagrees)",
+    )
+
+    # (18) A within_tolerance-class record rerun under the matching
+    #      injected tolerance labels REPRODUCED_WITHIN_PRE_REGISTERED_
+    #      TOLERANCE: 8.0 vs 8.25 -> deviation 0.25 <= 0.25, classes agree.
+    reproduced_within = _within_tolerance_record()
+    reproduced_within_rerun = _within_tolerance_record()
+    reproduced_within_rerun["outputs_comparable"] = {"objective": 8.25}
+    reproduced_within["outputs_comparable"] = {"objective": 8.0}
+    verdict = rerun_verdict(
+        reproduced_within, reproduced_within_rerun, within_tolerance
+    )
+    check(
+        "reproduced_within_tolerance_outcome",
+        verdict["outcome"] == "REPRODUCED_WITHIN_PRE_REGISTERED_TOLERANCE",
+        "stated arithmetic: 8.25 - 8.0 = 0.25 <= 0.25 with declared class "
+        "within_tolerance AND injected class within_tolerance (agreeing) "
+        "-> the within-tolerance reproduction outcome",
     )
 
     # (16) Namespace pin: no dispatch-shaped callable (reporting-only,

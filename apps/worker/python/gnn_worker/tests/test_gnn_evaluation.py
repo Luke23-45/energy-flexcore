@@ -266,9 +266,13 @@ class TestCarriedStatementsAndContractGaps:
     def test_headline_rule_verbatim(self):
         assert "never model inference latency" in ev.HEADLINE_RULE
 
-    def test_holdout_status_is_unconfirmed_recommendation(self):
-        assert ev.HOLDOUT_STATUS.startswith("RECOMMENDATION — UNCONFIRMED")
-        assert "lib-06" in ev.HOLDOUT_STATUS
+    def test_holdout_status_carries_manifest_resolution(self):
+        # Superseded by training-data-manifest-v1 findings F-1/F-2; the
+        # superseded P8.10 §4 RECOMMENDATION text is kept for provenance.
+        assert ev.HOLDOUT_STATUS.startswith("RESOLVED BY training-data-manifest-v1")
+        assert "fam-regime-holdout-lib-06-07-08" in ev.HOLDOUT_STATUS
+        assert "F-2" in ev.HOLDOUT_STATUS
+        assert "SUPERSEDED ASSIGNMENT" in ev.HOLDOUT_STATUS
         assert "P8.35" in ev.HOLDOUT_STATUS
 
     def test_no_threshold_is_set_here(self):

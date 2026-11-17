@@ -1,0 +1,2208 @@
+/* ============================================================================
+   Neryva FlexCore — Operator Console visual system (FRV1-R9 wave)
+   ----------------------------------------------------------------------------
+   Contract: docs/reviews/final_review_for_v1/01_reviews/design_spec_console_ios.md
+   ("Design Spec — Console Visual System (Apple iOS-Inspired) — Iteration 2").
+
+   One stylesheet keyed on the EXISTING semantic class names (nothing is
+   renamed; the 42 written-unrun test files pin the structure). The idiom is
+   the iOS Settings app: inset grouped cards, hairline separators, tabular
+   numerals, frosted chrome. Section comments below map each block to the
+   spec section it implements (§2 tokens, §3 typography, §4 shell recipes,
+   §5 content recipes, §5 tail reduced-motion/focus/print).
+
+   Constraints honored here:
+   - system font stacks only (no webfont, no external asset of any kind);
+   - light/dark driven by prefers-color-scheme (tokens only, one design);
+   - every animation/transition longer than ~80ms is gated behind
+     prefers-reduced-motion: no-preference;
+   - :focus-visible is never removed, only restyled;
+   - no fixed pixel heights that could clip text (operators run at 200% zoom;
+     paddings/min-heights leave room for wrapped lines).
+
+   Recording note: this stylesheet is written UNRUN (no build/dev server was
+   started; the human gate runs the console). The structural test beside it
+   (design-system.test.ts) pins the non-negotiables the same way
+   honestyStructural.test.ts pins the honesty contract.
+   ========================================================================== */
+
+
+/* ============================================================================
+   §2 — DESIGN TOKENS (light)
+   All values from the §2 table. Light values live on :root; dark overrides in
+   the @media block below. Custom properties only — no preprocessor.
+   ========================================================================== */
+:root {
+  /* Light/dark awareness for form controls, scrollbars, and UA chrome. */
+  color-scheme: light dark;
+
+  /* --- Surfaces --- */
+  --bg-grouped: #F2F2F7;              /* page background (iOS grouped backdrop) */
+  --bg-elevated: #FFFFFF;             /* inset grouped card surface */
+  --bg-secondary-fill: rgba(120, 120, 128, 0.12);   /* iOS systemFill */
+  --bg-chrome: rgba(242, 242, 247, 0.82);           /* frosted header base */
+
+  /* --- Label tiers (three tiers, per §2) --- */
+  --label: #000000;
+  --label-secondary: rgba(60, 60, 67, 0.60);        /* #3C3C43 @ 60% */
+  --label-tertiary: rgba(60, 60, 67, 0.30);         /* #3C3C43 @ 30% */
+
+  /* --- Separator (hairline drawn at sub-pixel APPARENT weight via alpha,
+         never a 0.5px border — §2 derived tokens) --- */
+  --separator: rgba(198, 198, 200, 0.65);           /* #C6C6C8 @ ~65% */
+
+  /* --- The seven accent colors --- */
+  --blue: #007AFF;
+  --green: #34C759;
+  --red: #FF3B30;
+  --orange: #FF9500;
+  --yellow: #FFCC00;
+  --teal: #30B0C7;
+  --indigo: #5856D6;
+  --gray: #8E8E93;
+
+  /* --- Derived tokens (§2 tail) --- */
+  --radius-card: 16px;
+  --radius-control: 12px;
+  --radius-pill: 999px;
+  --hairline: 1px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --content-max: 1080px;
+  --gutter: 20px;
+
+  /* --- Type stacks (§3; system fonts only, no webfont) --- */
+  --font-text: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas,
+    monospace;
+
+  /* --- Focus ring (§5 Focus): 3px blue @ 35% ring + 1px solid blue inner.
+         Defined once so every recipe shares one ring. --- */
+  --focus-ring: inset 0 0 0 1px var(--blue),
+    0 0 0 3px color-mix(in srgb, var(--blue) 35%, transparent);
+
+  /* --- §6 chip INK colors (wave 2): readable text variants of the accents.
+         The raw light-scheme accents (green 2.2:1, yellow 1.7:1, orange
+         2.2:1, teal 2.6:1, red 3.3:1 on white) fall below the 4.5:1 small-
+         text bar, so chip TEXT uses these darker inks; the raw accents stay
+         on fills and borders. Dark scheme restores the raw accents (each
+         exceeds 4.5:1 on near-black — verified per scheme, §7.2). Gray ink
+         is the secondary label tier in both schemes. --- */
+  --chip-ink-blue: #0062CC;      /* 5.8:1 on #FFF */
+  --chip-ink-green: #1E7E3C;     /* 5.1:1 on #FFF */
+  --chip-ink-red: #D70015;       /* 5.4:1 on #FFF */
+  --chip-ink-orange: #B25000;    /* 5.2:1 on #FFF */
+  --chip-ink-yellow: #936D00;    /* 4.8:1 on #FFF */
+  --chip-ink-teal: #0E6E7E;      /* 5.9:1 on #FFF */
+  --chip-ink-indigo: #5856D6;    /* 5.6:1 on #FFF */
+  --chip-ink-gray: var(--label-secondary);
+}
+
+
+/* ============================================================================
+   §2 — DESIGN TOKENS (dark)
+   Same token names, dark values. Every alpha fill in the system is keyed on
+   these tokens so both schemes are genuinely designed, not just swapped.
+   ========================================================================== */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* --- Surfaces --- */
+    --bg-grouped: #000000;
+    --bg-elevated: #1C1C1E;
+    --bg-secondary-fill: rgba(120, 120, 128, 0.24);
+    --bg-chrome: rgba(22, 22, 24, 0.78);
+
+    /* --- Label tiers --- */
+    --label: #FFFFFF;
+    --label-secondary: rgba(235, 235, 245, 0.60);   /* #EBEBF5 @ 60% */
+    --label-tertiary: rgba(235, 235, 245, 0.30);    /* #EBEBF5 @ 30% */
+
+    /* --- Separator --- */
+    --separator: #38383A;
+
+    /* --- The seven accent colors (dark variants) --- */
+    --blue: #0A84FF;
+    --green: #30D158;
+    --red: #FF453A;
+    --orange: #FF9F0A;
+    --yellow: #FFD60A;
+    --teal: #40C8E0;
+    --indigo: #5E5CE6;
+    --gray: #8E8E93;
+
+    /* --- Derived: shadow is very soft, near-invisible in dark (§2) --- */
+    --shadow-card: 0 1px 1px rgba(0, 0, 0, 0.30);
+
+    /* --- §6 chip INK colors (wave 2, dark): the raw dark accents on the
+           near-black card (#1C1C1E) / page (#000) all clear 4.5:1, so the
+           ink set restores them (no darkened variants needed). Gray ink
+           stays the secondary tier. --- */
+    --chip-ink-blue: var(--blue);
+    --chip-ink-green: var(--green);
+    --chip-ink-red: var(--red);
+    --chip-ink-orange: var(--orange);
+    --chip-ink-yellow: var(--yellow);
+    --chip-ink-teal: var(--teal);
+    --chip-ink-indigo: var(--indigo);
+    --chip-ink-gray: var(--label-secondary);
+  }
+}
+
+
+/* ============================================================================
+   §1/§4 — BASE RESET (scoped to .console) + the app root surface
+   The console owns the whole page; body carries the grouped backdrop so the
+   rubber-band/overscroll region never flashes white in dark mode.
+   ========================================================================== */
+body {
+  margin: 0;
+  background: var(--bg-grouped);
+  color: var(--label);
+  font-family: var(--font-text);
+  font-size: 15px;
+  line-height: 1.47;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.console *,
+.console *::before,
+.console *::after {
+  box-sizing: border-box;
+}
+
+/* §4 shell recipe: the root surface. */
+.console {
+  min-height: 100dvh;
+  background: var(--bg-grouped);
+  color: var(--label);
+  font-family: var(--font-text);
+  font-size: 15px;
+  line-height: 1.47;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tighten default rhythm: iOS text blocks sit closer than UA 1em margins. */
+.console p {
+  margin: 8px 0;
+}
+
+.console strong {
+  /* SF-style emphasis: 600, not the UA 700 (reads calmer at small sizes). */
+  font-weight: 600;
+}
+
+
+/* ============================================================================
+   §3 — TYPOGRAPHY (scale + tracking + tabular numerals + code chip)
+   ========================================================================== */
+
+/* Headings: SF-style tight tracking (-0.015em, §3). */
+.console h1,
+.console h2,
+.console h3,
+.console h4 {
+  letter-spacing: -0.015em;
+  font-family: var(--font-text);
+}
+
+/* h1 — the large title (§3: 32px/700). Lives in .console-header. */
+.console h1 {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 0 0 8px;
+}
+
+/* h2 — workspace title (§3: 26px/700; §4: 4px after). */
+.console h2 {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0 0 4px;
+}
+
+/* h3 — section header. The generic scale value (§3: 20px/600) is overridden
+   inside main by the §4 grouped-section overline treatment below; this keeps
+   the h3s that live OUTSIDE main (none today, but safe by construction). */
+.console h3 {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 20px 0 8px;
+}
+
+/* h4 — 17px/600 (§3 scale). */
+.console h4 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 16px 0 6px;
+}
+
+/* Footnote scale (§3): 13px in the secondary label tier. */
+.console small,
+.console figcaption {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--label-secondary);
+}
+
+/* Overline scale (§3): 11px/600 uppercase, .06em tracking. Applied wherever
+   a header-like label is built below (thead th, main h3, badge rows). */
+
+/* --- Tabular numerals: alignment is non-negotiable in an operations
+       console (§3). Every table cell, dd, and value-bearing footnote row
+       gets tabular figures. --- */
+.console td,
+.console th,
+.console dd,
+.console .freshness,
+.console .availability,
+.console .role-scope {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Code chip (§3): SF Mono stack, 0.85em, secondary-fill rounded 6px
+       chip, 1px inner padding. Code never wraps mid-token by default;
+       overflow-wrap: anywhere is reserved for long-ID contexts (table cells
+       and definition values) so a UUID breaks instead of blowing the card. --- */
+.console code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--bg-secondary-fill);
+  border-radius: 6px;
+  padding: 1px 4px;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.console td code,
+.console dd code {
+  /* Long-ID rule (§3): identifiers inside data cells may break anywhere —
+     prose code chips still never wrap mid-token. */
+  overflow-wrap: anywhere;
+}
+
+
+/* ============================================================================
+   §4 — SHELL: .skip-link (hidden until focus; blue pill)
+   The first focusable element (P5.12). Visually hidden until :focus, then a
+   high-contrast pill top-left.
+   ========================================================================== */
+.console .skip-link {
+  /* Visually hidden (still screen-reader/focus reachable): */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.console .skip-link:focus {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 1000;
+  width: auto;
+  height: auto;
+  margin: 0;
+  clip: auto;
+  clip-path: none;
+  overflow: visible;
+  background: var(--blue);
+  color: #FFFFFF;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  padding: 10px 18px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--focus-ring), 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+
+/* ============================================================================
+   §4 — SHELL: .console-header + .console-titlebar (frosted sticky chrome)
+   AMENDED per FRV1-R9-002 (design wave 2): the wave-1 recipe made the whole
+   .console-header sticky, but the header carries the mode banner, the five-
+   paragraph ModeGateNotice, the tenant/session notes, the legend and the
+   live-status line (~2.9k words of pinned honesty prose) — sticky would pin
+   2–3 viewport heights of prose over every workspace. The amendment:
+   - ONLY .console-titlebar (the h1 + live-status row; an ADDITIVE wrapper
+     div in App.tsx) is the frosted sticky chrome: position: sticky; top: 0;
+     saturate(180%) blur(20px) backdrop (with -webkit- prefix); chrome base
+     from --bg-chrome; hairline bottom via box-shadow 0 0.5px 0
+     var(--separator) (sub-pixel apparent weight, §2);
+   - .console-header itself is NON-sticky with a transparent background so
+     the grouped page backdrop shows; it keeps the shell rhythm, and the
+     banner stack scrolls away naturally.
+   The titlebar rule is written as a descendant of .console-header
+   deliberately: the wave-1 structural pins in design-system.test.ts key on
+   the ".console-header" selector text, so the amended contract still holds
+   by construction there, and the appended wave-2 pins state the amended
+   reality explicitly (titlebar sticky; the header element rule non-sticky).
+   ========================================================================== */
+.console .console-header {
+  position: relative;
+  background: transparent;
+  padding: 12px var(--gutter) 4px;
+  /* No fixed height: the banner stack below the title is real content and
+     must never be clipped at 200% zoom. */
+}
+
+.console .console-header .console-titlebar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--bg-chrome);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 0.5px 0 var(--separator);
+  /* Full-bleed (§4 intent: the blur spans the header width): negative
+     margins cancel the header's own gutter padding and top padding so the
+     frosted surface reaches the viewport edges. */
+  margin: -12px calc(var(--gutter) * -1) 8px;
+  padding: 12px var(--gutter) 10px;
+}
+
+.console .console-header h1 {
+  margin: 0 0 8px;
+}
+
+
+/* ============================================================================
+   §4 — SHELL: the grouped footnote-card banner family
+   One recipe, many accents (HIG consistency-over-variety):
+   mode-banner (orange — safety-critical), mode-gate (indigo),
+   tenant-indicator (teal), session-banner (gray).
+   Structure: 13px footnote text, --bg-secondary-fill surface,
+   --radius-control corners, a 4px leading accent bar (::before), and an
+   icon dot (::after). The mode banner stays the most visually distinct
+   non-interactive element after the title: its text sits in the FULL label
+   tier and it never reads as decoration.
+   ========================================================================== */
+.console .mode-banner,
+.console .mode-gate,
+.console .tenant-indicator,
+.console .session-banner {
+  position: relative;
+  background: var(--bg-secondary-fill);
+  border-radius: var(--radius-control);
+  padding: 10px 14px 10px 18px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label-secondary);
+  /* Accent bar + dot color, declared per family member below: */
+  --banner-accent: var(--gray);
+}
+
+/* 4px leading accent bar (follows the rounded corner on the left edge). */
+.console .mode-banner::before,
+.console .mode-gate::before,
+.console .tenant-indicator::before,
+.console .session-banner::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--banner-accent);
+}
+
+/* Icon dot: a pure-CSS circle pinned to the card's top-right corner. */
+.console .mode-banner::after,
+.console .mode-gate::after,
+.console .tenant-indicator::after,
+.console .session-banner::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--banner-accent);
+  opacity: 0.9;
+}
+
+/* Per-family accents (§4): orange / indigo / teal / gray. */
+.console .mode-banner {
+  --banner-accent: var(--orange);
+}
+
+.console .mode-gate {
+  --banner-accent: var(--indigo);
+}
+
+.console .tenant-indicator {
+  --banner-accent: var(--teal);
+}
+
+.console .session-banner {
+  --banner-accent: var(--gray);
+}
+
+/* The safety-critical statement (§4): full label tier so it outranks every
+   other footnote element, readable measure, and the strong lead line in the
+   accent color's company. NEVER decorative. */
+.console .mode-banner {
+  color: var(--label);
+  max-width: 72ch;
+}
+
+.console .mode-banner strong,
+.console .mode-gate strong {
+  color: var(--label);
+}
+
+/* .mode-gate is a DIV wrapping several <p> children (real markup) — restack
+   them inside the card and keep the first paragraph flush. */
+.console .mode-gate {
+  padding-bottom: 4px;
+}
+
+.console .mode-gate > p {
+  margin: 0 0 8px;
+}
+
+.console .mode-gate > p:last-child {
+  margin-bottom: 10px;
+}
+
+/* Inline chips inside the banners (mode vocabulary <code>, session refs). */
+.console .mode-gate code,
+.console .session-banner code {
+  font-size: 0.9em;
+}
+
+/* Buttons inside the session banner (the disabled Sign-in control and the
+   local-display clear): iOS tinted-control recipe. Styled here so zero
+   browser-default surfaces remain (§7 acceptance 1); the disabled state is
+   unmistakable — the banner's own text already says why. */
+.console .session-banner button {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--blue) 30%, transparent);
+  border-radius: var(--radius-control);
+  padding: 6px 14px;
+  margin: 2px 0;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.console .session-banner button:disabled,
+.console .session-banner button[aria-disabled="true"] {
+  color: var(--label-tertiary);
+  background: var(--bg-secondary-fill);
+  border-color: var(--separator);
+  cursor: not-allowed;
+}
+
+
+/* ============================================================================
+   §4 — SHELL: .live-status (status-dot row)
+   role="status" (open/connecting) = green dot; role="alert" (paused) = red
+   dot + slightly stronger weight. The connect state is NOT in the
+   attribute, so no per-state text sniffing — the role carries the color.
+   13px footnote text. The pulse is gated behind prefers-reduced-motion:
+   no-preference (§5 tail) and stops entirely under reduce.
+   ========================================================================== */
+.console .live-status {
+  position: relative;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label-secondary);
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.console .live-status::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.5em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.console .live-status[role="alert"]::before {
+  background: var(--red);
+}
+
+.console .live-status[role="alert"] {
+  color: var(--label);
+  font-weight: 500;
+}
+
+/* Pulse (open/connecting alive-ness), only when the operator asked for
+   motion. role="alert" (paused) never pulses — a paused stream is still. */
+@media (prefers-reduced-motion: no-preference) {
+  .console .live-status[role="status"]::before {
+    animation: live-status-pulse 2.4s ease-in-out infinite;
+  }
+}
+
+@keyframes live-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+
+/* ============================================================================
+   §4 — SHELL: .value-legend (the §20.2 treatment legend, a <details>)
+   Same grouped footnote-card family, gray accent, so the legend is part of
+   the one system rather than a new species. Its summary is the collapsed
+   row; the expanded table uses the §5 table recipe.
+   ========================================================================== */
+.console .value-legend {
+  position: relative;
+  background: var(--bg-secondary-fill);
+  border-radius: var(--radius-control);
+  padding: 10px 14px 10px 18px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label-secondary);
+  --banner-accent: var(--gray);
+}
+
+.console .value-legend::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--banner-accent);
+}
+
+.console .value-legend summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+  cursor: pointer;
+  padding-right: 16px;
+}
+
+.console .value-legend summary:focus-visible {
+  box-shadow: var(--focus-ring);
+  border-radius: 6px;
+  outline: none;
+}
+
+/* The expanded legend table sits flush inside the footnote card. */
+.console .value-legend table {
+  margin: 10px 0 4px;
+}
+
+
+/* ============================================================================
+   §4 — SHELL: nav (iOS segmented-control strip)
+   Full-width horizontal scroll, no wrap, scrollbar hidden but scrollable;
+   items are pill chips; [aria-current="page"] is the filled "selected
+   segment" (elevated chip, hairline border, subtle shadow). 44px minimum
+   target height per chip (HIG touch target). Hover only where hover exists.
+   ========================================================================== */
+.console nav {
+  /* Nothing needed on the strip itself; the ul is the scroller. */
+}
+
+.console nav ul {
+  list-style: none;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin: 0;
+  padding: 8px var(--gutter) 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.console nav ul::-webkit-scrollbar {
+  display: none;
+}
+
+.console nav li {
+  flex: 0 0 auto;
+}
+
+.console nav a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  color: var(--label-secondary);
+  background: transparent;
+  font-size: 15px;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+/* The selected segment (§4): filled elevated chip, hairline border, subtle
+   shadow — reads as the iOS segmented control's active segment. */
+.console nav a[aria-current="page"] {
+  background: var(--bg-elevated);
+  color: var(--label);
+  border-color: var(--separator);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .console nav a {
+    transition: background-color 120ms ease, color 120ms ease,
+      box-shadow 120ms ease;
+  }
+}
+
+/* Hover states only on devices that actually hover (§4). */
+@media (hover: hover) {
+  .console nav a:hover {
+    background: var(--bg-secondary-fill);
+    color: var(--label);
+    text-decoration: none;
+  }
+
+  .console nav a[aria-current="page"]:hover {
+    background: var(--bg-elevated);
+  }
+}
+
+
+/* ============================================================================
+   §4/§5 — SHELL + CONTENT: main#workspace-main
+   Centered measure, gutter padding, safe-area bottom padding. Focus outline
+   is removed only on the programmatic target itself (main has tabIndex=-1
+   and is focused by the skip link); keyboard focus elsewhere is always
+   visible (§5 Focus).
+   ========================================================================== */
+.console main#workspace-main {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 4px var(--gutter) max(24px, env(safe-area-inset-bottom));
+  outline: none;
+}
+
+/* h2 in main — the workspace title (§4: 26/700 with 4px after). */
+.console main h2 {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  margin: 8px 0 4px;
+}
+
+/* h3 in main — the iOS grouped-section header treatment (§4): 13px/600
+   uppercase overline in the secondary tier, .06em tracking, 28px top
+   margin. ADAPTATION (recorded): the spec writes "main > h3", but in the
+   real markup h3s are NEVER direct children of main — every workspace
+   renders one top-level <section> that contains its h2 and h3s. The
+   overline therefore keys on "main h3", which covers exactly the section
+   headers and cannot double-card anything (the card recipe below only
+   touches main's direct children). */
+.console main h3 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--label-secondary);
+  line-height: 1.4;
+  margin: 28px 0 10px;
+}
+
+.console main h4 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 16px 0 6px;
+}
+
+
+/* ============================================================================
+   §5 — CONTENT: grouped cards (inset-grouped recipe)
+   Spec: apply via "main#workspace-main > *" excluding headers. ADAPTATION
+   (recorded): the real markup puts the h2/h3 INSIDE each workspace's
+   top-level <section>, so "main > *" already matches only sections and
+   content panels — the header exclusion is kept anyway (defensive, and it
+   satisfies the spec literally). One card recipe; nothing is double-carded.
+   ========================================================================== */
+.console main#workspace-main > *:not(h1):not(h2):not(h3):not(h4) {
+  background: var(--bg-elevated);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 16px 18px;
+  margin: 0 0 12px;
+}
+
+
+/* ============================================================================
+   §5 — CONTENT: tables (the console's core — 93 th/td)
+   Card-context tables: caption above as footnote; thead as overline;
+   15px tabular-nums cells with hairline row separators and 10–12px padding;
+   no separator on the last row; row hover at half-strength fill on hover-
+   capable devices only. The table reads as a group INSIDE its section card:
+   hairline ring via box-shadow (apparent sub-pixel weight), 12px radius.
+   ========================================================================== */
+.console table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-control);
+  box-shadow: 0 0 0 var(--hairline) var(--separator);
+  margin: 12px 0;
+  font-size: 15px;
+}
+
+/* Caption above the table, footnote style, left-aligned (§5). */
+.console table caption {
+  caption-side: top;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--label-secondary);
+  padding: 2px 12px 10px;
+}
+
+/* Column headers: the overline style (11px/600 uppercase, .06em) with a
+   hairline bottom border (§5). Left-aligned — values carry units in text;
+   no blind right-alignment (§5). */
+.console thead th,
+.console th[scope="col"] {
+  text-align: left;
+  vertical-align: bottom;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--label-secondary);
+  padding: 8px 12px;
+  border-bottom: var(--hairline) solid var(--separator);
+}
+
+/* Row headers inside tbody (th[scope="row"]): body-size label, not overline. */
+.console tbody th[scope="row"] {
+  text-align: left;
+  vertical-align: top;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--label);
+  padding: 10px 12px;
+  border-top: var(--hairline) solid var(--separator);
+}
+
+/* Data cells: 15px, tabular numerals (§3/§5), hairline separators drawn as
+   a border-top on every row EXCEPT the first (§5: "border-top on td except
+   first row"), 10–12px padding, left-aligned. */
+.console tbody td {
+  font-size: 15px;
+  line-height: 1.45;
+  text-align: left;
+  vertical-align: top;
+  padding: 10px 12px;
+  color: var(--label);
+  border-top: var(--hairline) solid var(--separator);
+}
+
+.console tbody tr:first-child td,
+.console tbody tr:first-child th[scope="row"] {
+  border-top: none;
+}
+
+/* No trailing separator (§5): the last row's own border-top is the only
+   hairline it carries; nothing is drawn after it. */
+.console tbody tr:last-child td,
+.console tbody tr:last-child th[scope="row"] {
+  border-bottom: none;
+}
+
+/* Row hover: --bg-secondary-fill at 50%, desktop only (§5). */
+@media (hover: hover) {
+  .console tbody tr:hover {
+    background: color-mix(in srgb, var(--bg-secondary-fill) 50%, transparent);
+  }
+}
+
+
+/* ============================================================================
+   §5 — CONTENT: definition lists (Settings-style key–value rows)
+   Real markup (6 workspaces): one dt/dd pair per row. Grid makes dt the
+   left footnote cell and dd the right-aligned body cell; hairline
+   separators between rows; tabular-nums already applied to dd in §3.
+   ========================================================================== */
+.console dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  margin: 12px 0;
+}
+
+.console dt {
+  grid-column: 1;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--label-secondary);
+  padding: 10px 12px 10px 0;
+  border-top: var(--hairline) solid var(--separator);
+}
+
+.console dd {
+  grid-column: 2;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--label);
+  text-align: right;
+  padding: 10px 0 10px 12px;
+  border-top: var(--hairline) solid var(--separator);
+}
+
+/* No leading separator on the first pair. */
+.console dt:first-child,
+.console dt:first-child + dd {
+  border-top: none;
+}
+
+
+/* ============================================================================
+   §5 — CONTENT: lists (custom dot markers)
+   6px round dot in the blue accent (muted so it reads as a marker, not a
+   status), 10px text gap, comfortable 6px row spacing. Scoped to main so
+   the nav strip's ul keeps its segmented-control layout.
+   ========================================================================== */
+.console main ul {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+}
+
+.console main ul li {
+  position: relative;
+  padding: 3px 0 3px 16px;
+  margin: 3px 0;
+}
+
+.console main ul li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--blue) 45%, transparent);
+}
+
+/* Ordered lists (used rarely): inherited numerals, comfortable spacing. */
+.console main ol {
+  margin: 10px 0;
+  padding-left: 24px;
+}
+
+.console main ol li {
+  margin: 3px 0;
+  padding-left: 2px;
+}
+
+
+/* ============================================================================
+   §5 — CONTENT: capsule badge recipe (inline status spans)
+   .demo-data (future use) and the inline treatment tokens .value-type /
+   .quality render as iOS capsule pills: 11px/600, pill radius, tinted fill
+   with a 1px tinted border. WAVE 2 UPDATE (§5 tints + §6): the neutral
+   gray base below is now the FAIL-SAFE for values without a §6 color key;
+   the per-state tint rules live in the "§6 — COLOR CONTRACT" and
+   "BADGE TINTS ENABLED" sections below (they override background/
+   border-color/color; the geometry here is shared).
+   ========================================================================== */
+.console .demo-data,
+.console .value-type,
+.console .quality {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--label-secondary);
+  background: var(--bg-secondary-fill);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-pill);
+  padding: 1px 9px;
+  vertical-align: baseline;
+}
+
+/* The untyped fail-safe token carries a long sentence — keep it readable:
+   same system, left-aligned pill that wraps instead of stretching the card. */
+.console .value-type-untyped {
+  max-width: 100%;
+  white-space: normal;
+}
+
+
+/* ============================================================================
+   §6 — COLOR CONTRACT (wave 2): the frozen vocabularies, color-coded
+   Spec §6 + FRV1-R9-003. Colors DECORATE the frozen vocabulary; the text
+   stays the carrier (P5.12) — no wording changes, no reinterpretation.
+   Hooks used (verified against the real markup):
+   - ZERO-TSX (attributes/classes already in the DOM):
+     · CommandStateBadge  honesty.tsx:156  span[data-state="<UPPER>"]  (the
+       exact 14 §14.1 values, keyed case-sensitively as they appear there);
+     · QualityBadge       honesty.tsx:181  span[data-quality="<UPPER>"];
+     · QualityStateBadge  ValueType.tsx:80  .quality quality-<lowercase>;
+     · ValueTypeBadge     ValueType.tsx:61  .value-type value-type-<lowercase>;
+     · certificate expiry  SitesEdgeStatus.tsx:177  dd[data-testid^=
+       "certificate-expiry-"] (values expired/rotation-due/valid/not-reported);
+     · command path        SitesEdgeStatus.tsx:261  div[data-testid^=
+       "command-path-"] (DISABLED / TEST_ENV_ENABLED / NOT_REPORTED).
+   - ADDITIVE className only where no hook exists (audit R9-003):
+     · alarm severity      alarmsPanel.tsx  SeverityBadge  severity-<token>;
+     · plugin lifecycle/health  PluginsWorkspace.tsx  state-chip state-<x>;
+     · solver outcome      Schedules.tsx  RunDetailPanel  state-chip state-<x>.
+   Chip recipe (§5 Badges/status): capsule — tinted fill at 15% over the
+   card, 1px border at 30%, keyword/text in the full-color INK (the darkened
+   --chip-ink-* variants in light; the raw accents in dark). DARK SCHEME:
+   the same 15%/30% mixes read dimmer on near-black surfaces, so the dark
+   block raises every chip fill to 22% and border to 40% (each scheme
+   checked separately, §7.2). Any state outside the frozen sets keeps the
+   neutral gray fail-safe — an unknown value is never given a color.
+   ========================================================================== */
+
+/* --- Chip color ASSIGNMENT (one custom-property pair per frozen value) ---
+   --state-color drives the tint fill/border; --state-ink drives the text.
+   These are keyed on the EXACT attribute values the components emit. --- */
+
+/* Command states (§6): PROPOSED/VALIDATED/FEASIBLE blue; APPROVED indigo;
+   ISSUED/ACKNOWLEDGED/TRACKING orange; COMPLETED green; REJECTED/FAILED
+   red; CANCELLED/EXPIRED/SUPERSEDED/FALLBACK gray. */
+.console [data-state="PROPOSED"],
+.console [data-state="VALIDATED"],
+.console [data-state="FEASIBLE"] {
+  --state-color: var(--blue);
+  --state-ink: var(--chip-ink-blue);
+}
+
+.console [data-state="APPROVED"] {
+  --state-color: var(--indigo);
+  --state-ink: var(--chip-ink-indigo);
+}
+
+.console [data-state="ISSUED"],
+.console [data-state="ACKNOWLEDGED"],
+.console [data-state="TRACKING"] {
+  --state-color: var(--orange);
+  --state-ink: var(--chip-ink-orange);
+}
+
+.console [data-state="COMPLETED"] {
+  --state-color: var(--green);
+  --state-ink: var(--chip-ink-green);
+}
+
+.console [data-state="REJECTED"],
+.console [data-state="FAILED"] {
+  --state-color: var(--red);
+  --state-ink: var(--chip-ink-red);
+}
+
+.console [data-state="CANCELLED"],
+.console [data-state="EXPIRED"],
+.console [data-state="SUPERSEDED"],
+.console [data-state="FALLBACK"] {
+  --state-color: var(--gray);
+  --state-ink: var(--chip-ink-gray);
+}
+
+/* Telemetry quality (§6): GOOD green; SUSPECT yellow; BAD red;
+   MISSING/STALE gray; ESTIMATED teal. */
+.console [data-quality="GOOD"] {
+  --state-color: var(--green);
+  --state-ink: var(--chip-ink-green);
+}
+
+.console [data-quality="SUSPECT"] {
+  --state-color: var(--yellow);
+  --state-ink: var(--chip-ink-yellow);
+}
+
+.console [data-quality="BAD"] {
+  --state-color: var(--red);
+  --state-ink: var(--chip-ink-red);
+}
+
+.console [data-quality="MISSING"],
+.console [data-quality="STALE"] {
+  --state-color: var(--gray);
+  --state-ink: var(--chip-ink-gray);
+}
+
+.console [data-quality="ESTIMATED"] {
+  --state-color: var(--teal);
+  --state-ink: var(--chip-ink-teal);
+}
+
+/* --- Chip RECIPE: the two prose-carrying honesty badges. The badge span
+       wraps marker + state word + recorded meaning (+ the SIMULATED
+       qualification), so the fill/border is a tinted capsule around the
+       whole statement; the state WORD (the strong) is the operator's
+       scan target and carries the full ink. ADAPTATION (recorded): the
+       capsule text sits at 12px (not the 11px token scale) because these
+       badges carry pinned honesty prose; the keyword strong is the 11px/
+       600 capsule-scale token. --- */
+.console [data-testid="command-state-badge"],
+.console [data-testid="quality-badge"] {
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: var(--radius-pill);
+  padding: 1px 10px;
+  vertical-align: baseline;
+  max-width: 100%;
+  background: color-mix(in srgb, var(--state-color, var(--gray)) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--state-color, var(--gray)) 30%, transparent);
+}
+
+.console [data-testid="command-state-badge"] > strong,
+.console [data-testid="quality-badge"] > strong {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--state-ink, var(--label));
+}
+
+/* --- Chip RECIPE: the additive state-chip class family (severity, plugin
+       lifecycle/health, solver outcome — short frozen tokens, so the full
+       §5 capsule scale: 11px/600). Neutral gray base; per-state color via
+       the same --state-color/--state-ink interface; unknown values keep
+       the gray fail-safe. --- */
+.console .state-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  border-radius: var(--radius-pill);
+  padding: 1px 9px;
+  vertical-align: baseline;
+  background: color-mix(in srgb, var(--state-color, var(--gray)) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--state-color, var(--gray)) 30%, transparent);
+  color: var(--state-ink, var(--chip-ink-gray));
+}
+
+/* Alarm severity (§20.2 text-borne tokens, now tinted): CRITICAL red,
+   WARNING orange, INFO gray. RECOMMENDATION (recorded): §6 defines no
+   severity palette; this maps the audit's operator-triage need onto the
+   existing accent family. The class comes from the SAME mapping that
+   renders the bracketed token ([CRITICAL]/[WARNING]/[INFO]), so the color
+   can never disagree with the text. The additive classes land on a <code>
+   element (alarmsPanel SeverityBadge), so this base rule re-faces it as
+   the state-chip capsule (text face, mono dropped for the chip read;
+   specificity 0,2,1 — it intentionally outranks the plain code chip). */
+.console code.severity {
+  display: inline-block;
+  font-family: var(--font-text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  border-radius: var(--radius-pill);
+  padding: 1px 9px;
+  vertical-align: baseline;
+  background: color-mix(in srgb, var(--state-color, var(--gray)) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--state-color, var(--gray)) 30%, transparent);
+  color: var(--state-ink, var(--chip-ink-gray));
+}
+
+.console .severity-critical {
+  --state-color: var(--red);
+  --state-ink: var(--chip-ink-red);
+}
+
+.console .severity-warning {
+  --state-color: var(--orange);
+  --state-ink: var(--chip-ink-orange);
+}
+
+/* .severity-info keeps the neutral gray base (no override rule). */
+
+/* Plugin lifecycle (§5.6 closed enum) + health (P7.20): READY green;
+   DRAINING orange; STOPPED/NOT_REPORTED gray (the named gap is not a
+   healthy state); REJECTED/FAILED red; the pre-ready pipeline states
+   blue; any FAILING_* health state red. RECOMMENDATION (recorded): §6
+   defines no plugin palette; the mapping follows the same semantics. */
+.console .state-ready {
+  --state-color: var(--green);
+  --state-ink: var(--chip-ink-green);
+}
+
+.console .state-draining {
+  --state-color: var(--orange);
+  --state-ink: var(--chip-ink-orange);
+}
+
+.console .state-stopped,
+.console .state-not_reported {
+  --state-color: var(--gray);
+  --state-ink: var(--chip-ink-gray);
+}
+
+.console .state-rejected,
+.console .state-failed {
+  --state-color: var(--red);
+  --state-ink: var(--chip-ink-red);
+}
+
+.console .state-discovered,
+.console .state-verified,
+.console .state-compatible,
+.console .state-configured,
+.console .state-started {
+  --state-color: var(--blue);
+  --state-ink: var(--chip-ink-blue);
+}
+
+.console [class*="state-failing"] {
+  --state-color: var(--red);
+  --state-ink: var(--chip-ink-red);
+}
+
+/* Solver outcomes (§12.6 closed vocabulary, Schedules RunDetailPanel):
+   optimal/feasible green; timeout orange; infeasible/numerical_failure
+   red; unsupported gray. An outcome OUTSIDE the closed vocabulary renders
+   verbatim WITHOUT the chip (no class is added), per the fail-honest
+   display rule. RECOMMENDATION (recorded): §6 defines no solver palette. */
+.console .state-optimal,
+.console .state-feasible {
+  --state-color: var(--green);
+  --state-ink: var(--chip-ink-green);
+}
+
+.console .state-timeout {
+  --state-color: var(--orange);
+  --state-ink: var(--chip-ink-orange);
+}
+
+.console .state-infeasible,
+.console .state-numerical_failure {
+  --state-color: var(--red);
+  --state-ink: var(--chip-ink-red);
+}
+
+.console .state-unsupported {
+  --state-color: var(--gray);
+  --state-ink: var(--chip-ink-gray);
+}
+
+/* --- Zero-TSX hooks: certificate-expiry treatment and command-path state
+       (SitesEdgeStatus). The strong carries the bracketed token; color it
+       via the pinned testid prefixes. --- */
+.console [data-testid="certificate-expiry-expired"] > strong {
+  color: var(--chip-ink-red);
+}
+
+.console [data-testid="certificate-expiry-rotation-due"] > strong {
+  color: var(--chip-ink-orange);
+}
+
+.console [data-testid="certificate-expiry-valid"] > strong {
+  color: var(--chip-ink-green);
+}
+
+.console [data-testid="certificate-expiry-not-reported"] > strong {
+  color: var(--chip-ink-gray);
+}
+
+.console [data-testid="command-path-TEST_ENV_ENABLED"] strong {
+  color: var(--chip-ink-orange);
+}
+
+
+/* ============================================================================
+   §5/§6 (wave 2) — BADGE TINTS ENABLED
+   Wave 1 deferred the §5 tint fills for .demo-data / .value-type / .quality
+   pending the state classes. Now enabled (§5: fill = color @ 15% over the
+   card, border @ 30%, text in the full color — via the --chip-ink set):
+   - .quality quality-<state>: keyed exactly like §6 (GOOD green, SUSPECT
+     yellow, BAD red, MISSING/STALE gray, ESTIMATED teal);
+   - .value-type: only where a §6 color key exists — estimated → teal (it
+     IS quality ESTIMATED), stale → gray (it IS quality STALE). measured /
+     simulated / untyped have NO §6 key → they KEEP the neutral gray base
+     (colors never reinterpret the vocabulary);
+   - .demo-data: orange tint. RECOMMENDATION (recorded): the badge is
+     future-use (no workspace renders it; designPrinciples pins that) and
+     §6 defines no demo-data key; orange matches the safety-critical
+     banner accent, since "not a live measurement" is the strongest
+     honesty statement the console can make.
+   --- */
+.console .quality-good {
+  --state-color: var(--green);
+  color: var(--chip-ink-green);
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+  border-color: color-mix(in srgb, var(--green) 30%, transparent);
+}
+
+.console .quality-suspect {
+  --state-color: var(--yellow);
+  color: var(--chip-ink-yellow);
+  background: color-mix(in srgb, var(--yellow) 15%, transparent);
+  border-color: color-mix(in srgb, var(--yellow) 30%, transparent);
+}
+
+.console .quality-bad {
+  --state-color: var(--red);
+  color: var(--chip-ink-red);
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  border-color: color-mix(in srgb, var(--red) 30%, transparent);
+}
+
+.console .quality-missing,
+.console .quality-stale {
+  --state-color: var(--gray);
+  color: var(--chip-ink-gray);
+}
+
+.console .quality-estimated {
+  --state-color: var(--teal);
+  color: var(--chip-ink-teal);
+  background: color-mix(in srgb, var(--teal) 15%, transparent);
+  border-color: color-mix(in srgb, var(--teal) 30%, transparent);
+}
+
+.console .value-type-estimated {
+  --state-color: var(--teal);
+  color: var(--chip-ink-teal);
+  background: color-mix(in srgb, var(--teal) 15%, transparent);
+  border-color: color-mix(in srgb, var(--teal) 30%, transparent);
+}
+
+.console .value-type-stale {
+  --state-color: var(--gray);
+  color: var(--chip-ink-gray);
+}
+
+/* .value-type-measured / -simulated / -untyped keep the neutral gray base
+   (no §6 key — recorded above). */
+
+.console .demo-data {
+  --state-color: var(--orange);
+  color: var(--chip-ink-orange);
+  background: color-mix(in srgb, var(--orange) 15%, transparent);
+  border-color: color-mix(in srgb, var(--orange) 30%, transparent);
+}
+
+/* --- DARK-SCHEME CHIP ALPHAS: the 15%/30% tint mixes are tuned for the
+       light card; on the near-black surfaces they read muddy, so the dark
+       block raises fills to 22% and borders to 40%. Same tokens, different
+       alpha — both schemes designed, not swapped (§7.2). This block is
+       placed AFTER the per-state tint rules so it wins the cascade (same
+       specificity, later source order). --- */
+@media (prefers-color-scheme: dark) {
+  .console [data-testid="command-state-badge"],
+  .console [data-testid="quality-badge"],
+  .console .state-chip,
+  .console code.severity,
+  .console .demo-data,
+  .console .quality,
+  .console .value-type {
+    background: color-mix(in srgb, var(--state-color, var(--gray)) 22%, transparent);
+    border-color: color-mix(in srgb, var(--state-color, var(--gray)) 40%, transparent);
+  }
+}
+
+
+/* ============================================================================
+   §5 (wave 2) — .honesty-banner RECIPE (the audit's contract gap)
+   The 7 render sites (Administration, AdminManagementSection, MarketPrograms,
+   PluginsIntegrations, PluginsWorkspace, ResearchWorkspace, SimulationLab)
+   all emit <p class="honesty-banner" role="note">. Recipe: the grouped
+   footnote-card family (same system as the banner stack) with the INDIGO
+   accent — this is the console's honesty voice: visually calm, never
+   alarming. Full text ALWAYS visible (no collapsing: no pin-safe details
+   pattern is proven, and pinned honesty wording stays rendered by
+   construction). Secondary-fill surface over the section card, footnote
+   scale, 4px leading accent bar + icon dot like the banner family.
+   ========================================================================== */
+.console .honesty-banner {
+  position: relative;
+  background: var(--bg-secondary-fill);
+  border-radius: var(--radius-control);
+  padding: 10px 14px 10px 18px;
+  margin: 8px 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label-secondary);
+  --banner-accent: var(--indigo);
+}
+
+.console .honesty-banner::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--banner-accent);
+}
+
+.console .honesty-banner::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--banner-accent);
+  opacity: 0.9;
+}
+
+.console .honesty-banner strong {
+  color: var(--label);
+}
+
+
+/* ============================================================================
+   §5 — CONTENT: footnote-row recipes
+   .freshness / .availability / .role-scope / .denial-diagnostics /
+   .control-authority-mode: consistent with the banner family — no new
+   visual species, one system, many accents (§5).
+   - .freshness is an INLINE span (real markup: inside other prose) →
+     inline footnote with tabular numerals, no card.
+   - .availability and .role-scope are block lines → the footnote-card
+     surface with the gray accent bar (informational, not alarm).
+   - .control-authority-mode (per-workspace §21.4 indicator) and
+     .denial-diagnostics (P5.26 block) → the footnote-card family; the
+     diagnostics block's own h2 keeps its workspace-title scale.
+   ========================================================================== */
+.console .freshness {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--label-secondary);
+}
+
+.console .availability,
+.console .role-scope {
+  position: relative;
+  background: var(--bg-secondary-fill);
+  border-radius: var(--radius-control);
+  padding: 8px 14px 8px 18px;
+  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label-secondary);
+  --banner-accent: var(--gray);
+}
+
+.console .availability::before,
+.console .role-scope::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--banner-accent);
+}
+
+/* The per-workspace control-authority mode indicator and the denial-log
+   diagnostics block: the same grouped footnote-card recipe. */
+.console .control-authority-mode,
+.console .denial-diagnostics {
+  position: relative;
+  background: var(--bg-secondary-fill);
+  border-radius: var(--radius-control);
+  padding: 10px 14px 10px 18px;
+  margin: 8px 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label-secondary);
+  --banner-accent: var(--gray);
+}
+
+.console .control-authority-mode::before,
+.console .denial-diagnostics::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--banner-accent);
+}
+
+.console .control-authority-mode strong,
+.console .denial-diagnostics strong {
+  color: var(--label);
+}
+
+/* .denial-diagnostics renders as a main-level card (main > * recipe) AND
+   carries its own h2 — give the inner heading the card-title scale so the
+   block reads as one card, not a card in a card. */
+.console main > .denial-diagnostics {
+  /* Keep the card recipe's surface; the footnote-card fill above composes
+     with it (secondary fill over elevated surface is the intended read). */
+  font-size: 13px;
+}
+
+.console .denial-diagnostics h2 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 4px 0 8px;
+}
+
+.console .denial-diagnostics p {
+  margin: 6px 0;
+}
+
+
+/* ============================================================================
+   §5 — CONTENT: links, focus, selection, scrollbars
+   ========================================================================== */
+
+/* Links: blue, no underline by default, underline on hover + focus-visible;
+   visited identical (operations console — no history coloring, §5). */
+.console a {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+.console a:visited {
+  color: var(--blue);
+}
+
+.console a:hover,
+.console a:focus-visible {
+  text-decoration: underline;
+}
+
+/* Focus (§5): the shared ring — 3px blue @ 35% + 1px solid blue inner.
+   Never removed, never default-outline-only. The skip link and nav chips
+   carry the same ring through this rule. */
+.console :focus-visible {
+  outline: none;
+  /* The ring follows each element's own border-radius (pills stay pills). */
+  box-shadow: var(--focus-ring);
+}
+
+/* The programmatic target (main, tabIndex=-1) must not show a ring when
+   jumped to — it is not a keyboard stop, it is the destination. */
+.console main#workspace-main:focus-visible {
+  box-shadow: none;
+}
+
+/* Selection: blue @ 25% (§5). */
+.console ::selection {
+  background: color-mix(in srgb, var(--blue) 25%, transparent);
+}
+
+/* Thin overlay scrollbars (§5): thumb --separator, track transparent. */
+.console * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--separator) transparent;
+}
+
+.console *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.console *::-webkit-scrollbar-thumb {
+  background: var(--separator);
+  border-radius: var(--radius-pill);
+}
+
+.console *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+
+/* ============================================================================
+   §5 tail — REDUCED MOTION (belt and braces)
+   Every animation/transition in this sheet longer than ~80ms is ALREADY
+   declared only inside prefers-reduced-motion: no-preference (the live
+   pulse, the nav chip transition). This block additionally kills anything a
+   future contributor adds ungated — the guarantee is structural.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .console *,
+  .console *::before,
+  .console *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
+/* ============================================================================
+   §5 tail — PRINT (bonus, cheap)
+   White background; chrome and banners unsticky; hairlines preserved;
+   shadows dropped (they print as gray noise).
+   ========================================================================== */
+@media print {
+  :root {
+    color-scheme: light;
+  }
+
+  body,
+  .console {
+    background: #FFFFFF;
+    color: #000000;
+  }
+
+  .console .console-header {
+    position: static;
+    background: #FFFFFF;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: 0 1px 0 #C6C6C8;
+  }
+
+  /* FRV1-R9-002 amendment: the sticky element is now the titlebar. */
+  .console .console-header .console-titlebar {
+    position: static;
+    background: #FFFFFF;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    margin: 0;
+    box-shadow: none;
+  }
+
+  .console nav {
+    position: static;
+  }
+
+  .console main#workspace-main > *:not(h1):not(h2):not(h3):not(h4) {
+    box-shadow: none;
+    background: #FFFFFF;
+  }
+
+  .console table {
+    box-shadow: 0 0 0 1px #C6C6C8;
+  }
+
+  .console thead th,
+  .console th[scope="col"] {
+    border-bottom: 1px solid #C6C6C8;
+  }
+
+  .console tbody td,
+  .console dt,
+  .console dd {
+    border-top: 1px solid #C6C6C8;
+  }
+
+  .console a {
+    color: #000000;
+  }
+
+  .console .skip-link:focus {
+    display: none;
+  }
+}
+
+
+/* ============================================================================
+   ============================================================
+   WAVE 2 (Agent B) — per-surface polish. Everything below this line is
+   APPENDED: no earlier block was modified. Each block names the FRV1-R9
+   finding (docs/reviews/final_review_for_v1/01_reviews/
+   review_R9_console_design_ux.md) it implements. R9-002 (header
+   stickiness), R9-003 (state color-coding), and the .honesty-banner recipe
+   are the other agent's — none of those appear below.
+   ============================================================
+   ========================================================================== */
+
+
+/* ============================================================================
+   FRV1-R9-001 (wave 2, Agent B) — WIDE-TABLE CONTAINMENT: .table-scroll
+   Additive wrapper class (added in TSX around the wide tables only; captions
+   stay INSIDE their <table> — HTML requires it — and are kept fully visible
+   via the sticky-caption rule below).
+
+   IMPLEMENTATION NOTE (recorded deviation): the queued recipe suggested a
+   ::after gradient overlay gated to @media (hover: none). An absolutely
+   positioned ::after inside a horizontal scroll container is positioned at
+   the CONTENT's right end (it scrolls away with the content), not at the
+   visible right edge, so it cannot serve as a scroll hint. The fade is
+   instead drawn as two background layers on the wrapper itself — the
+   background-attachment local/scroll pair — which is SELF-GATING: the
+   "cover" layer (attachment: local, pinned to the content's right end)
+   exactly masks the hint layer (attachment: scroll, pinned to the visible
+   right edge) when the table fits, so a fitted table shows NO fade at all.
+   Token-driven, so both color schemes adapt automatically. Still gated to
+   @media (hover: none) so desktop keeps clean cards, per the queue row.
+   ========================================================================== */
+.console .table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius-control);
+}
+
+/* The table's own opaque fill would hide the wrapper's layers — inside a
+   scroll wrapper the card surface shows through (same token either way). */
+.console .table-scroll table {
+  background: transparent;
+}
+
+/* Sticky caption: the caption stays pinned to the visible left edge while
+   the rows scroll beneath. Progressive enhancement — where position: sticky
+   on <caption> is unsupported, the caption simply scrolls with the table as
+   before; no wording moves and no pin breaks either way. */
+.console .table-scroll caption {
+  position: sticky;
+  left: 0;
+  background: var(--bg-elevated);
+}
+
+@media (hover: none) {
+  .console .table-scroll {
+    background-image:
+      /* cover (local): opaque card fill at the content's right end; masks
+         the hint when the table fits or is fully scrolled right */
+      linear-gradient(to left, var(--bg-elevated), transparent),
+      /* hint (scroll): subtle fade at the VISIBLE right edge, shown only
+         while more table lies to the right */
+      linear-gradient(to right, transparent, var(--bg-elevated));
+    background-repeat: no-repeat, no-repeat;
+    background-position: right top, right top;
+    background-size: 24px 100%, 20px 100%;
+    background-attachment: local, scroll;
+  }
+}
+
+
+/* ============================================================================
+   FRV1-R9-007 (wave 2, Agent B) — EMPTY / LOADING / ERROR STATES
+   The three state paragraphs are already distinguishable by existing
+   attributes (verified testids: `loading` / `loading-state` for the honest
+   loading lines, `error-block` / `error-state` plus `role="alert"` for the
+   honest error blocks, `empty-state` for the honest empties) — so these are
+   CSS-ONLY treatments; no TSX class is added for them (attribute/testid
+   selectors preferred first, per the wave-2 assignment).
+   ========================================================================== */
+
+/* LOADING: secondary footnote text. The CSS-only shimmer (a text gradient
+   sweep) exists ONLY inside prefers-reduced-motion: no-preference — under
+   reduce the paragraph keeps its plain secondary color and stays fully
+   readable (the text fill is never made transparent outside the gated
+   block). */
+.console [data-testid="loading"],
+.console [data-testid="loading-state"] {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label-secondary);
+  margin: 10px 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .console [data-testid="loading"],
+  .console [data-testid="loading-state"] {
+    background: linear-gradient(
+      90deg,
+      var(--label-secondary) 40%,
+      var(--label) 50%,
+      var(--label-secondary) 60%
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: state-loading-shimmer 2.4s ease-in-out infinite;
+  }
+}
+
+@keyframes state-loading-shimmer {
+  0%,
+  100% {
+    background-position: 100% 0;
+  }
+  50% {
+    background-position: 0% 0;
+  }
+}
+
+/* ERROR: red-tinted footnote card — red @ 10% fill, red 4px leading accent
+   bar. Keyed on [role="alert"] (the honest error vocabulary already carries
+   the role) EXCLUDING .live-status, whose paused-alert line is chrome, not a
+   workspace state card. The API's verbatim error code keeps its code chip.
+   Both schemes: the fill is color-mix on the --red token, which swaps with
+   the scheme; the text stays in the full label tier for contrast. */
+.console [role="alert"]:not(.live-status) {
+  position: relative;
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  border-radius: var(--radius-control);
+  padding: 10px 14px 10px 18px;
+  margin: 10px 0;
+}
+
+.console [role="alert"]:not(.live-status)::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--red);
+}
+
+.console [role="alert"]:not(.live-status) p {
+  margin: 6px 0;
+}
+
+/* EMPTY / NEUTRAL: secondary text — no alarm styling, no invented severity.
+   Two hooks: the shared `empty-state` testid (EmptyState and the default
+   HonestEmpty) and the structural shape every HonestEmpty renders
+   (div[role=note] whose first child is a <p><strong>…</strong></p> what-line
+   followed by the reason) so the custom-testId gaps match too. :has() is a
+   progressive enhancement; without it the paragraph falls back to the
+   inherited body style, never to an alarm. */
+.console [data-testid="empty-state"] {
+  color: var(--label-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.console [data-testid="empty-state"] p {
+  margin: 4px 0;
+}
+
+.console [data-testid="empty-state"] strong {
+  color: var(--label);
+}
+
+.console div[role="note"]:has(> p:first-child > strong:first-child) {
+  color: var(--label-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.console div[role="note"]:has(> p:first-child > strong:first-child) p {
+  margin: 4px 0;
+}
+
+.console div[role="note"]:has(> p:first-child > strong:first-child) strong {
+  color: var(--label);
+}
+
+/* The honest placeholder paragraph (WorkspacePlaceholder; no consumers
+   today, styled anyway per the queue row): the same neutral empty treatment
+   via its additive .state-empty class. */
+.console .state-empty {
+  color: var(--label-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+
+/* ============================================================================
+   FRV1-R9-007 (wave 2, Agent B) — VERBATIM STATEMENTS (blockquote)
+   The recorded contract statements (P5.06) render inside <blockquote> with
+   a data-label attribute (verified). Grouped-card treatment, indigo accent —
+   part of the one banner family, visually distinct from the red error card
+   and the neutral empties. CSS-only; the blockquote element already exists.
+   ========================================================================== */
+.console blockquote {
+  position: relative;
+  margin: 12px 0;
+  padding: 10px 14px 10px 18px;
+  background: var(--bg-secondary-fill);
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label-secondary);
+  --banner-accent: var(--indigo);
+}
+
+.console blockquote::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--banner-accent);
+}
+
+.console blockquote strong {
+  color: var(--label);
+}
+
+
+/* ============================================================================
+   FRV1-R9-008 (wave 2, Agent B) — CONTROL RECIPE (queue row 8; CSS-only)
+   44px-minimum controls, explicit disabled state, blue accent-color for the
+   confirmation checkboxes/radios. The session-banner buttons keep their
+   wave-1 recipe (higher specificity wins; untouched).
+   ========================================================================== */
+.console button {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--blue) 30%, transparent);
+  border-radius: var(--radius-control);
+  padding: 8px 16px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.console button:disabled,
+.console button[aria-disabled="true"] {
+  color: var(--label-tertiary);
+  background: var(--bg-secondary-fill);
+  border-color: var(--separator);
+  cursor: not-allowed;
+}
+
+.console input[type="text"],
+.console select {
+  font: inherit;
+  font-size: 15px;
+  color: var(--label);
+  background: var(--bg-elevated);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  min-height: 44px;
+}
+
+.console input[type="checkbox"],
+.console input[type="radio"] {
+  accent-color: var(--blue);
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+/* FRV1-R9-015 (wave 2, Agent B) — the "inspect" record-selection rows
+   (Dispatch command list, Audit & Reports trail): a 44px row-height label
+   and a checked-row highlight. :has() is progressive; where unsupported the
+   radios still grow to the 16px control size above. CSS-only; the label
+   text, testids, and ordering are untouched. */
+.console [data-testid="command-list"] label,
+.console [data-testid="audit-trail"] label {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.console [data-testid="command-list"] li:has(input:checked),
+.console [data-testid="audit-trail"] li:has(input:checked) {
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+  border-radius: var(--radius-control);
+}
+
+
+/* ============================================================================
+   FRV1-R9-012 (wave 2, Agent B) — VERBATIM <pre> BLOCKS (queue row 12)
+   The three persisted-JSON/health-snapshot pre blocks (Dispatch
+   command-payload, AuditReports sva-requested, SitesEdgeStatus
+   adapter-health-verbatim) get the mono card recipe with overflow-x: auto
+   so a realistic payload scrolls inside its card instead of dragging the
+   whole workspace horizontally. CSS-only; testids untouched.
+   ========================================================================== */
+.console pre {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-secondary-fill);
+  border-radius: var(--radius-control);
+  padding: 12px 14px;
+  margin: 10px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.console pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  overflow-wrap: normal;
+}
+
+
+/* ============================================================================
+   FRV1-R9-013 / §5 (wave 2, Agent B) — DEFINITION-LIST DENSE-SURFACE PASS
+   Fit adjustments for the real content shapes (the dense Grid/Sites/Assets
+   surfaces, plus the PluginsWorkspace/ResearchWorkspace dds whose values
+   are multi-value or long prose). No behavior change; the wave-1 grid and
+   hairlines stay. "code inside dt labels" was checked: no <dt> in the tree
+   contains a <code> chip, so no rule is needed for that shape.
+   ========================================================================== */
+
+/* Multi-value dd (inner <div> rows: plugin config properties, research
+   blockers): left-aligned inside the right-aligned value column, with row
+   rhythm — a right-aligned STACK of value lines reads as broken. */
+.console dd > div {
+  text-align: left;
+  margin: 2px 0;
+}
+
+/* Long-prose / long-id dd values keyed on the stable testids these surfaces
+   already carry (verified): short values keep the Settings-style right
+   alignment, but a wrapped multi-line justification reads correctly
+   flush-left. */
+.console [data-testid^="permissions-"],
+.console [data-testid^="config-summary-"],
+.console [data-testid^="lifecycle-state-"],
+.console [data-testid^="publisher-gap-"],
+.console [data-testid^="health-verbatim-"],
+.console [data-testid^="module-version-"],
+.console [data-testid^="blockers-"],
+.console [data-testid="edge-connectivity-last-seen"],
+.console [data-testid^="certificate-expiry-"],
+.console [data-testid="edge-buffer-depth"] {
+  text-align: left;
+}
+
+/* Grid's per-record check rows (the workspace's dense core, one div per
+   feasibility record inside a site group): hairline separation and steady
+   rhythm; the first row after the site heading carries no leading rule,
+   mirroring the table recipe. */
+.console .grid-check {
+  padding: 12px 0;
+  border-top: var(--hairline) solid var(--separator);
+}
+
+.console article > .grid-check:first-of-type {
+  border-top: none;
+  padding-top: 4px;
+}
+
+/* Typographic-rhythm nit (queue row: h2/h3 consistency + record grouping):
+   every workspace uses the same bare <h2> (verified by grep — 16/16), so
+   the wave-1 `main h2` recipe already covers all of them uniformly. The one
+   gap the audit listed that CSS can reach: per-record <article> blocks
+   (Sites/Assets/Grid/Research/Plugins) had no vertical separation. */
+.console article {
+  margin: 20px 0 0;
+}
+
+
+/* ============================================================================
+   §5 (wave 2, Agent B) — AVAILABILITY LINE ACCENTS
+   The .availability footnote card (wave-1 recipe) keyed per state through
+   the EXISTING availability-<state> testids (verified in
+   components/availability.tsx:118). Colors decorate the frozen display
+   vocabulary; the literal text remains the carrier (P5.12 discipline).
+   available -> green; unavailable -> red; unknown / no-new-signal stay gray.
+   The other agent's R9-003 rows do not list the availability display
+   states, so this block covers ONLY those four testids.
+   ========================================================================== */
+.console [data-testid="availability-available"] {
+  --banner-accent: var(--green);
+}
+
+.console [data-testid="availability-unavailable"] {
+  --banner-accent: var(--red);
+}
+
+
+/* ============================================================================
+   §5 (wave 2, Agent B) — LEGEND (ValueType) COORDINATION RECORD
+   The §20.2 legend is ALREADY covered by the wave-1 `.value-legend` recipe
+   and the §5 table recipe (its 2-column table fits without overflow); no
+   wave-2 rule is added and ValueType.tsx is NOT edited (the other agent may
+   touch it). This comment is the coordination record the assignment asked
+   to leave: if a later wave restyles the legend, extend `.value-legend`,
+   never a new species.
+   ========================================================================== */
+
+
+/* ============================================================================
+   §17.3/§20.2 (wave 2, Agent B) — HIGH-IMPACT CONFIRMATION AND STEP-UP
+   SURFACES (safety UI; §20.2/P5.11 + §17.3/P5.26)
+   Audit result (verified markup): BOTH surfaces carry real controls —
+   ConfirmHighImpact renders a required confirmation checkbox inside a
+   label; StepUpApproval renders two text inputs (typed target id,
+   re-presented credential). Neither is display-only, but NEITHER contains a
+   button (the console is GET-only: the confirm action is the checkbox's
+   onChange, and the only buttons in these flows live in
+   Dispatch/SitesEdgeStatus, outside these components). Therefore there is
+   no destructive capsule BUTTON to style; the deliberate treatment is
+   carried by the cards' stronger hairline and accent bar — red for the
+   high-impact confirmation (with the confirm checkbox's accent-color in
+   red, the iOS destructive read), indigo for the step-up re-authentication
+   panel. All pins intact: the label/input elements themselves are untouched
+   so the <label for=…> regex pins in statePrinciples/a11yPrinciples still
+   hold.
+   ========================================================================== */
+.console .confirm-high-impact {
+  position: relative;
+  background: var(--bg-secondary-fill);
+  border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
+  border-radius: var(--radius-control);
+  padding: 14px 16px 14px 22px;
+  margin: 12px 0;
+}
+
+.console .confirm-high-impact::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--red);
+}
+
+.console .confirm-high-impact p {
+  margin: 6px 0;
+}
+
+.console .confirm-high-impact strong {
+  color: var(--label);
+}
+
+/* The explicit confirm control: red accent — deliberate, destructive-read,
+   still keyboard-operable and text-borne (the label sentence is unchanged). */
+.console .confirm-high-impact input[type="checkbox"] {
+  accent-color: var(--red);
+  width: 18px;
+  height: 18px;
+}
+
+.console .step-up-approval {
+  position: relative;
+  background: var(--bg-secondary-fill);
+  border: 1px solid color-mix(in srgb, var(--indigo) 30%, transparent);
+  border-radius: var(--radius-control);
+  padding: 14px 16px 14px 22px;
+  margin: 12px 0;
+}
+
+.console .step-up-approval::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--indigo);
+}
+
+/* The step-up heading is an <h5> (level-skipped outline, FRV1-R9-010 — the
+   one-line tag fix is NOT made here because TSX edits are additive-only
+   this wave; left for the human gate). CSS gives it the card-title scale so
+   the panel reads as one deliberate card. */
+.console .step-up-approval h5 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin: 4px 0 8px;
+  color: var(--label);
+}
+
+.console .step-up-approval p {
+  margin: 6px 0;
+}
+
+.console [data-testid="step-up-confirmation-status"],
+.console [data-testid="step-up-reauth-status"],
+.console [data-testid="step-up-pending"] {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label-secondary);
+}
+
+/* The satisfied statement: honest LOCAL-UI-EVENT green tint — same recipe
+   family as the error card, green accent (a satisfied local check, never a
+   server-verified step-up; the component's own wording says so). */
+.console [data-testid="step-up-satisfied"] {
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+  border-radius: var(--radius-control);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.console [data-testid="step-up-satisfied"] strong {
+  color: var(--label);
+}
+
+
+/* ============================================================================
+   WAVE 2 tail (Agent B) — PRINT COMPLETENESS FOR TABLES (queue row: print
+   stylesheet completeness). Appended as a SECOND print block (the wave-1
+   print block above is untouched). Tables: repeating header rows on page
+   breaks, rows kept intact across breaks, scroll affordances neutralized
+   (a scrolled wrapper would silently clip printed columns), captions and
+   headings never stranded after a break, and the deliberate safety cards
+   keep their hairline definition on paper.
+   ========================================================================== */
+@media print {
+  .console .table-scroll {
+    overflow: visible;
+    background-image: none;
+  }
+
+  .console table {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .console thead {
+    display: table-header-group;
+  }
+
+  .console tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .console table caption {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .console h2,
+  .console h3,
+  .console h4 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .console .confirm-high-impact,
+  .console .step-up-approval,
+  .console [role="alert"]:not(.live-status),
+  .console [data-testid="step-up-satisfied"] {
+    box-shadow: 0 0 0 1px #C6C6C8;
+  }
+}

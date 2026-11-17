@@ -15,6 +15,14 @@
 // - record 05 §3 (the Phase 13 grant set: SiteApprover's site/asset-scoped
 //   `command.approve`; the `apikey.*` tenant-scoped admin surface) and the
 //   closed five-role vocabulary it extended;
+//
+// SINGLE AUTHORITATIVE MIRROR (FRV1-R3-003): the role vocabulary is
+// DERIVED, not redeclared — PHASE13_ROLES below re-exports
+// `ROLES` from `../security/capabilityMatrix` (the console's one
+// authoritative role/action mirror). The PHASE13_GRANT_TABLE mirrors the
+// same recorded grant set (phase13_policies.rs) that capabilityMatrix
+// carries as its phase-13 entries; the pinned tests on both sides assert
+// the two mirrors agree. Update the vocabulary in ONE place only.
 // - record 08 §2/§4 (the API-key model: key id `fkid_…`, digest-at-rest,
 //   scope subsets, last-used evidence; the display rule: fingerprints —
 //   the first 8 characters after the prefix — NEVER the secret; a secret
@@ -54,17 +62,21 @@ export const PHASE13_MIRROR_NOTE =
   'mirror — the same recorded limitation as the P5.07 action-surface ' +
   'mirror). Enforcement is ALWAYS the API.';
 
-/** The five-role vocabulary (policy.rs Role::id spellings, verbatim; the
- * P13.05 additive extension included). */
-export const PHASE13_ROLES: readonly string[] = [
-  'platform-admin',
-  'tenant-admin',
-  'operator',
-  'viewer',
-  'site-approver',
-];
+import { ROLES } from '../security/capabilityMatrix';
 
-/** The P13.05 grant-set mirror (record 05 §3, verbatim semantics). */
+/** The closed five-role vocabulary — DERIVED from the single
+ * authoritative role mirror (`ROLES` in ../security/capabilityMatrix,
+ * FRV1-R3-003): policy.rs Role::id spellings, verbatim, with the P13.05
+ * additive extension `site-approver` included. Do NOT redeclare role ids
+ * here; the vocabulary changes in exactly one place. */
+export const PHASE13_ROLES: readonly string[] = ROLES;
+
+/** The P13.05 grant-set mirror (record 05 §3, verbatim semantics). This
+ * table mirrors the PHASE-13 SET ALONE (what Phase 13 ADDS); the union of
+ * all recorded sets for the same actions lives in capabilityMatrix.ts
+ * (e.g. its `command.approve` entry also carries the Phase 4 tenant-admin
+ * grant). The pinned tests assert the two mirrors never disagree on what
+ * Phase 13 grants. */
 export interface Phase13GrantRow {
   actionId: string;
   roles: readonly string[];

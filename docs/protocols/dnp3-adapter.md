@@ -40,7 +40,7 @@
 |---|---|
 | Reporting | `OutstationReport` (static points + drained event queue) — the record the transport seam would report; a design record, not observed behavior |
 | Control arrival | Controls for non-control points refused; nil command ids refused; the commanded value converts into canonical MW through the point's declared scaling; the select-before-operate arming sequence is an UNVERIFIED implementation-time design point |
-| Connection states | The common `ProtocolConnection` vocabulary — consumed by the P11 taxonomy, never redefined |
+| Connection states | The common `ProtocolConnection` vocabulary — vocabulary only: no adapter implements the port in this baseline (the recorded FRV1-R6-001 deferral; the shipped default refuses fail-closed by name), so connection reporting rides the adapter's own seam surface (`SeamNotWired`) until the first adapter composition. The P11 taxonomy consumes the names, never redefines them |
 | Failure modes | Index conflicts refused; empty inventory refused; unwired transport → `SeamNotWired`; the master role refused at the scope gate AND by name |
 
 ## 5. Honest boundary and certification pointer

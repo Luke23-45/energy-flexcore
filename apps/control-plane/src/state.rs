@@ -212,6 +212,18 @@ pub struct AppState {
     // exists in this repo (no IdP is deployed; P13-E-3 stays OPEN).
     // Decision record: phase-13 `records/04_p13_04_step_up_mfa.md`.
     pub step_up: Option<Arc<crate::stepup::StepUpService>>,
+    // FRV1-R8-005 (final review; ADDITIVE) — the P13.09 webhook delivery
+    // bookkeeping store (migration 0020), ported over the Postgres
+    // adapter's store (`webhook_delivery_pg.rs` implements the port).
+    // `None` = not composed. Being composed does NOT mean delivery runs:
+    // no enqueue route, no hosting scan loop, no secret-resolver
+    // composition, and no live HTTP transport exist in 0.x — the
+    // transport seam composes `UnwiredOutboundHttpPost` (fail-closed,
+    // refuses every transmission with a named error), and the hosting
+    // loop + resolver are the recorded follow-ups (P13.09 decision
+    // record §5). This field exists so the store is composed and
+    // reachable at the recorded seam, not invented later.
+    pub webhook_delivery: Option<Arc<dyn crate::webhook_service::WebhookDeliveryStore>>,
 }
 
 impl AppState {
@@ -269,7 +281,24 @@ impl AppState {
             // P13.04 (Agent A): no step-up service is composed by default
             // (no IdP exists — fail closed; see the field's doc comment).
             step_up: None,
+            // FRV1-R8-005: no webhook-delivery store by default; the
+            // Postgres composition root opts in via
+            // [`AppState::with_webhook_delivery`].
+            webhook_delivery: None,
         }
+    }
+
+    /// FRV1-R8-005 composition: wires the webhook-delivery bookkeeping
+    /// store (the Postgres adapter's store behind the port impl in
+    /// `webhook_delivery_pg.rs`). Composing the store does NOT enable
+    /// delivery — see the field's doc comment for the recorded 0.x
+    /// posture (no route, no loop, unwired transport).
+    pub fn with_webhook_delivery(
+        mut self,
+        store: Arc<dyn crate::webhook_service::WebhookDeliveryStore>,
+    ) -> Self {
+        self.webhook_delivery = Some(store);
+        self
     }
 
     /// P13.04 composition: wires the server-side step-up service (the

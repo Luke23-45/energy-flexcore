@@ -14,15 +14,21 @@
 // The `InboxStore` trait lives HERE (the NATS adapter crate), not in
 // flexcore-ports: (a) flexcore-ports is outside this subtask's edit scope;
 // (b) the inbox is not a domain capability — it is consumer-side
-// delivery-deduplication infrastructure, and its durable home is the
-// PostgreSQL schema the postgres adapter owns (P1.12/P1.13; P1.16 step 1
-// adds the inbox table with the unique constraint, consumed-at timestamp,
-// and consumer identity). The durable implementation therefore lands in
-// `crates/adapters/postgres` (flexcore-postgres-adapter) and implements
-// exactly this trait. If a later phase promotes the trait to flexcore-ports
-// (it is the same shape as the other ports), this definition must move
-// verbatim and be deleted here — one home, one definition (P1.10 step 1
-// single-home rule).
+// delivery-deduplication infrastructure. (AMENDED for the final review,
+// FRV1-R5-007: this note previously named `crates/adapters/postgres` as
+// the durable home, which was the P1.16 plan and never became reality.)
+// The DURABLE implementation lives in the worker composition root,
+// `apps/worker/src/inbox.rs` (`PgInboxStore` — rerouted there during
+// P1.19 with a recorded interim-home rationale; exactly one durable
+// implementation of this trait exists in the workspace), and the inbox
+// TABLE is owned by the adapter's embedded migration set
+// (`0024_worker_inbox_p1_16` — FRV1-R5-004). The recorded promotion path:
+// when the store implementation is promoted into
+// `flexcore-postgres-adapter` (P1.30 boundary-audit item), it lands next
+// to this trait and the worker module is deleted. If a later phase
+// promotes the trait to flexcore-ports (it is the same shape as the other
+// ports), this definition must move verbatim and be deleted here — one
+// home, one definition (P1.10 step 1 single-home rule).
 //
 // # The transactional obligation (binding on handlers and the durable
 // store)

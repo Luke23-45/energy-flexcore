@@ -48,11 +48,12 @@ pub mod alarm_rules;
 // docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/
 // 21_p15_07_bess_degradation_data_model.md).
 pub mod bess_degradation;
-// P15.09 — BMS-reported SoH ingestion vocabulary (additive): provenance and
-// staleness rules per the envelope-staleness max-age pattern; platform-side
-// SoH estimation is DEFERRED and recorded, never implemented (decision record
-// docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/
-// 23_p15_09_soh_ingestion.md).
+// P3.05/P3.06/P3.07 — the BESS capability model (additive; FRV1-R1-005):
+// the pure power/energy capability rules with degradation and reserve
+// treatment (report §11.2, the foundations §7.2 auxiliary-load term, §12.1)
+// and their edge-case behaviour — the P3.05/P3.06/P3.07 model, no I/O
+// (decision record ledger/phase-03-flexibility-scheduling/
+// 05_08_bess_pq_models.md).
 pub mod bess_model;
 // P15.09 — BMS-reported SoH ingestion vocabulary (additive): provenance and
 // staleness rules per the envelope-staleness max-age pattern; platform-side

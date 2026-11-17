@@ -742,7 +742,22 @@ fn default_curve_records_the_zero_and_negative_price_intervals() {
     // is the zero-price interval, hour 20 the negative-price interval.
     assert_eq!(SYNTHETIC_PRICE_CURVE_V1_HOURLY[12], 0.0, "the recorded zero-price hour");
     assert!(SYNTHETIC_PRICE_CURVE_V1_HOURLY[20] < 0.0, "the recorded negative-price hour");
-    let curve = SyntheticPriceCurve::v1_default(96, 900); // 24 h over 15 min
+    // FRV1-R1-010: `v1_default` refuses a non-positive interval length or a
+    // zero interval count with the named errors — a valid grid constructs.
+    let curve = SyntheticPriceCurve::v1_default(96, 900) // 24 h over 15 min
+        .expect("a positive interval length and count construct the default curve");
+    assert!(matches!(
+        SyntheticPriceCurve::v1_default(4, 0),
+        Err(flexcore_application::scheduling_objective::ObjectiveError::NonPositiveIntervalSeconds)
+    ));
+    assert!(matches!(
+        SyntheticPriceCurve::v1_default(0, 900),
+        Err(flexcore_application::scheduling_objective::ObjectiveError::EmptySeries { .. })
+    ));
+    assert!(matches!(
+        SyntheticSeries::v1_default_flat_zero(0),
+        Err(flexcore_application::scheduling_objective::ObjectiveError::EmptySeries { .. })
+    ));
     assert_eq!(curve.version(), SYNTHETIC_PRICE_CURVE_V1_VERSION);
     assert_eq!(curve.prices_per_interval().len(), 96);
     assert_eq!(curve.prices_per_interval()[48], 0.0, "interval 48 = hour 12");

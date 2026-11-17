@@ -1,0 +1,33 @@
+# P8.37 — Python worker test-tooling dependency pins (RECORDED, NEVER
+#         INSTALLED). Test-only: NOT a runtime dependency of any worker.
+#
+# x-pin-policy: SECONDARY-SOURCE PIN; RE-VERIFY AT FIRST INSTALL.
+# The pin below comes from dated third-party release listings (the PyPI
+# project page and the pytest changelog, checked 2026-11-17 against the
+# 2026-11-07 research cut-off) and MUST be re-verified against the
+# official release pages (https://pypi.org/project/pytest/,
+# https://docs.pytest.org/en/stable/changelog.html) before the first
+# install. NOTHING in this repository's history was ever `pip install`ed
+# (the loop bans installation); this file records the pin the human's
+# build/test pass must honour — it is a D4 (license/dependency audit)
+# input, not a lockfile.
+#
+# Why this file exists: every package under apps/worker/python carries a
+# pytest suite named in its README's human-gate commands (P8.37; the
+# recorded CI gate `research-python-gates` runs the same suites), but the
+# per-package requirements-*.txt files deliberately carry no test tooling
+# and `requirements.txt` pins the grid provider only — so the pytest
+# toolchain itself was recorded nowhere (final-review finding
+# FRV1-R4-006). This file is that record, for the whole python leg.
+#
+# Test runner pin (pytest 9.2.0, released 2026-10-27 — within the
+# research cut-off; license MIT family, UNVERIFIED until confirmed from
+# the project's primary source at re-verify time):
+pytest==9.2.0
+#
+# Deliberately NOT here: pytest plugins (no plugin is imported by any
+# suite), ruff/mypy (the CI lint/type gates pin their own toolchains at
+# the recorded CI decision, ledger/phase-08-advanced-coordination/
+# 28_ci_gates.md — no version is invented here), and every framework pin
+# (those live in the per-package requirements-*.txt / DECISION-POINT
+# files next to the workers that guard the imports).

@@ -88,6 +88,24 @@ pub enum BidCompositionError {
     EmptyField {
         field: &'static str,
     },
+    /// A value was outside its closed vocabulary — not an empty field, an
+    /// out-of-vocabulary one (named separately: FRV1-R7-007).
+    InvalidEnumValue {
+        field: &'static str,
+        value: String,
+    },
+    /// A timestamp field carried a negative value — not an empty field, a
+    /// negative one (named separately: FRV1-R7-007).
+    NegativeTimestamp {
+        field: &'static str,
+    },
+    /// A validity window was inverted (valid_until not strictly after
+    /// granted_at, end-exclusive semantics) — not an empty field
+    /// (FRV1-R7-007).
+    InvertedValidityWindow {
+        granted_at_unix_ms: i64,
+        valid_until_unix_ms: i64,
+    },
     /// The control-authority mode is not operator-approved (composition
     /// requires the exact kernel posture name).
     ControlModeInsufficient {
@@ -145,6 +163,20 @@ impl std::fmt::Display for BidCompositionError {
             BidCompositionError::EmptyField { field } => {
                 write!(f, "the bid-composition field '{field}' must be non-empty")
             }
+            BidCompositionError::InvalidEnumValue { field, value } => {
+                write!(f, "the bid-composition field '{field}' carries the out-of-vocabulary value '{value}'")
+            }
+            BidCompositionError::NegativeTimestamp { field } => {
+                write!(f, "the bid-composition field '{field}' must be non-negative")
+            }
+            BidCompositionError::InvertedValidityWindow {
+                granted_at_unix_ms,
+                valid_until_unix_ms,
+            } => write!(
+                f,
+                "the grant's validity window is inverted: valid_until {valid_until_unix_ms} \
+                 must be strictly after granted_at {granted_at_unix_ms} (end-exclusive, §10.3)"
+            ),
             BidCompositionError::ControlModeInsufficient { mode_name } => write!(
                 f,
                 "the control-authority mode '{mode_name}' is not '{REQUIRED_CONTROL_MODE_NAME}'; \
@@ -328,12 +360,24 @@ impl MarketBidGrant {
                 return Err(BidCompositionError::EmptyField { field });
             }
         }
-        if !MARKET_GRANT_STATES.contains(&state.as_str()) {
+        if state.trim().is_empty() {
             return Err(BidCompositionError::EmptyField { field: "state" });
         }
-        if granted_at_unix_ms < 0 || valid_until_unix_ms <= granted_at_unix_ms {
-            return Err(BidCompositionError::EmptyField {
-                field: "valid_until_unix_ms",
+        if !MARKET_GRANT_STATES.contains(&state.as_str()) {
+            return Err(BidCompositionError::InvalidEnumValue {
+                field: "state",
+                value: state.clone(),
+            });
+        }
+        if granted_at_unix_ms < 0 {
+            return Err(BidCompositionError::NegativeTimestamp {
+                field: "granted_at_unix_ms",
+            });
+        }
+        if valid_until_unix_ms <= granted_at_unix_ms {
+            return Err(BidCompositionError::InvertedValidityWindow {
+                granted_at_unix_ms,
+                valid_until_unix_ms,
             });
         }
         Ok(Self {

@@ -28,9 +28,15 @@
 //     (`interval_start < executed_until`): intervals already executed (and
 //     the one in progress) keep their REALISED values. The boundary
 //     convention is start-inclusive on purpose — re-solving a partially
-//     executed interval would contradict measured reality; the remaining
-//     part of the in-progress interval is covered by the next roll.
-//   - Only FUTURE intervals (start >= executed_until) are re-optimized.
+//     executed interval would contradict measured reality. When the
+//     boundary falls INSIDE an interval (a mid-horizon boundary is not
+//     required to sit on the grid), the remainder of the in-progress
+//     interval is intentionally realised history retained in the frozen
+//     record, and the re-optimization window starts at the NEXT grid
+//     boundary (the projected schedule stays grid-aligned, §10.3).
+//   - Only FUTURE intervals (start >= the re-optimization boundary —
+//     `executed_until` itself when it sits on the grid, the next grid
+//     boundary otherwise) are re-optimized.
 //     [`project_rolling_schedule`] pastes frozen + future into the new
 //     schedule projection and ENFORCES by construction that frozen
 //     intervals carry the realised values, that the grid is continuous, and
@@ -566,7 +572,10 @@ pub struct RollPlan {
     /// The interval length, millis (the prior grid configuration — the grid
     /// never changes mid-chain).
     pub interval_millis: i64,
-    /// The execution boundary the split is taken at.
+    /// The execution boundary the split is taken at. It may fall inside an
+    /// interval (a mid-horizon boundary need not sit on the grid): the
+    /// in-progress interval is frozen start-inclusive, and
+    /// `reoptimize_start_millis` snaps to the next grid boundary.
     pub executed_until_millis: i64,
     /// The carried-forward initial conditions (actual SOC per asset).
     pub initial_conditions: Vec<CarriedAssetState>,
@@ -574,6 +583,10 @@ pub struct RollPlan {
     /// of the new solve (D-P3.24-3). Never the prior plan's values.
     pub frozen_intervals: Vec<IntervalPlan>,
     /// The re-optimization window: [start, end) — only future intervals.
+    /// The start is `executed_until_millis` when the boundary sits on the
+    /// grid, otherwise the NEXT grid boundary (the partial remainder of the
+    /// in-progress interval is realised history retained in the frozen
+    /// record).
     pub reoptimize_start_millis: i64,
     pub reoptimize_end_millis: i64,
     /// The assets available to the re-optimized window (prior assets minus
@@ -739,8 +752,20 @@ pub fn plan_rolling_horizon_roll(
         _ => (prior.horizon_start_millis, prior.horizon_end_millis),
     };
 
-    // The re-optimization window: strictly future (D-P3.24-3).
-    let reoptimize_start = new_horizon_start.max(executed_until);
+    // The re-optimization window: strictly future (D-P3.24-3). The boundary
+    // may fall INSIDE an interval (a mid-horizon boundary is not required to
+    // sit on the grid — only `horizon_advance` is, checked above): the
+    // in-progress interval is frozen start-inclusive, so the remainder
+    // [executed_until, next grid boundary) is intentionally realised history
+    // retained in the frozen record, and the window starts at the NEXT grid
+    // boundary — every re-optimized interval stays grid-aligned (§10.3) and
+    // the projection remains continuous over the frozen set.
+    let boundary_remainder = (executed_until - new_horizon_start) % prior.interval_millis;
+    let reoptimize_start = if boundary_remainder == 0 {
+        executed_until
+    } else {
+        executed_until + (prior.interval_millis - boundary_remainder)
+    };
     let reoptimize_end = new_horizon_end;
 
     // Available assets: prior assets minus those dropped out at or before
@@ -783,6 +808,17 @@ pub fn plan_rolling_horizon_roll(
         notes.push(format!(
             "dropout: asset '{}' leaves the feasible set from {} onward (P3.11)",
             dropout.asset_key, dropout.from_millis
+        ));
+    }
+    if boundary_remainder != 0 {
+        notes.push(format!(
+            "the execution boundary falls inside the interval starting at {}: the \
+             remainder to {} is realised history retained in the frozen record \
+             (start-inclusive freeze, D-P3.24-3); the re-optimization window starts \
+             at the next grid boundary {}",
+            executed_until - boundary_remainder,
+            reoptimize_start,
+            reoptimize_start
         ));
     }
     if matches!(request.trigger, RollTrigger::HorizonAdvance) {

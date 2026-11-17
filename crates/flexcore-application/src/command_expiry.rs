@@ -58,7 +58,12 @@
 //    the CALLER holds (the store row's scope columns via
 //    [`EventScope`]) — the store seam's view carries only the validity
 //    bound + journal, and the service refuses to guess a scope it cannot
-//    read (a wrong scope on an event would break tenant routing).
+//    read (a wrong scope on an event would break tenant routing). In the
+//    BATCH sweep the scope travels on each [`ExpiryCandidate`] (the
+//    scanned record's own scope columns) so every event carries ITS OWN
+//    command's scope — never one caller-supplied scope across the batch
+//    (FRV1-R1-002); the caller-supplied scope remains the fallback for a
+//    candidate whose record genuinely lacks one.
 //
 // ## Clock discipline
 //
@@ -231,6 +236,13 @@ pub struct ExpiryCandidate {
     pub state: CommandState,
     /// The §14.2 valid-until bound (UTC unix millis).
     pub valid_until_millis: i64,
+    /// The command record's OWN portfolio/site/asset scope (the store row's
+    /// scope columns, read by the scan the candidate comes from — the same
+    /// columns the non-sweep path reads from the record the caller holds;
+    /// D-P4.15-4: a wrong scope on an event breaks tenant routing). `None`
+    /// only when the scan source genuinely cannot read the scope columns —
+    /// the sweep then falls back to the caller-supplied scope (FRV1-R1-002).
+    pub scope: Option<EventScope>,
 }
 
 /// One sweep decision: the command to expire, the state it would expire
@@ -456,7 +468,9 @@ impl<'a> CommandExpiryService<'a> {
     /// store + domain guards). A candidate whose stored state moved on
     /// since the scan fails closed with its named error — the caller
     /// decides whether one stale candidate aborts the sweep or is logged;
-    /// the decisions are independent.
+    /// the decisions are independent. Each `DispatchExpired` event carries
+    /// the scope of ITS OWN command record (the candidate's scope columns)
+    /// — never one caller-supplied scope stamped across the batch.
     pub fn run_sweep(
         &self,
         ctx: &TenantContext,
@@ -468,7 +482,18 @@ impl<'a> CommandExpiryService<'a> {
         let decisions = sweep_validity_windows(candidates, now);
         let mut applied = Vec::with_capacity(decisions.len());
         for decision in decisions {
-            applied.push(self.apply_expiry(ctx, scope, decision.command_id, actor)?);
+            // FRV1-R1-002: the scope of each emitted `DispatchExpired` is
+            // derived from that command's OWN record — the candidate's
+            // scope columns, mirroring how the non-sweep path reads the
+            // scope from the record the caller holds. The caller-supplied
+            // `scope` remains ONLY as the fallback for a candidate whose
+            // record genuinely lacks a scope (FRV1-R1-002).
+            let command_scope = candidates
+                .iter()
+                .find(|candidate| candidate.command_id == decision.command_id)
+                .and_then(|candidate| candidate.scope)
+                .unwrap_or(scope);
+            applied.push(self.apply_expiry(ctx, command_scope, decision.command_id, actor)?);
         }
         Ok(applied)
     }

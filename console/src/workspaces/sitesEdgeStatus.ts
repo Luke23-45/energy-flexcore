@@ -20,6 +20,7 @@ import {
   type CertificateExpiryTreatment,
   type EdgeStatusDto,
 } from '../api/edgeStatus';
+import { fetchSites } from '../api/views';
 import type { ApiClient } from '../api/client';
 
 /** One edge's status as the panel renders it (the mapped row). */
@@ -68,6 +69,24 @@ export async function loadEdgeStatuses(
     }),
   );
   return { slots, readAtUnixMillis: nowMillis };
+}
+
+/**
+ * Loads the per-edge status records for the SITES WORKSPACE (FRV1-R3-004):
+ * reads the tenant-scoped site registry, collects the sites' edge
+ * identities (`SiteDto.edge_identity` — the edge identity the P2.17
+ * registry carries), and runs [`loadEdgeStatuses`] over them. Duplicate
+ * identities are read ONCE (two sites can share one edge identity; the
+ * panel renders one article per edge identity, so a duplicate fetch would
+ * both double the requests and produce duplicate React keys). The error
+ * contract is [`loadEdgeStatuses`]'s: a failed registry read fails the
+ * whole load (the workspace's own error treatment renders it); a failed
+ * per-edge status fetch is that slot's verbatim error.
+ */
+export async function loadSitesEdgeStatus(client: ApiClient): Promise<EdgeStatusData> {
+  const sites = await fetchSites(client);
+  const deviceIds = [...new Set(sites.map((site) => site.edge_identity))];
+  return loadEdgeStatuses(deviceIds, client);
 }
 
 /** Pure mapping (exported for the tests): DTO → render row. */

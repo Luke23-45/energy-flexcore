@@ -5,32 +5,79 @@
 //
 // WHAT THESE TESTS PIN: the mirror's deny-by-default behaviour and the
 // recorded facts that must never silently change (command.approve's
-// separation of duties, the union-drift entries, the forbidden §5.7
-// names). They do NOT pin the whole matrix against the Rust sources —
-// that would need a generated drift test (a later-stage matter; the
-// recorded limitation in capabilityMatrix.ts and the decision record
-// §2.3 applies). THE ENUM IS AUTHORITATIVE: crates/flexcore-authz/src/
+// separation of duties, the phase-13 site-approver/apikey grants and their
+// composition status, the union-drift entries, the forbidden §5.7 names).
+// They do NOT pin the whole matrix against the Rust sources — that would
+// need a generated drift test (a later-stage matter; the recorded
+// limitation in capabilityMatrix.ts and the decision record §2.3
+// applies). THE ENUM IS AUTHORITATIVE: crates/flexcore-authz/src/
 // action.rs + the recorded grant sets win over this mirror on any drift.
 import { describe, expect, it } from 'vitest';
 import {
   CAPABILITY_MATRIX,
   CAPABILITY_MIRROR_NOTE,
+  DELIBERATELY_UNMIRRORED_SETS,
   FORBIDDEN_ACTION_IDS,
   ROLES,
   canAction,
 } from './capabilityMatrix';
 
 describe('the capability mirror discipline (P5.26 step 2)', () => {
-  it('the four roles are the closed policy.rs vocabulary, verbatim', () => {
-    expect([...ROLES]).toEqual(['platform-admin', 'tenant-admin', 'operator', 'viewer']);
+  it('the five roles are the closed policy.rs vocabulary, verbatim (P13.05 extension included)', () => {
+    expect([...ROLES]).toEqual([
+      'platform-admin',
+      'tenant-admin',
+      'operator',
+      'viewer',
+      'site-approver',
+    ]);
   });
 
-  it('command.approve is granted ONLY to tenant-admin at site/asset scope (recorded separation of duties)', () => {
+  it('command.approve carries the union of the Phase 4 and Phase 13 grants at site/asset scope only (recorded separation of duties)', () => {
     const entry = CAPABILITY_MATRIX['command.approve'];
     expect(entry).toBeDefined();
-    expect([...entry!.roles]).toEqual(['tenant-admin']);
+    expect([...entry!.roles]).toEqual(['tenant-admin', 'site-approver']);
     expect([...entry!.scopeKinds]).toEqual(['site', 'asset']);
-    expect(entry!.driftNote).toBeTruthy();
+    expect(entry!.driftNote).toContain('no tenant-level grant');
+    // Composition status recorded honestly (FRV1-R3-003): the phase-13
+    // set is NOT composed in the shipped control-plane root.
+    expect(entry!.driftNote).toContain('NOT composed');
+    expect(entry!.source).toContain('UNION');
+  });
+
+  it('the phase-13 apikey.* entries mirror phase13_policies (admin roles at tenant scope, recorded-not-composed)', () => {
+    for (const actionId of ['apikey.create', 'apikey.rotate', 'apikey.revoke', 'apikey.read']) {
+      const entry = CAPABILITY_MATRIX[actionId];
+      expect(entry, `${actionId} must be mirrored`).toBeDefined();
+      expect([...entry!.roles]).toEqual(['platform-admin', 'tenant-admin']);
+      expect([...entry!.scopeKinds]).toEqual(['tenant']);
+      expect(entry!.source).toContain('phase13_policies');
+      expect(entry!.driftNote).toContain('NOT composed');
+    }
+  });
+
+  it('a site-approver session gets exactly the recorded P13.05 grant (command.approve at site/asset) and nothing else', () => {
+    const allow = canAction('command.approve', 'site-approver', 'site');
+    expect(allow.allowed).toBe(true);
+    const allowAsset = canAction('command.approve', 'site-approver', 'asset');
+    expect(allowAsset.allowed).toBe(true);
+    const denyTenant = canAction('command.approve', 'site-approver', 'tenant');
+    expect(denyTenant.allowed).toBe(false);
+    // The P13.05 separation: site-approver holds NO other grant anywhere on
+    // the mirrored surface (swept over the matrix keys so the sweep cannot
+    // drift from the matrix itself).
+    for (const actionId of Object.keys(CAPABILITY_MATRIX)) {
+      if (actionId === 'command.approve') continue;
+      expect(canAction(actionId, 'site-approver').allowed, actionId).toBe(false);
+    }
+  });
+
+  it('the phase16 market.* set is recorded as deliberately unmirrored (never silently absent)', () => {
+    expect(DELIBERATELY_UNMIRRORED_SETS.length).toBeGreaterThan(0);
+    const joined = DELIBERATELY_UNMIRRORED_SETS.map((s) => s.setId + ' ' + s.actions).join(' ');
+    expect(joined).toContain('phase16_market_policies');
+    expect(joined).toContain('market.*');
+    expect(CAPABILITY_MATRIX['market.bid.submit']).toBeUndefined();
   });
 
   it('the union-drift entries are recorded with a drift note, never narrowed', () => {
@@ -80,10 +127,14 @@ describe('canAction (deny-by-default, P1.11 discipline in the mirror)', () => {
     expect(check.reason).toContain('never fabricated');
   });
 
-  it('a role outside the closed vocabulary denies', () => {
+  it('a role outside the recorded mirror denies WITHOUT asserting what the API would do (FRV1-R3-003)', () => {
     const check = canAction('command.read', 'super-admin');
     expect(check.allowed).toBe(false);
-    expect(check.reason).toContain('outside the closed four-role vocabulary');
+    expect(check.reason).toContain('not on the recorded role mirror');
+    expect(check.reason).toContain('five-role vocabulary');
+    // The honest denial reason no longer claims to know the API outcome.
+    expect(check.reason).toContain('decides INDEPENDENTLY');
+    expect(check.reason).not.toContain('the API would reject it');
   });
 
   it('a role without a recorded grant denies WITH the recorded grants and the mirror note', () => {

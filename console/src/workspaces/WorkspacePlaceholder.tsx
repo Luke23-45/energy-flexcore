@@ -22,7 +22,10 @@ export function WorkspacePlaceholder({
   return (
     <section aria-label={title}>
       <h2>{title}</h2>
-      <p role="status" data-testid="workspace-placeholder">
+      {/* FRV1-R9-007 (wave 2): additive className for the honest empty-state
+          treatment (styles/design-system.css); the testid and wording are
+          untouched. */}
+      <p className="state-empty" role="status" data-testid="workspace-placeholder">
         NOT IMPLEMENTED YET — Phase 5 wave in progress (planned by{' '}
         {owningSubtasks}). This workspace shows no data because none exists
         in the console yet; nothing on this screen is simulated, measured,

@@ -4,10 +4,21 @@
 // Additive port (recorded scope decision): the P2.06 storage adapter is
 // being implemented in parallel and must NOT be coupled to this surface
 // through its existing transaction-bound repository traits, so the read
-// side is its own trait here. The Postgres implementation of
-// `TelemetryReader` (on `PgUnitOfWork`, inside the request's transaction so
-// RLS applies) is the recorded P2.06-adjacent gap; until it lands the only
-// implementation is the in-crate test fake.
+// side is its own trait here.
+//
+// ADAPTER STATUS (FRV1-R1-003, recorded at the seam): NO adapter
+// implements this port in the shipped baseline. The persistence adapter
+// implements the EQUIVALENT operations as inherent unit-of-work methods
+// (query, latest-per-asset, quarantine read) over a crate-local record
+// mirror — the recorded P2.06-adjacent gap — so the port contract and the
+// adapter surface currently agree only by hand-mirroring. Until the trait
+// mapping lands (the recorded composition step: map the port onto the
+// unit-of-work inside the request's transaction so row-level security
+// applies, dropping the crate-local record mirror), the only
+// `TelemetryReader` implementation in the workspace is the in-crate test
+// fake ([`crate::fakes`]), and the control-plane telemetry read routes
+// fail closed (the composition passes `None` — the recorded gap note in
+// the composition root).
 //
 // Contract, precisely:
 //

@@ -15,8 +15,16 @@ docs' development version string is not a version citation).
 
 The worker runs ANDES time-domain simulation and/or eigenvalue analysis on
 a DECLARED case and model scope, and returns the outputs **as data** (one
-JSON result envelope) with the metrics of the pure P8.17 evaluation
-harness computed on actually extracted traces. It is:
+JSON result envelope). The metrics of the pure P8.17 evaluation harness
+are computed ONLY on actually extracted traces — and no trace can be
+exported by the current code: the signal-to-array mapping in
+`extract_traces` is itself a recorded VERIFY-BUILD item (it needs the
+installed ANDES variable surface at run time), so until that mapping is
+implemented, every trace is recorded `exported: False` with a diagnostic,
+`metrics.per_trace` is EMPTY **by construction**, and the harness can
+never produce metrics at the human gate either — even with ANDES pinned
+and installed (final-review finding FRV1-R4-012). Unexported traces are
+never fabricated, interpolated, or filled from another signal. It is:
 
 - **GPLv3-isolated** (P8.03 six-point design; gate **G-4 legal
   confirmation OPEN**): ANDES lives only inside this worker process; the

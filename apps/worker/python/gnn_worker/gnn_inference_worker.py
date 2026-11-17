@@ -67,6 +67,7 @@ import json
 import math
 import os
 import sys
+import time
 
 # The worker-transport protocol tag (the mirror of `flexcore-andes-worker/1`
 # for the GNN track; validated on every request, fail-closed).
@@ -199,6 +200,7 @@ FORBIDDEN_RESULT_KEYS: frozenset = frozenset(
         "dispatch",
         "dispatchable",
         "approval",
+        "approved",
         "approval_token",
     }
 )
@@ -303,6 +305,21 @@ def framework_version_reported(module) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _elapsed_ms(started: float) -> int:
+    """Wall-clock milliseconds since `started` (time.perf_counter, the
+    monotonic clock), truncated toward zero and never negative.
+
+    The §9.2 `execution_ms` provenance value is a MEASURED diagnostic of
+    the run path that emitted the envelope — never a fabricated figure
+    and never a latency claim (header item 6: no latency figure exists
+    anywhere; a measured duration of THIS run is bookkeeping, not a
+    benchmark). Shared idiom with `../marl_worker/marl_worker.py` and
+    `../andes_worker/andes_dynamic_worker.py` (final-review finding
+    FRV1-R4-010).
+    """
+    return max(0, int((time.perf_counter() - started) * 1000))
+
+
 def _require_nonempty_str(container: dict, field: str, where: str) -> str:
     value = container.get(field)
     if not isinstance(value, str) or not value.strip():
@@ -361,6 +378,25 @@ def validate_graph(node_count: object, edges: object) -> list:
             )
         normalized.append([int(src), int(dst)])
     return normalized
+
+
+def edge_index_rows(edges: list) -> list:
+    """Converts validated `[src, dst]` pairs to the PyG `edge_index` layout
+    (PURE, framework-free): row 0 = all sources, row 1 = all destinations.
+
+    PyG's documented `edge_index` convention is a [2, num_edges] structure
+    whose row 0 carries every edge's SOURCE index and row 1 every edge's
+    DESTINATION index, both in edge order. HAND CHECK: edges
+    [[0,1],[1,2],[2,0]] -> [[0,1,2],[1,2,0]] (row 0 the three sources in
+    order, row 1 the three destinations in order). The earlier flat-then-
+    reshape form (`[e for edge in edges for e in edge].reshape(2, -1)`)
+    produced the INTERLEAVED layout — row 0 = [s0, d0, s1, d1, ...] (for
+    edges [[0,1],[1,2]] it happens to read [[0,1],[1,2]], which looks
+    plausible and made the error insidious) — silently corrupting message
+    passing for any graph with >= 2 edges (final-review finding
+    FRV1-R4-003); this helper is the pinned, testable correction.
+    """
+    return [[edge[0] for edge in edges], [edge[1] for edge in edges]]
 
 
 def validate_feature_declarations(declarations: object) -> list:
@@ -842,6 +878,9 @@ def build_result(
             "request_id": validated["request_id"],
             "termination_status": termination_status,
             "diagnostics": list(diagnostics),
+            # §9.2 field: the MEASURED wall-clock duration of the run path
+            # that emitted this envelope (see `_elapsed_ms`); never a
+            # fabricated figure and never a latency claim.
             "execution_ms": max(0, int(execution_ms)),
         },
         "status_text": "%s | %s"
@@ -885,6 +924,11 @@ def run_inference(request: dict) -> dict:
     """
     validated = validate_request(request)
     diagnostics: list = []
+    # §9.2 execution_ms is a MEASURED diagnostic, never a constant:
+    # started here, read at each envelope emission with the monotonic
+    # clock (final-review finding FRV1-R4-010 — the literal 0 it replaced
+    # could be mistaken for a measurement).
+    started = time.perf_counter()
 
     # Gate 2: scope flag (pure — no framework needed to refuse).
     scope_check = evaluate_topology_scope(
@@ -901,7 +945,7 @@ def run_inference(request: dict) -> dict:
             diagnostics=diagnostics,
             torch_version=None,
             pyg_version=None,
-            execution_ms=0,
+            execution_ms=_elapsed_ms(started),
         )
 
     # Gate 3/4: the guarded framework imports (named requirements) — the
@@ -929,10 +973,12 @@ def run_inference(request: dict) -> dict:
         # UNVERIFIED — PyG API: assemble the graph tensors from the
         # validated (pure) structures. The pure core has already enforced
         # every shape/range rule; this step only converts types.
+        # `edge_index_rows` produces the documented PyG layout (row 0 =
+        # sources, row 1 = destinations, both in edge order); the flat-
+        # reshape form it replaced was the interleaved (corrupted) layout.
         edge_index = torch.tensor(
-            [e for edge in validated["topology"]["edges"] for e in edge],
-            dtype=torch.long,
-        ).reshape(2, -1)
+            edge_index_rows(validated["topology"]["edges"]), dtype=torch.long
+        )
         node_features = torch.tensor(
             validated["features"], dtype=torch.float32
         )
@@ -1004,7 +1050,7 @@ def run_inference(request: dict) -> dict:
         diagnostics=diagnostics,
         torch_version=torch_version,
         pyg_version=pyg_version,
-        execution_ms=0,
+        execution_ms=_elapsed_ms(started),
     )
 
 
@@ -1079,6 +1125,22 @@ def run_self_tests() -> list:
         "graph_three_node_valid",
         ok_edges == [[0, 1], [1, 2], [2, 0]] and len(ok_edges) == 3,
         "a 3-node triangle graph passes; edges normalized verbatim",
+    )
+
+    # ---- Test 1b: edge_index rows follow the documented PyG layout ------
+    # HAND CHECK: edges [[0,1],[1,2],[2,0]] -> row 0 [0,1,2] (the three
+    # sources in edge order), row 1 [1,2,0] (the three destinations in
+    # edge order) — the [2, num_edges] PyG `edge_index` convention, NOT
+    # the interleaved flat-then-reshape layout the tensor build used
+    # before (row 0 = [s0, d0, s1, d1, ...], which corrupted message
+    # passing for any graph with >= 2 edges).
+    check(
+        "edge_index_rows_pyg_layout",
+        edge_index_rows([[0, 1], [1, 2], [2, 0]]) == [[0, 1, 2], [1, 2, 0]]
+        and edge_index_rows([[0, 1]]) == [[0], [1]]
+        and edge_index_rows([]) == [[], []],
+        "row 0 = sources, row 1 = destinations, both in edge order (the "
+        "documented PyG convention), never the interleaved layout",
     )
 
     # ---- Test 2: edge endpoint out of range refused ---------------------
@@ -1442,8 +1504,7 @@ def _expects_request_error(results: list, fn, name: str) -> None:
     try:
         fn()
     except WorkerRequestError:
-        check = results.append
-        check(
+        results.append(
             {
                 "name": name,
                 "passed": True,
@@ -1558,9 +1619,11 @@ def _valid_request() -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover — human-gate entrypoint
-    _records = run_self_tests()
-    _failures = [r for r in _records if not r["passed"]]
-    for _r in _records:
-        print(("PASS" if _r["passed"] else "FAIL"), _r["name"], "-", _r["detail"])
-    print("%d/%d self-tests passed" % (len(_records) - len(_failures), len(_records)))
-    raise SystemExit(1 if _failures else 0)
+    if "--self-test" in sys.argv[1:]:
+        _records = run_self_tests()
+        _failures = [r for r in _records if not r["passed"]]
+        for _r in _records:
+            print(("PASS" if _r["passed"] else "FAIL"), _r["name"], "-", _r["detail"])
+        print("%d/%d self-tests passed" % (len(_records) - len(_failures), len(_records)))
+        raise SystemExit(1 if _failures else 0)
+    raise SystemExit(main())

@@ -81,6 +81,11 @@ pub enum MarketProgramModelError {
     EmptyField {
         field: &'static str,
     },
+    /// A timestamp field carried a negative value — not an empty field, a
+    /// negative one (named separately: FRV1-R7-007).
+    NegativeTimestamp {
+        field: &'static str,
+    },
     /// A text field exceeded its bound (`field` names it).
     FieldTooLong {
         field: &'static str,
@@ -130,6 +135,9 @@ impl std::fmt::Display for MarketProgramModelError {
         match self {
             MarketProgramModelError::EmptyField { field } => {
                 write!(f, "the market-record field '{field}' must be non-empty")
+            }
+            MarketProgramModelError::NegativeTimestamp { field } => {
+                write!(f, "the market-record field '{field}' must be non-negative")
             }
             MarketProgramModelError::FieldTooLong { field, len, max } => write!(
                 f,
@@ -296,7 +304,7 @@ impl QualificationEvidence {
             });
         }
         if recorded_at_unix_ms < 0 {
-            return Err(MarketProgramModelError::EmptyField {
+            return Err(MarketProgramModelError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }
@@ -450,7 +458,7 @@ impl MarketProgram {
         Self::validate_text("jurisdiction", &jurisdiction, 64)?;
         Self::validate_text("recorded_by", &recorded_by, 128)?;
         if recorded_at_unix_ms < 0 {
-            return Err(MarketProgramModelError::EmptyField {
+            return Err(MarketProgramModelError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }
@@ -609,7 +617,7 @@ impl MarketContract {
         MarketProgram::validate_text("contract_ref", &contract_ref, 256)?;
         MarketProgram::validate_text("recorded_by", &recorded_by, 128)?;
         if recorded_at_unix_ms < 0 {
-            return Err(MarketProgramModelError::EmptyField {
+            return Err(MarketProgramModelError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }
@@ -773,7 +781,7 @@ impl MarketEnrollment {
         MarketProgram::validate_text("asset_id", &asset_id, 64)?;
         MarketProgram::validate_text("recorded_by", &recorded_by, 128)?;
         if recorded_at_unix_ms < 0 {
-            return Err(MarketProgramModelError::EmptyField {
+            return Err(MarketProgramModelError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }
@@ -884,7 +892,7 @@ impl StackingRule {
             });
         }
         if recorded_at_unix_ms < 0 {
-            return Err(MarketProgramModelError::EmptyField {
+            return Err(MarketProgramModelError::NegativeTimestamp {
                 field: "recorded_at_unix_ms",
             });
         }

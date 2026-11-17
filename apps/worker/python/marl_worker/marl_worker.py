@@ -103,6 +103,7 @@ import inspect
 import json
 import os
 import sys
+import time
 
 import safety_filter
 import shadow_log
@@ -224,6 +225,7 @@ FORBIDDEN_RESULT_KEYS: frozenset = frozenset(
         "dispatch",
         "dispatchable",
         "approval",
+        "approved",
         "approval_token",
     }
 )
@@ -613,6 +615,9 @@ def build_result(
             "request_id": validated["request_id"],
             "termination_status": termination_status,
             "diagnostics": list(diagnostics),
+            # §9.2 field: the MEASURED wall-clock duration of the run path
+            # that emitted this envelope (see `_elapsed_ms`); never a
+            # fabricated figure and never a latency claim.
             "execution_ms": max(0, int(execution_ms)),
         },
         "status_text": "%s | %s"
@@ -656,6 +661,21 @@ def _log_entry_for(validated: dict, report: dict, sequence: int) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _elapsed_ms(started: float) -> int:
+    """Wall-clock milliseconds since `started` (time.perf_counter, the
+    monotonic clock), truncated toward zero and never negative.
+
+    The §9.2 `execution_ms` provenance value is a MEASURED diagnostic of
+    the run path that emitted the envelope — never a fabricated figure
+    and never a latency claim (a measured duration of THIS run is
+    bookkeeping, not a benchmark). Shared idiom with
+    `../gnn_worker/gnn_inference_worker.py` and
+    `../andes_worker/andes_dynamic_worker.py` (final-review finding
+    FRV1-R4-010).
+    """
+    return max(0, int((time.perf_counter() - started) * 1000))
+
+
 def run_filter_probe(request: dict) -> dict:
     """The PURE path: probe a DECLARED candidate action through the safety
     filter, log it, and emit the refusal-or-proposal envelope.
@@ -667,6 +687,10 @@ def run_filter_probe(request: dict) -> dict:
     """
     validated = validate_request(request)
     diagnostics: list = []
+    # §9.2 execution_ms is a MEASURED diagnostic, never a constant
+    # (final-review finding FRV1-R4-010 — the literal 0 it replaced could
+    # be mistaken for a measurement).
+    started = time.perf_counter()
     report = safety_filter.filter_action(validated["action"])
     outcome = report["action_outcome"]
     if outcome not in safety_filter.FILTER_OUTCOMES:  # pragma: no cover
@@ -708,7 +732,7 @@ def run_filter_probe(request: dict) -> dict:
             diagnostics=diagnostics,
             ray_version=None,
             gymnasium_version=None,
-            execution_ms=0,
+            execution_ms=_elapsed_ms(started),
         )
 
     # Accepted (passed_within_limits / filtered_clamped_to_limits): the
@@ -764,7 +788,7 @@ def run_filter_probe(request: dict) -> dict:
         diagnostics=diagnostics,
         ray_version=None,
         gymnasium_version=None,
-        execution_ms=0,
+        execution_ms=_elapsed_ms(started),
     )
 
 
@@ -1258,11 +1282,11 @@ def run_self_tests() -> list:
         results, malformed_limits_refused, "inverted_limits_normalized_to_refusal"
     )
 
-    def bad_permission_type() -> None:
+    def missing_environment_version() -> None:
         validate_policy_context({"policy_version": "p", "training_seed": 0})
 
     _expects_request_error(
-        results, bad_permission_type, "missing_environment_version_refused"
+        results, missing_environment_version, "missing_environment_version_refused"
     )
 
     # ---- Test 10: missing policy artifact fails LOUDLY -------------------
@@ -1437,9 +1461,11 @@ def _expects_named_import_error(results: list, fn, name: str, detail: str) -> No
 
 
 if __name__ == "__main__":  # pragma: no cover — human-gate entrypoint
-    _records = run_self_tests()
-    _failures = [r for r in _records if not r["passed"]]
-    for _r in _records:
-        print(("PASS" if _r["passed"] else "FAIL"), _r["name"], "-", _r["detail"])
-    print("%d/%d self-tests passed" % (len(_records) - len(_failures), len(_records)))
-    raise SystemExit(1 if _failures else 0)
+    if "--self-test" in sys.argv[1:]:
+        _records = run_self_tests()
+        _failures = [r for r in _records if not r["passed"]]
+        for _r in _records:
+            print(("PASS" if _r["passed"] else "FAIL"), _r["name"], "-", _r["detail"])
+        print("%d/%d self-tests passed" % (len(_records) - len(_failures), len(_records)))
+        raise SystemExit(1 if _failures else 0)
+    raise SystemExit(main())

@@ -1,0 +1,36 @@
+{
+  "_provenance": "SYNTHETIC fixture written for the P5.16 recorded HELICS co-simulation drill (final-review fix wave 3, 2026-11-17) - a minimal three-bus radial feeder matching the bus_map and bus_2 vm_pu topic in apps/sim-runner/tests/helics_orchestration_p5_16.rs; not measured data; simulation only (0.x line). This '_provenance' member is fixture metadata, not part of the VersionedNetworkModel contract - the model IR consumers ignore unknown keys.",
+  "model_ref": {
+    "model_id": "synthetic-feeder-a",
+    "version": "v1",
+    "content_hash": "sha256:RECORD-AT-FIRST-RUN"
+  },
+  "base_mva": 1.0,
+  "buses": [
+    { "bus_id": "bus_1", "nominal_kv": 20.0, "is_slack": true },
+    { "bus_id": "bus_2", "nominal_kv": 20.0, "is_slack": false },
+    { "bus_id": "bus_3", "nominal_kv": 20.0, "is_slack": false }
+  ],
+  "branches": [
+    {
+      "branch_id": "line_bus1_bus2",
+      "from_bus": "bus_1",
+      "to_bus": "bus_2",
+      "r_ohm": 1.2,
+      "x_ohm": 0.9,
+      "rated_current_a": 400.0
+    },
+    {
+      "branch_id": "line_bus2_bus3",
+      "from_bus": "bus_2",
+      "to_bus": "bus_3",
+      "r_ohm": 1.4,
+      "x_ohm": 1.0,
+      "rated_current_a": 300.0
+    }
+  ],
+  "transformers": [],
+  "external_grids": [
+    { "bus_id": "bus_1", "vm_pu": 1.0, "va_degree": 0.0 }
+  ]
+}

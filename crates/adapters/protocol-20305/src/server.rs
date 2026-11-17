@@ -667,50 +667,12 @@ mod tests {
     use crate::addressing::{AddressPlan, ResourceQuery};
     use crate::model::{ListMeta, TimeType};
     use flexcore_protocol_ports::manifest::ProtocolAdapterManifest;
-    use flexcore_protocol_ports::scope::{
-        ControlScope, NotModelled, ProtocolRole, ProtocolScopeDeclaration, ResourceClass,
-    };
-    use std::time::Duration;
+    // The reviewed scope/manifest spelling lives in crate::scope
+    // (FRV1-R6-004, final review R6): the test helper delegates there —
+    // one reviewed spelling, no drift.
 
     fn manifest() -> ProtocolAdapterManifest {
-        let scope = ProtocolScopeDeclaration::new(
-            crate::ADAPTER_ID.to_string(),
-            crate::PROTOCOL_ID.to_string(),
-            vec![ProtocolRole::Server],
-            ControlScope::MonitorOnly,
-            vec![ResourceClass::Control, ResourceClass::Discovery],
-            vec![
-                NotModelled::new(
-                    "no_pki_operations".to_string(),
-                    "no CA operations — PKI ties to Phase 13/18 (security record 03)".to_string(),
-                )
-                .expect("valid"),
-                NotModelled::new(
-                    "no_field_write_authority".to_string(),
-                    "the aggregator never writes controls into a device; devices poll".to_string(),
-                )
-                .expect("valid"),
-            ],
-            "external control objects enter the command lifecycle at PROPOSED; this \
-             adapter is NOT a dispatch authority"
-                .to_string(),
-            Vec::new(),
-        )
-        .expect("valid scope");
-        ProtocolAdapterManifest::new(
-            crate::ADAPTER_ID.to_string(),
-            crate::PROTOCOL_ID.to_string(),
-            crate::PROTOCOL_EDITION.to_string(),
-            scope,
-            vec![
-                flexcore_protocol_ports::manifest::DeclaredCapability::Read,
-                flexcore_protocol_ports::manifest::DeclaredCapability::Discovery,
-                flexcore_protocol_ports::manifest::DeclaredCapability::ExternalEventIngest,
-            ],
-            Duration::from_secs(60),
-            Vec::new(),
-        )
-        .expect("valid manifest")
+        crate::scope::aggregator_manifest(crate::ADAPTER_ID).expect("valid manifest")
     }
 
     fn limits() -> ServerLimits {

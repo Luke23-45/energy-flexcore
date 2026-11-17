@@ -179,13 +179,13 @@ async fn run(config: WorkerConfig) -> i32 {
             return 1;
         }
     };
-    if let Err(error) = inbox.ensure_table() {
-        tracing::error!(
-            error = %error,
-            "the worker inbox table could not be created; aborting startup"
-        );
-        return 1;
-    }
+    // FRV1-R5-004 (final review): the inbox table is owned by the
+    // adapter's embedded migration `0024_worker_inbox_p1_16` — the P1.19
+    // runtime `ensure_table` was removed with the promotion. A database
+    // provisioned by the embedded migration set (the recorded image, MIGRATION_POLICY.md)
+    // carries the table; a worker pointed at an unmigrated database fails
+    // on its first inbox statement (fail-fast, the same posture as every
+    // other migrated table).
 
     let client = match async_nats::connect(&config.nats_url).await {
         Ok(client) => client,
@@ -277,8 +277,23 @@ async fn run(config: WorkerConfig) -> i32 {
     // probe server's new `/metrics` route renders exactly
     // `CommandConsumerMetrics::render()` (the recorded P11.12 handoff
     // seam). WRITTEN-UNRUN; records/52_p11_21_health_checks.md.
+    //
+    // FRV1-R2-003 (final review): the P2.21 telemetry metric block is
+    // created HERE too and the SAME Arc is shared three ways — the probe
+    // state (whose `/metrics` route now renders BOTH the command-consumer
+    // and the telemetry families), and, when a telemetry source is
+    // composed, the ingestion task. When no scenario is configured the Arc
+    // is shared with nothing and the telemetry families render at zero on
+    // `/metrics` (the always-render discipline; the startup log records
+    // that no ingestion task was composed).
     let command_metrics = Arc::new(CommandConsumerMetrics::default());
-    let probe_state = ProbeState::new(store.pool().clone(), client.clone(), command_metrics.clone());
+    let ingestion_metrics = Arc::new(flexcore_worker::ingestion::IngestionMetrics::default());
+    let probe_state = ProbeState::new(
+        store.pool().clone(),
+        client.clone(),
+        command_metrics.clone(),
+        ingestion_metrics.clone(),
+    );
     let probe_addr = config.probe_addr;
     let probe_task = tokio::spawn({
         let state = Arc::clone(&probe_state);
@@ -357,7 +372,9 @@ async fn run(config: WorkerConfig) -> i32 {
     let mut bridge_handle: Option<tokio::task::JoinHandle<()>> = None;
     match ingestion_composition {
         Some((source, query)) => {
-            let metrics = flexcore_worker::ingestion::IngestionMetrics::default();
+            // FRV1-R2-003: the SAME `ingestion_metrics` Arc the probe
+            // state renders on `/metrics` (created above) drives the task.
+            let metrics = Arc::clone(&ingestion_metrics);
             let runner = flexcore_worker::ingestion::IngestionTask::new(
                 Arc::clone(&source) as Arc<dyn flexcore_ports::telemetry_source::TelemetrySource>,
                 store.clone(),
@@ -371,12 +388,23 @@ async fn run(config: WorkerConfig) -> i32 {
                     stale_freshness_limit_millis: ingest_stale_freshness_limit_ms(),
                     ..Default::default()
                 },
-                Arc::new(metrics),
+                metrics,
             );
             // The source bridge (P2.14) holds `runner.queue()` and offers
             // each pulled frame; the offer side sheds at the bounded-channel
             // limit (retryable error + shed metric). The pipeline's own
             // subscription happens inside `IngestionTask::run`.
+            //
+            // FRV1-R2-004 (final review; RECORDED SEAM): the EV ingest
+            // bridge (`flexcore_worker::ev_ingest::route_ev_inbound`) is
+            // composed with NOTHING here — its frames come from the OCPP
+            // CSMS adapter's inbound path, which constructs no
+            // `EvInboundFrame` yet and which no binary hosts. The queue
+            // handle below is the SAME `TelemetryOffer` seam the bridge
+            // will receive when that integration lands; until then the
+            // bridge stays the honestly recorded seam the finding
+            // documents (see the `ev_ingest` module header for the named
+            // follow-up). Nothing here fakes a caller.
             let queue = runner.queue();
             ingestion_handle = Some(tokio::spawn(async move {
                 let report = runner.run(query.clone(), shutdown_rx.clone()).await;

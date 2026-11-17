@@ -43,7 +43,7 @@ for well-known ports:
 |---|---|
 | Polling budgets | `GatewayPollingBudget` (max registers per read — the 125-register Modbus read limit, UNVERIFIED; devices per gateway; minimum poll interval) — declared constraints, never measured limits; `assert_read_fits` / `assert_scan_fits` fail-closed |
 | Block splitting | `reads_needed_for` computes the deterministic block plan for large models |
-| Connection states | The common `ProtocolConnection` vocabulary — consumed by the P11 taxonomy, never redefined |
+| Connection states | The common `ProtocolConnection` vocabulary — vocabulary only: no adapter implements the port in this baseline (the recorded FRV1-R6-001 deferral; the shipped default refuses fail-closed by name), so connection reporting rides the adapter's own seam surface (`SeamNotWired`) until the first adapter composition. The P11 taxonomy consumes the names, never redefines them |
 | Failure modes | Unregistered device model → named refusal; short register windows refused; missing scale-factor registers refused; overlapping/out-of-range map fields refused at registration; unit-kind mismatch refused, never coerced; unwired transport → `SeamNotWired` |
 | Unit conversion | W → MW (/1e6, export sign passes through), VAr → MVAr under the declared convention, Wh → MWh, percent → SOC fraction via the named boundary constructor |
 

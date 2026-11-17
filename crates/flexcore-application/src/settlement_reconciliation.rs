@@ -337,15 +337,16 @@ pub fn reconcile_bli_statement(
             Tolerance::Within(bound) => {
                 // |deviation| ≤ bound, inclusive boundary.
                 let magnitude = if deviation.value().mantissa() < 0 {
-                    // Negate by parts (no unary minus helper exists —
-                    // rebuild the decimal from the negated mantissa).
-                    FixedDecimal::from_parts(
-                        -deviation.value().mantissa(),
-                        deviation.value().scale(),
-                    )
-                    .map_err(|e| ReconciliationError::DecimalInvalid {
-                        reason: e.to_string(),
-                    })?
+                    // Negate through the checked operation: the only
+                    // non-invertible mantissa (i128::MIN) is a named
+                    // refusal, never a debug panic or a release wrap that
+                    // would read as within tolerance.
+                    deviation
+                        .value()
+                        .checked_neg()
+                        .map_err(|e| ReconciliationError::DecimalInvalid {
+                            reason: e.to_string(),
+                        })?
                 } else {
                     deviation.value()
                 };
@@ -510,6 +511,20 @@ mod tests {
         let report = reconcile_bli_statement("SYN-STMT", &expected_set, &stated_set, tolerance)
             .expect("reconciled");
         assert_eq!(report.mismatch_count, 1);
+    }
+
+    #[test]
+    fn an_unrepresentable_deviation_magnitude_is_a_named_refusal_never_a_match() {
+        // The only fixed-decimal subtraction that can produce a mantissa
+        // with no positive i128 counterpart (i128::MIN): the Within path
+        // must refuse the run — never wrap into a negative "magnitude"
+        // that reads as within tolerance (FRV1-R7-001).
+        let tolerance = Tolerance::within(FixedDecimal::parse("0.05").expect("bound"));
+        let expected_set = vec![expected("SYN-L1", "170141183460469231731687303715884105727")];
+        let stated_set = vec![stated("SYN-L1", "-1")];
+        let err = reconcile_bli_statement("SYN-STMT", &expected_set, &stated_set, tolerance)
+            .expect_err("the non-invertible deviation magnitude is refused");
+        assert_eq!(err.name(), "RECON_DECIMAL_INVALID");
     }
 
     #[test]

@@ -316,7 +316,13 @@ impl WebhookDeliveryRecord {
 /// One booked attempt row (the book-before-attempt record).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebhookAttemptRecord {
-    /// The attempt row identifier (opaque non-empty text).
+    /// The attempt row identifier (opaque non-empty text). This is the
+    /// caller's bookkeeping HANDLE — the in-memory fake's map key and a
+    /// log correlation id. The Postgres implementation generates the
+    /// attempt row's own identity as a D-S1 `uuidv7()` (the 0020 column
+    /// default is the recorded fallback; FRV1-R5-008) and keys outcomes
+    /// by the UNIQUE `(delivery_id, attempt_seq)` constraint instead —
+    /// see [`WebhookDeliveryStore::record_attempt_outcome`].
     pub attempt_id: String,
     /// The delivery this attempt belongs to.
     pub delivery_id: String,
@@ -372,7 +378,11 @@ impl WebhookAttemptRecord {
 /// "nothing is silently dropped").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebhookDeadLetterRecord {
-    /// The dead-letter row identifier (opaque non-empty text).
+    /// The dead-letter row identifier (opaque non-empty text). Like the
+    /// attempt handle above: the memory fake's map key; the Postgres
+    /// implementation generates the row's own identity as a D-S1
+    /// `uuidv7()` and keys the one-per-delivery rule on the UNIQUE
+    /// `(delivery_id)` constraint (migration 0020).
     pub dead_letter_id: String,
     /// The delivery that dead-lettered (one dead letter per delivery).
     pub delivery_id: String,
@@ -455,6 +465,21 @@ impl HttpPostOutcome {
             HttpPostOutcome::TransportFailure { class } => Some(class.clone()),
         }
     }
+
+    /// `true` when the receiver itself rejected the delivery PERMANENTLY:
+    /// a 4xx response other than 408 (request timeout) and 429 (too many
+    /// requests). Retrying a permanent rejection only burns the attempt
+    /// budget against a receiver that has said no — the attempt outcome is
+    /// `FATAL_FAILURE` and the delivery dead-letters immediately.
+    /// Transport failures and 408/429/5xx remain retryable (plan §2.3's
+    /// bounded backoff exists for exactly those).
+    ///
+    /// (Final review FRV1-R2-008: `FATAL_FAILURE` was a validated-but-
+    /// never-produced vocabulary value; this classifier produces it.)
+    pub fn is_permanent_rejection(&self) -> bool {
+        matches!(self, HttpPostOutcome::Responded { code }
+            if (400..500).contains(code) && *code != 408 && *code != 429)
+    }
 }
 
 /// The outbound HTTP POST port. The composition root injects the real
@@ -473,6 +498,43 @@ pub trait OutboundHttpPost: Send + Sync {
     ) -> Result<HttpPostOutcome, WebhookDeliveryError>;
 }
 
+/// The fail-closed UNWIRED transport (FRV1-R8-005): the composed stand-in
+/// for the real HTTP client. The workspace has NO HTTP-client dependency
+/// (grep-verified for the finding; the record `21_p13_09` §5 names the
+/// real client as the composition step), so this seam REFUSES every
+/// delivery with the named backend error instead of pretending a
+/// transmission happened — an unwired seam stays recorded, never faked.
+///
+/// Effect on the dispatcher's bookkeeping: `run_attempt` books the
+/// attempt row (BOOKED) before calling this transport; the refusal
+/// propagates as the named error BEFORE any outcome is recorded, so the
+/// row stays honestly `BOOKED` and the stale-booking recovery scan
+/// (`STALE_BOOKED_TIMEOUT_MILLIS`) treats it as retryable — no fake
+/// outcome is ever written. NOTE: the port's closed outcome vocabulary
+/// (`ATTEMPT_OUTCOMES`) and failure-class vocabulary have no
+/// `REFUSED_UNWIRED` value; adding one would amend a frozen bookkeeping
+/// vocabulary for a seam that has never delivered, so the refusal is the
+/// error path, not an outcome row.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct UnwiredOutboundHttpPost;
+
+impl OutboundHttpPost for UnwiredOutboundHttpPost {
+    fn post(
+        &self,
+        url: &str,
+        _headers: &[(String, String)],
+        _raw_body: &[u8],
+    ) -> Result<HttpPostOutcome, WebhookDeliveryError> {
+        Err(WebhookDeliveryError::Backend {
+            code: "E_TRANSPORT_UNWIRED".to_string(),
+            message: format!(
+                "no outbound HTTP transport is composed for webhook delivery; the request to \
+                 {url} was refused by the unwired transport seam (FRV1-R8-005)"
+            ),
+        })
+    }
+}
+
 // --- The store port -----------------------------------------------------------
 
 /// The delivery-bookkeeping persistence contract (the storage design this
@@ -481,18 +543,28 @@ pub trait OutboundHttpPost: Send + Sync {
 /// expand-only per the P11.18 policy in
 /// `crates/adapters/postgres/MIGRATION_POLICY.md`).
 ///
-/// The Postgres implementation lands on `FlexCoreStore` following the
-/// recorded edge-enrollment pattern (P6.06: a standalone store that opens
-/// its own tenant-scoped unit of work per call, OUTSIDE the per-request
-/// UoW bundle — delivery bookkeeping is background-store state, not
-/// request-transaction state). This batch deliberately does NOT edit
-/// `crates/adapters/postgres/src/store.rs` / `unit_of_work.rs`: those are
-/// shared seams where Agent A's identity storage (P13.03/P13.07/P13.08)
-/// also lands, and a conflicting concurrent edit to the unit-of-work
-/// bundle is a higher risk than an honestly-recorded follow-up. The
-/// in-memory fake below is the test path; the Postgres wiring is recorded
-/// in the P13.09 decision record (§ wiring) as the named composition step
-/// for wave 2 / the human build.
+/// The Postgres implementation lives in
+/// `crates/adapters/postgres/src/webhook_delivery.rs` (on `FlexCoreStore`,
+/// the recorded edge-enrollment pattern: a standalone store that opens its
+/// own tenant-scoped unit of work per call, OUTSIDE the per-request UoW
+/// bundle — delivery bookkeeping is background-store state, not
+/// request-transaction state). FRV1-R8-005 (final review): the
+/// implementation, the fail-closed [`UnwiredOutboundHttpPost`] transport
+/// seam, and the composition-root registration are LANDED here; what
+/// stays a recorded follow-up is the hosting loop (the scan cadence) and
+/// the secret-resolver composition at the P11.16 seam — see the P13.09
+/// decision record §5.
+///
+/// TENANT THREADING (FRV1-R8-005, the 0020 RLS reality): the four
+/// webhook tables carry `FORCE ROW LEVEL SECURITY` (migration 0020), so
+/// every delivery-scoped operation names its tenant explicitly — the
+/// adapter opens its unit of work with that tenant's context and the
+/// `tenant_isolation` policy applies. A delivery row always carries its
+/// tenant, and the dispatcher has it at every call site; a foreign-tenant
+/// row reads as absent (P0.16 rule 5). The two cross-tenant operations
+/// (`list_due_deliveries`, `count_dead_letters`) iterate the registered
+/// tenants per-tenant inside the adapter (the P11.20 stuck-scan
+/// `tenant_ids` pattern) — no statement ever runs without a tenant scope.
 pub trait WebhookDeliveryStore: Send + Sync {
     /// Books a NEW delivery under the idempotency key, or returns the
     /// EXISTING delivery when the key is already booked (the idempotency
@@ -502,17 +574,35 @@ pub trait WebhookDeliveryStore: Send + Sync {
         record: WebhookDeliveryRecord,
     ) -> Result<WebhookDeliveryRecord, WebhookDeliveryError>;
 
-    /// Marks a delivery `IN_FLIGHT` (an attempt is about to run).
-    fn mark_in_flight(&self, delivery_id: &str) -> Result<(), WebhookDeliveryError>;
+    /// Marks a delivery `IN_FLIGHT` (an attempt is about to run). The
+    /// tenant scopes the update (RLS); a foreign-tenant id reads as
+    /// [`WebhookDeliveryError::DeliveryNotFound`].
+    fn mark_in_flight(
+        &self,
+        tenant_id: &TenantId,
+        delivery_id: &str,
+    ) -> Result<(), WebhookDeliveryError>;
 
     /// Appends the BOOKED attempt row BEFORE the HTTP call. The booking is
-    /// durable before this returns (the contract's ordering rule).
-    fn book_attempt(&self, record: WebhookAttemptRecord) -> Result<(), WebhookDeliveryError>;
+    /// durable before this returns (the contract's ordering rule). The
+    /// tenant scopes the insert (RLS).
+    fn book_attempt(
+        &self,
+        tenant_id: &TenantId,
+        record: WebhookAttemptRecord,
+    ) -> Result<(), WebhookDeliveryError>;
 
-    /// Updates the booked attempt row to its outcome.
+    /// Updates the booked attempt row to its outcome, keyed by the
+    /// delivery's UNIQUE `(delivery_id, attempt_seq)` constraint (the
+    /// 0020 row identity; the caller's `attempt_id` handle is the memory
+    /// fake's map key and a log correlation id, not the Postgres row
+    /// identity — the Postgres attempt row's id is generated by the
+    /// adapter as a D-S1 `uuidv7()`).
     fn record_attempt_outcome(
         &self,
-        attempt_id: &str,
+        tenant_id: &TenantId,
+        delivery_id: &str,
+        attempt_seq: u32,
         outcome: &str,
         response_code: Option<u16>,
         failure_class: Option<String>,
@@ -520,8 +610,10 @@ pub trait WebhookDeliveryStore: Send + Sync {
     ) -> Result<(), WebhookDeliveryError>;
 
     /// Sets the delivery's post-attempt status and next-attempt schedule.
+    /// The tenant scopes the update (RLS).
     fn set_delivery_schedule(
         &self,
+        tenant_id: &TenantId,
         delivery_id: &str,
         status: &str,
         next_attempt_seq: u32,
@@ -532,6 +624,9 @@ pub trait WebhookDeliveryStore: Send + Sync {
     /// Lists deliveries due for an attempt at `now_unix_millis` whose
     /// status is `PENDING` or `IN_FLIGHT`-with-stale-booking (the recovery
     /// scan's feed; bounded listing — the P2.12/P3.28/P4.30 convention).
+    /// Cross-tenant by design (the scan feeds the platform's hosting
+    /// loop); the Postgres implementation walks the registered tenants
+    /// per-tenant under RLS and merges.
     fn list_due_deliveries(
         &self,
         now_unix_millis: i64,
@@ -539,14 +634,16 @@ pub trait WebhookDeliveryStore: Send + Sync {
         limit: u32,
     ) -> Result<Vec<WebhookDeliveryRecord>, WebhookDeliveryError>;
 
-    /// Promotes an exhausted delivery to the dead-letter table.
+    /// Promotes an exhausted delivery to the dead-letter table. The
+    /// record's own tenant scopes the insert (RLS).
     fn promote_to_dead_letter(
         &self,
         record: WebhookDeadLetterRecord,
     ) -> Result<(), WebhookDeliveryError>;
 
     /// The dead-letter depth (the metric's source; platform-wide — the
-    /// depth is an operations signal, not tenant data).
+    /// depth is an operations signal, not tenant data). The Postgres
+    /// implementation sums the per-tenant unresolved depths under RLS.
     fn count_dead_letters(&self) -> Result<u64, WebhookDeliveryError>;
 }
 
@@ -646,8 +743,8 @@ impl<'a> WebhookDispatcher<'a> {
             failure_class: None,
         };
         booking.validate()?;
-        self.store.book_attempt(booking)?;
-        self.store.mark_in_flight(&delivery.delivery_id)?;
+        self.store.book_attempt(&delivery.tenant_id, booking)?;
+        self.store.mark_in_flight(&delivery.tenant_id, &delivery.delivery_id)?;
 
         // Sign over the RAW body bytes exactly as transmitted.
         let timestamp_secs = now.div_euclid(1_000);
@@ -669,11 +766,18 @@ impl<'a> WebhookDispatcher<'a> {
         let concluded_at = (self.clock_millis)();
         let outcome_text = if outcome.is_success() {
             "SUCCESS"
+        } else if outcome.is_permanent_rejection() {
+            // FRV1-R2-008: the recorded FATAL_FAILURE outcome — the receiver
+            // permanently rejected the delivery; retrying would only burn
+            // the attempt budget.
+            "FATAL_FAILURE"
         } else {
             "RETRYABLE_FAILURE"
         };
         self.store.record_attempt_outcome(
-            &attempt_id,
+            &delivery.tenant_id,
+            &delivery.delivery_id,
+            seq,
             outcome_text,
             response_code,
             failure_class.clone(),
@@ -682,6 +786,7 @@ impl<'a> WebhookDispatcher<'a> {
 
         if outcome.is_success() {
             self.store.set_delivery_schedule(
+                &delivery.tenant_id,
                 &delivery.delivery_id,
                 "DELIVERED",
                 seq + 1,
@@ -691,10 +796,13 @@ impl<'a> WebhookDispatcher<'a> {
             return Ok("DELIVERED".to_string());
         }
 
-        // Failure: schedule the next attempt or dead-letter at the bound.
-        if attempt_allowed(seq + 1) {
+        // Failure: dead-letter immediately on a permanent rejection
+        // (FRV1-R2-008), otherwise schedule the next attempt or dead-letter
+        // at the bound.
+        if !outcome.is_permanent_rejection() && attempt_allowed(seq + 1) {
             let delay_secs = backoff_delay_secs(seq + 1);
             self.store.set_delivery_schedule(
+                &delivery.tenant_id,
                 &delivery.delivery_id,
                 "PENDING",
                 seq + 1,
@@ -715,6 +823,7 @@ impl<'a> WebhookDispatcher<'a> {
             dead_letter.validate()?;
             self.store.promote_to_dead_letter(dead_letter)?;
             self.store.set_delivery_schedule(
+                &delivery.tenant_id,
                 &delivery.delivery_id,
                 "DEAD_LETTERED",
                 seq + 1,
@@ -793,17 +902,27 @@ impl WebhookDeliveryStore for MemoryWebhookDeliveryStore {
         }
     }
 
-    fn mark_in_flight(&self, delivery_id: &str) -> Result<(), WebhookDeliveryError> {
+    fn mark_in_flight(
+        &self,
+        tenant_id: &TenantId,
+        delivery_id: &str,
+    ) -> Result<(), WebhookDeliveryError> {
         let mut deliveries = self.deliveries.lock().expect("poisoned mutex in test fake");
+        // The tenant scopes the lookup like the Postgres RLS filter does:
+        // a foreign-tenant id reads as absent (P0.16 rule 5).
         let delivery = deliveries
             .values_mut()
-            .find(|d| d.delivery_id == delivery_id)
+            .find(|d| d.delivery_id == delivery_id && d.tenant_id == *tenant_id)
             .ok_or(WebhookDeliveryError::DeliveryNotFound)?;
         delivery.status = "IN_FLIGHT".to_string();
         Ok(())
     }
 
-    fn book_attempt(&self, record: WebhookAttemptRecord) -> Result<(), WebhookDeliveryError> {
+    fn book_attempt(
+        &self,
+        _tenant_id: &TenantId,
+        record: WebhookAttemptRecord,
+    ) -> Result<(), WebhookDeliveryError> {
         record.validate()?;
         self.attempts
             .lock()
@@ -814,15 +933,32 @@ impl WebhookDeliveryStore for MemoryWebhookDeliveryStore {
 
     fn record_attempt_outcome(
         &self,
-        attempt_id: &str,
+        tenant_id: &TenantId,
+        delivery_id: &str,
+        attempt_seq: u32,
         outcome: &str,
         response_code: Option<u16>,
         failure_class: Option<String>,
         concluded_at_unix_millis: i64,
     ) -> Result<(), WebhookDeliveryError> {
+        // The tenant scopes the operation like the Postgres RLS filter:
+        // the delivery must exist in the caller's tenant before its
+        // attempt row is updated (P0.16 rule 5).
+        let in_scope = self
+            .deliveries
+            .lock()
+            .expect("poisoned mutex in test fake")
+            .values()
+            .any(|d| d.delivery_id == delivery_id && d.tenant_id == *tenant_id);
+        if !in_scope {
+            return Err(WebhookDeliveryError::DeliveryNotFound);
+        }
         let mut attempts = self.attempts.lock().expect("poisoned mutex in test fake");
+        // Keyed by the same (delivery_id, attempt_seq) identity the
+        // Postgres UNIQUE constraint carries.
         let attempt = attempts
-            .get_mut(attempt_id)
+            .values_mut()
+            .find(|a| a.delivery_id == delivery_id && a.attempt_seq == attempt_seq)
             .ok_or(WebhookDeliveryError::DeliveryNotFound)?;
         attempt.outcome = outcome.to_string();
         attempt.response_code = response_code;
@@ -834,6 +970,7 @@ impl WebhookDeliveryStore for MemoryWebhookDeliveryStore {
 
     fn set_delivery_schedule(
         &self,
+        tenant_id: &TenantId,
         delivery_id: &str,
         status: &str,
         next_attempt_seq: u32,
@@ -846,7 +983,7 @@ impl WebhookDeliveryStore for MemoryWebhookDeliveryStore {
         let mut deliveries = self.deliveries.lock().expect("poisoned mutex in test fake");
         let delivery = deliveries
             .values_mut()
-            .find(|d| d.delivery_id == delivery_id)
+            .find(|d| d.delivery_id == delivery_id && d.tenant_id == *tenant_id)
             .ok_or(WebhookDeliveryError::DeliveryNotFound)?;
         delivery.status = status.to_string();
         delivery.next_attempt_seq = next_attempt_seq;
@@ -970,6 +1107,14 @@ mod tests {
             Self {
                 calls: Mutex::new(Vec::new()),
                 outcome: Mutex::new(HttpPostOutcome::Responded { code: 500 }),
+            }
+        }
+
+        fn permanent_rejection() -> Self {
+            Self {
+                calls: Mutex::new(Vec::new()),
+                // 410 Gone: the receiver said no, permanently.
+                outcome: Mutex::new(HttpPostOutcome::Responded { code: 410 }),
             }
         }
     }
@@ -1103,6 +1248,54 @@ mod tests {
         let d = deliveries.values().next().unwrap();
         assert_eq!(d.status, "DELIVERED");
         assert_eq!(d.last_response_code, Some(200));
+    }
+
+    #[test]
+    fn a_permanent_rejection_produces_fatal_failure_and_dead_letters_immediately() {
+        // FRV1-R2-008: FATAL_FAILURE must be PRODUCED, not merely validated.
+        let store = MemoryWebhookDeliveryStore::new();
+        let http = RecordingHttp::permanent_rejection();
+        let disp = dispatcher(&store, &http, 1_000);
+        let delivery = disp
+            .enqueue(
+                tenant(7),
+                "evt:outbox:0003".to_string(),
+                "ep-1".to_string(),
+                "flexcore.v1.ScheduleProposed".to_string(),
+                "{\"event\":\"ScheduleProposed\"}".to_string(),
+                "d-1".to_string(),
+            )
+            .expect("booked");
+        let status = disp.run_attempt(&delivery).expect("attempt runs");
+        assert_eq!(status, "DEAD_LETTERED", "a permanent rejection never retries");
+        // Exactly ONE attempt row (the retry budget is not burned), concluded
+        // as FATAL_FAILURE with the rejecting response code recorded.
+        let attempts = store.attempts.lock().unwrap();
+        assert_eq!(attempts.len(), 1, "no second attempt is scheduled");
+        let attempt = attempts.values().next().expect("the attempt row");
+        assert_eq!(attempt.outcome, "FATAL_FAILURE");
+        assert_eq!(attempt.response_code, Some(410));
+        // The delivery is DEAD_LETTERED.
+        let deliveries = store.deliveries.lock().unwrap();
+        let d = deliveries.values().next().unwrap();
+        assert_eq!(d.status, "DEAD_LETTERED");
+        // Exactly one HTTP call happened.
+        assert_eq!(http.calls.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_permanent_rejection_classifier_spares_the_retryable_4xx_and_transport_failures() {
+        // 408 and 429 are receiver-side but RETRYABLE; 5xx is retryable;
+        // transport failures never classify as permanent.
+        assert!(!HttpPostOutcome::Responded { code: 408 }.is_permanent_rejection());
+        assert!(!HttpPostOutcome::Responded { code: 429 }.is_permanent_rejection());
+        assert!(!HttpPostOutcome::Responded { code: 500 }.is_permanent_rejection());
+        assert!(!HttpPostOutcome::Responded { code: 200 }.is_permanent_rejection());
+        assert!(!HttpPostOutcome::TransportFailure { class: "TIMEOUT".to_string() }
+            .is_permanent_rejection());
+        for code in [400u16, 404, 410, 422] {
+            assert!(HttpPostOutcome::Responded { code }.is_permanent_rejection());
+        }
     }
 
     #[test]

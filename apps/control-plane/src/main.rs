@@ -19,7 +19,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use flexcore_control_plane::auth::{DenyAllResolver, IdentityResolver, phase4_default_policies};
+use flexcore_control_plane::auth::{DenyAllResolver, IdentityResolver, phase5_default_policies};
 use flexcore_control_plane::config::Config;
 use flexcore_control_plane::metrics::track_metrics;
 use flexcore_control_plane::probes::{HealthCheck, Readiness};
@@ -134,14 +134,60 @@ async fn main() {
     // see state.rs — the repository ports are transaction-bound). P3.28:
     // the policy set is the cumulative phase set (Phase 3 grants added).
     // P4.30: the Phase 4 read-surface grants are added (command.read,
-    // feasibility.read).
+    // feasibility.read). P5.31 (FRV1-R2-001): the Phase 5 cumulative set is
+    // composed — it is the Phase 4 set extended with `alarm.read`, so
+    // `/api/v1/alarms` is reachable in production instead of a guaranteed
+    // 403. Still deny-by-default: the union of grants is exactly the
+    // recorded phase sets, nothing wider.
+    //
+    // FRV1-R2-009: `flexcore_authz::phase13_policies` (SiteApprover
+    // command.approve + apikey.*), `flexcore_authz::phase16_market_policies`
+    // (market.*) and `flexcore_authz::phase4_command_policies` (command
+    // gate actions) are deliberately NOT composed here — no REST surface in
+    // this binary evaluates them (the command gates run via sim-runner;
+    // apikey.*/market.* have no routes), so each stays recorded as a
+    // design-level grant set.
+    //
+    // FRV1-R1-004 (final review) — the P4.11–P4.18 COMMAND CORE COMPOSITION
+    // STATUS, recorded here because this file is the composition root:
+    // `CommandGates`, `CommandExpiryService`, the dispatch adapter
+    // (`SimulatorDispatchAdapter`), `ApprovalWorkflowEngine`, and
+    // `FallbackEngine` are NOT constructed in this binary in 0.x, and v0.x
+    // exposes none of them. The recorded reasons, verified by inspection
+    // for this finding:
+    // 1. Constructor contract: every one of the five is a per-composition
+    //    struct borrowing its collaborators (`&'a dyn` seams) — there is no
+    //    long-lived instance to register in `AppState`, whose Postgres ports
+    //    are themselves transaction-bound per request (state.rs).
+    // 2. Unimplemented ports (grep-verified): the injected seams have NO
+    //    production implementation — `CommandGateStore` (which the module
+    //    contract says the composition root implements over the P4.10
+    //    `CommandRecordStore`), `ScheduleEnvelopeSource`,
+    //    `ModelVersionSource`, `AssetCapabilitySource`,
+    //    `CommandFeasibilityRunner` (the §12.5 grid pipeline — the grid
+    //    crate is not even a dependency of this binary),
+    //    `CommandAuthorizationEvaluator`, `FallbackAuditSink`,
+    //    `ApprovalAccumulationStore`, and `SimulatorDispatchTransport` have
+    //    only sim-runner in-memory implementations or test fakes.
+    // 3. No call site: the §15.2 dispatch-command surface here is
+    //    READ-ONLY by recorded decision (routes_phase4.rs — no
+    //    execute-command endpoint), so no route handler touches any port
+    //    the core consumes; constructing the core would be unused code.
+    // In 0.x the protected command path is exercised exclusively by
+    // `apps/sim-runner` (its scenario composition implements the seams
+    // in-memory and drives the gates against the simulator). The recorded
+    // composition-root plan for a later release: implement
+    // `CommandGateStore` over the P4.10 `CommandRecordStore` (the module's
+    // stated contract) plus the remaining five seams, and construct the
+    // core per unit of work at the seam that invokes it — exactly the
+    // sim-runner composition shape, over real adapters.
     let state = AppState::new(
         Backend::Postgres {
             store: store.clone(),
             ids,
             clock,
         },
-        phase4_default_policies(),
+        phase5_default_policies(),
         identity,
         readiness,
         // Telemetry read port (P2.12): the Postgres adapter does not
@@ -151,7 +197,52 @@ async fn main() {
         // The current-state freshness limit (P2.18 step 3): configuration,
         // not a hard-coded constant.
         cfg.current_state_freshness.as_millis() as i64,
-    );
+    )
+    // P6.06 (FRV1-R2-002): the Postgres `EdgeEnrollmentStore` on the same
+    // store/pool is the real persistence for `/api/v1/edge/status` and
+    // `/api/v1/edge/decommission` — without it the routes fail closed
+    // unconditionally. The provisioning-token validator stays the deny-all
+    // default (recorded 0.x posture: no token service), so `/edge/enroll`
+    // keeps failing closed as recorded.
+    .with_edge_enrollment(store.clone())
+    // FRV1-R8-005 (final review): the P13.09 webhook-delivery bookkeeping
+    // store composes here, over the Postgres adapter's store
+    // (`webhook_delivery_pg.rs` implements the port; migration 0020 is
+    // the schema). COMPOSITION IS NOT DELIVERY: in 0.x there is no
+    // enqueue route, no hosting scan loop, and no secret-resolver
+    // composition at the P11.16 seam — the HTTP transport for any future
+    // hosting loop is `UnwiredOutboundHttpPost`
+    // (`webhook_service.rs`), a fail-closed seam that REFUSES every
+    // transmission with the named `E_TRANSPORT_UNWIRED` error because the
+    // workspace has no HTTP-client dependency (an unwired seam stays
+    // recorded, never faked). The remaining recorded composition steps
+    // (hosting-loop cadence, resolver composition, the P13.18 admin
+    // surface) are the P13.09 decision record §5's open items.
+    .with_webhook_delivery(Arc::new(
+        flexcore_postgres_adapter::webhook_delivery::PgWebhookDeliveryStore::new(
+            store.clone(),
+        ),
+    ));
+
+    // FRV1-R5-002 (final review) — the P15.15/P16.01 MARKET AND
+    // INTERCONNECTION RECORD STORES COMPOSITION STATUS, recorded here
+    // because this file is the composition root (the FRV1-R1-004
+    // precedent): `MarketRecordsStore` and `InterconnectionRecordStore`
+    // are fully implemented on the Postgres adapter (migrations
+    // 0021/0022, RLS + grants + indexes) and page-bounded (FRV1-R5-009),
+    // but NOTHING constructs them in this binary in 0.x — no route, no
+    // use case, no worker job reads or writes either trait. This is the
+    // recorded DESIGN-LEVEL-ONLY posture, not a defect: no market is
+    // connected and no interconnection record exists anywhere (ADR-011;
+    // migration 0022's header records the same), so the tables and code
+    // are unwired by design and exercised only by the adapter's
+    // WRITTEN-UNRUN test surface. The recorded wiring step (the finding's
+    // option (a)) is: market-record ingestion becomes a composition-root
+    // action when a market is actually connected, and the
+    // interconnection ingest becomes an operator-only control-plane route
+    // in the release that first files registrations — until then neither
+    // store is constructed here, and no release note may imply either is
+    // reachable through this binary.
 
     let app = stage1_router(state.clone()).layer(
         tower::ServiceBuilder::new()

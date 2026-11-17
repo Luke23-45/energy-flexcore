@@ -59,13 +59,21 @@
 #    inside this module. The functions compute raw metrics; the record's
 #    falsification verdicts are the human evaluator's, against the
 #    pre-registered thresholds.
-# 6. HELD-OUT TOPOLOGY PROTOCOL (P8.10 §4, carried UNCONFIRMED): the
-#    hold-out assignment below is the recorded RECOMMENDATION over the
-#    §19.3 library — training families lib-01…lib-05, held-out families
-#    lib-06/lib-07/lib-08 plus at least one structurally unseen family —
-#    and it is UNCONFIRMED until the P8.35 training-data manifest exists
-#    and the reviewer's overlap check passes (this module's
-#    `check_heldout_overlap` is that check, in code). The leakage
+# 6. HELD-OUT TOPOLOGY PROTOCOL (P8.10 §4, RESOLVED at the manifest): the
+#    original hold-out assignment was the recorded RECOMMENDATION over
+#    the §19.3 library (training families lib-01…lib-05, held-out
+#    families lib-06/lib-07/lib-08 plus at least one structurally unseen
+#    family), UNCONFIRMED until the P8.35 training-data manifest existed.
+#    The manifest NOW exists (training-data-manifest-v1, created
+#    2026-11-14) and its findings F-1/F-2 supersede that assignment:
+#    lib-06/07/08 share the training fixture and move to the HELD-OUT
+#    OPERATING-REGIME track; the topology hold-out is the
+#    generator-produced families (F-1), and the meshed lib-03 family is
+#    excluded from training by default (F-2). The superseded
+#    RECOMMENDATION text is kept in `HOLDOUT_STATUS` for provenance —
+#    history is recorded, never silently rewritten. The reviewer's
+#    overlap check (this module's `check_heldout_overlap` against the
+#    P8.35 manifest) remains the evidence, in code. The leakage
 #    controls (topology, normalization, regime — P8.10 §5) are
 #    `verify_leakage_controls`' declared-record check; enforcement lives
 #    at P8.35 ingestion and in the training pipeline, not here.
@@ -125,14 +133,34 @@ HEADLINE_RULE: str = (
     "solution), never model inference latency (report 13.1; ledger P8.12)"
 )
 
-# The held-out protocol status, VERBATIM (P8.10 §4) — pinned by tests.
+# The held-out protocol status (P8.10 §4, SUPERSEDED by the P8.35
+# training-data-manifest-v1 findings F-1/F-2; the superseded
+# RECOMMENDATION text is carried for provenance) — pinned by tests.
+# Supersession recorded rather than silently rewritten: a reader of the
+# old assignment alone would plan the wrong hold-out protocol — the
+# exact near-duplicate leakage risk finding F-1 records (final-review
+# finding FRV1-R4-008).
 HOLDOUT_STATUS: str = (
-    "RECOMMENDATION — UNCONFIRMED until the P8.35 training-data manifest "
-    "exists: training families lib-01..lib-05; held-out families "
-    "lib-06/lib-07/lib-08 plus at least one structurally unseen family; "
-    "held-out operating regimes = the P8.19 research-case extensions. "
-    "The reviewer's overlap check (check_heldout_overlap against the "
-    "P8.35 manifest) is the evidence, never this constant"
+    "RESOLVED BY training-data-manifest-v1 (P8.35, created 2026-11-14; "
+    "findings F-1/F-2): lib-06/lib-07/lib-08 share the three_bus_radial "
+    "training fixture with lib-01..lib-05, so they are NOT the topology "
+    "hold-out — their scenario material is assigned to the HELD-OUT "
+    "OPERATING-REGIME track (fam-regime-holdout-lib-06-07-08; the "
+    "distinction is REGIME: PV ramp, asset dropout, reverse power flow). "
+    "The topology hold-out is the generator-produced families, "
+    "structurally disjoint by construction (F-1), and the meshed lib-03 "
+    "family is EXCLUDED from GNN training topology instances by default "
+    "(F-2; D3 stays OPEN). NO dataset exists: every per-instance manifest "
+    "row is EMPTY until the human/lab generation gate fills it, so the "
+    "trained-topology list is EMPTY and the worker's scope check flags "
+    "EVERY topology out-of-scope (fail-closed by design). The reviewer's "
+    "overlap check (check_heldout_overlap against the P8.35 manifest) is "
+    "the evidence, never this constant. SUPERSEDED ASSIGNMENT (P8.10 §4 "
+    "RECOMMENDATION, kept for provenance — UNCONFIRMED at its time, now "
+    "resolved as above): training families lib-01..lib-05; held-out "
+    "families lib-06/lib-07/lib-08 plus at least one structurally unseen "
+    "family; held-out operating regimes = the P8.19 research-case "
+    "extensions"
 )
 
 # The pre-registration status, VERBATIM (X-8; 02_research_scope_freeze.md
@@ -691,8 +719,11 @@ def run_self_tests() -> list:
           in SOLVE_TIME_DISCIPLINE)
     check("headline rule carried verbatim",
           "never model inference latency" in HEADLINE_RULE)
-    check("hold-out status carried UNCONFIRMED",
-          HOLDOUT_STATUS.startswith("RECOMMENDATION — UNCONFIRMED")
+    check("hold-out status carries the manifest resolution + superseded text",
+          HOLDOUT_STATUS.startswith("RESOLVED BY training-data-manifest-v1")
+          and "fam-regime-holdout-lib-06-07-08" in HOLDOUT_STATUS
+          and "F-2" in HOLDOUT_STATUS
+          and "SUPERSEDED ASSIGNMENT" in HOLDOUT_STATUS
           and "lib-06" in HOLDOUT_STATUS)
     check("no threshold set here (X-8)",
           "NOT SET" in PRE_REGISTRATION_STATUS
@@ -706,10 +737,11 @@ def run_self_tests() -> list:
 
 
 if __name__ == "__main__":  # pragma: no cover — human-gate entrypoint
-    failures = [entry for entry in run_self_tests() if entry[1] != "PASS"]
-    for name, status, detail in run_self_tests():
+    _records = run_self_tests()
+    _failed = [entry for entry in _records if entry[1] != "PASS"]
+    for name, status, detail in _records:
         print("%s %s%s" % (status, name, (" — " + detail) if detail else ""))
-    if failures:
+    if _failed:
         raise SystemExit(1)
     print("all hand-computed self-tests PASS (test arithmetic, not "
           "measurements)")

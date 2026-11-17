@@ -180,8 +180,22 @@ export function AssetAlarmsPanel({
 
 /** The severity text treatment (text-borne, not colour alone — §20.2). */
 function SeverityBadge({ alarm }: { alarm: AlarmDto }): JSX.Element {
+  // FRV1-R9-003 (design wave 2) — ADDITIVE className only: the severity
+  // class is derived from the SAME mapping that renders the bracketed
+  // token, so the color key can never disagree with the displayed text
+  // (an unknown severity renders [INFO] and keeps the neutral gray chip).
+  // The pinned data-testid and the text content are unchanged.
+  const severityToken =
+    alarm.severity === 'CRITICAL'
+      ? 'critical'
+      : alarm.severity === 'WARNING'
+        ? 'warning'
+        : 'info';
   return (
-    <code data-testid={`alarm-severity-${alarm.code}`}>
+    <code
+      data-testid={`alarm-severity-${alarm.code}`}
+      className={`severity severity-${severityToken}`}
+    >
       {alarm.severity === 'CRITICAL'
         ? '[CRITICAL]'
         : alarm.severity === 'WARNING'

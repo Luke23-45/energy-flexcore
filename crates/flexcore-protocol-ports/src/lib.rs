@@ -1,11 +1,14 @@
 //! Neryva FlexCore — the common port layer for protocol adapters (P14.01).
 //!
 //! Every Phase 14 protocol adapter (`crates/adapters/protocol-*`: ieee-2030.5,
-//! openadr, modbus, dnp3, 104, 61850, mqtt, cim) implements THIS layer — the
-//! same discipline the edge-agent `EmsAdapter` port (P6.12) and the grid-api
-//! `ScopeDeclaration` (P4.02) already enforce, lifted to the protocol-adapter
-//! tier (decision record:
+//! openadr, modbus, dnp3, 104, 61850, mqtt, cim) is built on THIS layer's
+//! scope and manifest contracts — the same discipline the edge-agent
+//! `EmsAdapter` port (P6.12) and the grid-api `ScopeDeclaration` (P4.02)
+//! already enforce, lifted to the protocol-adapter tier (decision record:
 //! `docs/phases-11-20/phase-14-protocol-device-connectivity/records/01_p14_01_adapter_architecture.md`).
+//! The `ProtocolConnection` lifecycle port itself is a RECORDED DEFERRAL
+//! (FRV1-R6-001): no adapter implements it in this baseline; the shipped
+//! default `UnwiredProtocolConnection` refuses fail-closed by name.
 //!
 //! | Module | Contract | Content |
 //! |---|---|---|

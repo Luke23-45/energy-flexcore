@@ -1,0 +1,47 @@
+-- P4.10 -- Migration 0025 up: the tenant-listing index on
+--          `dispatch_commands` (FRV1-R5-005, final review).
+--
+-- WHY THIS INDEX EXISTS (FRV1-R5-005): `dispatch_commands` is listed by
+-- the documented tenant-listing query pattern
+-- (`crates/adapters/postgres/src/command_store.rs::list_commands`:
+-- `WHERE tenant_id = $1 [AND state = $2] ORDER BY command_id DESC LIMIT
+-- n`), but migration 0016 gave the table only its composite PRIMARY KEY
+-- `(command_id, tenant_id)` — which LEADS with `command_id`, so a
+-- per-tenant listing cannot use it without a scan. The sibling journal
+-- table got exactly the right index
+-- (`dispatch_command_transitions_command_idx` on
+-- `(tenant_id, command_id, seq)`, migration 0016); the parent table's
+-- omission is closed here, expand-only.
+--
+-- COLUMN CHOICE (the finding's recommendation, matched to the documented
+-- pattern exactly): `(tenant_id, command_id DESC)` — the tenant equality
+-- prefix serves the WHERE clause, and the `command_id DESC` ordering
+-- serves the newest-first page directly (the primary keys are UUIDv7s,
+-- D-S1, so id order is a stable time order). The optional `state` filter
+-- runs as a filter on this index scan; a dedicated
+-- `(tenant_id, state, command_id DESC)` index was deliberately NOT added
+-- (the finding records that one of the two suffices, and the state-less
+-- page is the default `/api/v1/dispatch-commands` listing).
+--
+-- EXPAND-ONLY (the P11.18 policy, MIGRATION_POLICY.md): the statement
+-- creates ONE new index on an existing table — no column, constraint, or
+-- grant belonging to any earlier migration is touched; nothing is
+-- dropped or replaced. The down migration drops only what this
+-- migration created.
+--
+-- LOCK-RISK NOTE (recorded, not hidden — MIGRATION_POLICY.md §2): a
+-- non-concurrent `CREATE INDEX` takes a `SHARE` lock (blocks writes for
+-- the build) and the policy prohibits that inside the embedded runner on
+-- a POPULATED lifecycle table (`dispatch_commands` is in the §3
+-- protected set). At application time the table is EMPTY in this program
+-- — the workspace is WRITTEN-UNRUN, no deployment exists, and the index
+-- build scans zero rows — so the lock window is bounded by an empty
+-- table and the statement is applied embedded. For any database where
+-- `dispatch_commands` HOLDS ROWS (a future deployment), the recorded
+-- remediation is to schedule this index as a `CREATE INDEX
+-- CONCURRENTLY` ops-runbook step instead (the policy's rule for
+-- populated lifecycle tables), skipping the embedded runner's copy.
+
+CREATE INDEX dispatch_commands_tenant_idx
+    ON dispatch_commands (tenant_id, command_id DESC);
+

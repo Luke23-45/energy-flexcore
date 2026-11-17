@@ -166,3 +166,20 @@ describe('MarketProgramsView (render honesty)', () => {
     expect(error).toContain('shows no data rather than');
   });
 });
+
+// --- FRV1-R9-001 (wave 2, Agent B, APPENDED — nothing above was modified) ----
+// Structural pin for the additive wide-table containment wrappers (see
+// Overview.test.tsx for the full rationale).
+import { readFileSync as readSourceFs } from 'node:fs';
+import { join as joinSourcePath, dirname as dirnameSourcePath } from 'node:path';
+import { fileURLToPath as fileUrlToSourcePath } from 'node:url';
+
+describe('FRV1-R9-001 (wave 2): .table-scroll containment wrappers (source-pinned)', () => {
+  it('the market-region table is wrapped in an additive table-scroll div', () => {
+    const source = readSourceFs(
+      joinSourcePath(dirnameSourcePath(fileUrlToSourcePath(import.meta.url)), 'MarketPrograms.tsx'),
+      'utf-8',
+    );
+    expect(source.split('<div className="table-scroll">').length - 1).toBe(1);
+  });
+});

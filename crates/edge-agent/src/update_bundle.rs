@@ -738,12 +738,32 @@ impl AntiRollbackCounter {
     /// full-pass path — this method is public so the composition is
     /// testable, but the ONLY production caller is
     /// `crate::update_session::ExtendedUpdateGate`.
+    ///
+    /// Ordering (FRV1-R6-007, final review R6): the strictly-ahead
+    /// re-check happens FIRST, under the last-seen lock, BEFORE the
+    /// durable append — a refused sequence never reaches the
+    /// append-only register (the register holds exactly the accepted
+    /// records; replay is unaffected either way because it derives
+    /// last-seen as the MAX over good records).
     pub fn accept(&self, sequence: u64) -> Result<u64, UpdateBundleError> {
         if sequence < ANTI_ROLLBACK_SEQUENCE_FLOOR {
             return Err(UpdateBundleError::InvalidInput {
                 reason: format!(
                     "the sequence {sequence} is below the floor {ANTI_ROLLBACK_SEQUENCE_FLOOR}"
                 ),
+            });
+        }
+        let mut last_seen = self
+            .last_seen
+            .lock()
+            .expect("poisoned anti-rollback counter mutex");
+        // Check strictly ahead under the lock BEFORE any durable write
+        // (two gates sharing one counter must not race a value backwards,
+        // and a refused sequence must not accumulate on disk).
+        if sequence <= *last_seen {
+            return Err(UpdateBundleError::SequenceNotAhead {
+                declared: sequence,
+                last_seen: *last_seen,
             });
         }
         let payload = sequence.to_le_bytes();
@@ -766,18 +786,8 @@ impl AntiRollbackCounter {
                     reason: format!("appending the anti-rollback counter record failed: {e}"),
                 })?;
         }
-        let mut last_seen = self
-            .last_seen
-            .lock()
-            .expect("poisoned anti-rollback counter mutex");
-        // Re-check under the lock (two gates sharing one counter must not
-        // race a value backwards).
-        if sequence <= *last_seen {
-            return Err(UpdateBundleError::SequenceNotAhead {
-                declared: sequence,
-                last_seen: *last_seen,
-            });
-        }
+        // The durable append succeeded; only now does the in-memory view
+        // move.
         *last_seen = sequence;
         self.records_accepted
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -998,6 +1008,19 @@ mod tests {
             Err(UpdateBundleError::SequenceNotAhead { declared: 2, last_seen: 3 })
         ));
         counter.accept(4).expect("4 accepted");
+        // FRV1-R6-007 (corrected behavior pinned): the refused sequences
+        // (3 and 2) never reach the durable register — the file holds
+        // exactly the ACCEPTED records (3 then 4): the magic header plus
+        // two framed records.
+        let contents = std::fs::read(&path).expect("counter file readable");
+        let header_len = AntiRollbackCounter::magic().len();
+        let framed_record_len = 4 + 4 + std::mem::size_of::<u64>();
+        assert_eq!(
+            contents.len(),
+            header_len + 2 * framed_record_len,
+            "the durable register holds exactly the accepted records; \
+             refused sequences are never appended (FRV1-R6-007)"
+        );
         // Reopen: the last-seen value is derived by replay (the register
         // is the source of truth).
         let reopened = AntiRollbackCounter::open(&path).expect("reopens");

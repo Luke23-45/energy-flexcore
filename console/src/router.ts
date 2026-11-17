@@ -16,6 +16,20 @@ import { WORKSPACES, type WorkspaceId } from './workspaces/registry';
 
 export const DEFAULT_ROUTE: WorkspaceId = 'overview';
 
+/**
+ * The P5.12 accessibility skip link targets the `#workspace-main` element
+ * with a bare in-page fragment. That fragment shares the URL hash channel
+ * with the workspace routes, so the hashchange listener must NOT treat it
+ * as a route change: parseRoute would find no workspace named
+ * "workspace-main" and silently navigate to the Overview workspace,
+ * teleporting a keyboard user out of the workspace they were reading
+ * (and destroying the focus/scroll benefit the skip link exists for).
+ * A pure anchor hash keeps the CURRENT route; only focus/scroll moves.
+ */
+export function isInPageAnchorHash(hash: string): boolean {
+  return hash === '#workspace-main';
+}
+
 /** Extracts the workspace id from `location.hash` (`#/grid` -> "grid"). */
 export function parseRoute(hash: string): WorkspaceId {
   const raw = hash.replace(/^#\/?/, '').split(/[?#]/)[0];
@@ -35,7 +49,12 @@ export function routeHash(id: WorkspaceId): string {
 export function subscribeToRoute(
   onChange: (route: WorkspaceId) => void,
 ): () => void {
-  const listener = () => onChange(parseRoute(window.location.hash));
+  const listener = () => {
+    // The P5.12 skip-link anchor is focus/scroll only — it never re-routes
+    // (see isInPageAnchorHash; the current workspace is kept).
+    if (isInPageAnchorHash(window.location.hash)) return;
+    onChange(parseRoute(window.location.hash));
+  };
   window.addEventListener('hashchange', listener);
   return () => window.removeEventListener('hashchange', listener);
 }

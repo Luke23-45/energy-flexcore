@@ -96,6 +96,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+import time
 
 import evaluation_harness
 
@@ -157,6 +158,7 @@ FORBIDDEN_RESULT_KEYS: frozenset = frozenset(
         "dispatch",
         "dispatchable",
         "approval",
+        "approved",
         "approval_token",
     }
 )
@@ -453,6 +455,9 @@ def build_result(
             "request_id": validated["request_id"],
             "termination_status": termination_status,
             "diagnostics": list(diagnostics),
+            # §9.2 field: the MEASURED wall-clock duration of the run path
+            # that emitted this envelope (see `_elapsed_ms`); never a
+            # fabricated figure and never a latency claim.
             "execution_ms": max(0, int(execution_ms)),
         },
         "status_text": "%s %s" % (UNVERIFIED_NOTE, " | ".join(BOUNDARY_STATEMENTS[:2])),
@@ -471,6 +476,20 @@ def _defensive_getattr(obj, name):
         return getattr(obj, name)
     except Exception:  # noqa: BLE001 — an absent UNVERIFIED surface is in-band
         return None
+
+
+def _elapsed_ms(started: float) -> int:
+    """Wall-clock milliseconds since `started` (time.perf_counter, the
+    monotonic clock), truncated toward zero and never negative.
+
+    The §9.2 `execution_ms` provenance value is a MEASURED diagnostic of
+    the run path that emitted the envelope — never a fabricated figure
+    and never a latency claim (a measured duration of THIS run is
+    bookkeeping, not a benchmark). Shared idiom with
+    `../gnn_worker/gnn_inference_worker.py` and
+    `../marl_worker/marl_worker.py` (final-review finding FRV1-R4-010).
+    """
+    return max(0, int((time.perf_counter() - started) * 1000))
 
 
 def extract_traces(system, monitored: list) -> list | None:
@@ -529,6 +548,10 @@ def run_study(request: dict) -> dict:
     validated = validate_request(request)
     diagnostics: list = []
     version = andes_version_reported(andes)
+    # §9.2 execution_ms is a MEASURED diagnostic, never a constant
+    # (final-review finding FRV1-R4-010 — the literal 0 it replaced could
+    # be mistaken for a measurement).
+    started = time.perf_counter()
 
     try:
         # UNVERIFIED — ANDES API: load + DAE setup.
@@ -653,7 +676,7 @@ def run_study(request: dict) -> dict:
         metrics=metrics,
         diagnostics=diagnostics,
         andes_version=version,
-        execution_ms=0,
+        execution_ms=_elapsed_ms(started),
     )
 
 

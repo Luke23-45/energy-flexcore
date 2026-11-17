@@ -54,6 +54,19 @@
 //   shared mutable state. Enforcement lives in each adapter's own
 //   backpressure module (record 83 §2).
 //
+// PER-ADAPTER COVERAGE (record 83 §5; OCPP/ENTSO-E rows added by
+// FRV1-R6-002, final review R6): modbus, mqtt, dnp3, and openadr bind
+// shared budget modules; 2030.5 (ServerLimits IS the cap) and CIM (batch
+// parse) carry recorded no-module decisions. OCPP is ALSO a recorded
+// no-module decision: its crate-local `CsmsLimits` refusals
+// (`CsmsError::OutboundQueueFull`, `ConnectionCapReached`) are the
+// deliberate mechanism, and they are NOT in the shared [`RateRefusal`]
+// vocabulary — the `flexcore_protocol_adapter_messages_refused_total`
+// label semantics do not yet cover the OCPP surface (named gap, folded
+// in at the first OCPP composition). ENTSO-E has no recurring message
+// rate until its transport seam is wired (`SeamNotWired`), so no budget
+// exists to declare.
+//
 // Cardinality decisions (recorded once, mirroring the P2.21/P11.01
 // discipline):
 // - `adapter_id` is the ONLY per-adapter label, and its value set is the

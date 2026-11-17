@@ -45,15 +45,26 @@ scheduling is not expressible through the port and was not improvised.
 
 ## Decisions recorded here
 
-1. **`InboxStore` single home: this crate.** The inbox is consumer-side
-   delivery-deduplication infrastructure, not a domain capability port, and
-   flexcore-ports was outside the P1.16 edit scope. The durable
-   implementation (PostgreSQL table with the unique constraint on
-   `(consumer_name, idempotency_key)`, consumed-at timestamp, consumer
-   identity — P1.16 step 1) lives in `crates/adapters/postgres`, which owns
-   that schema, and implements this trait verbatim. If a later phase
-   promotes the trait to flexcore-ports, the definition moves there and is
-   deleted here — one home, one definition.
+1. **`InboxStore` single home: the trait in this crate; the DURABLE
+   implementation in `apps/worker/src/inbox.rs`.** (AMENDED for the final
+   review, FRV1-R5-007 — this item previously named
+   `crates/adapters/postgres` as the durable home, which was the P1.16
+   plan and is no longer where the implementation lives.) The inbox is
+   consumer-side delivery-deduplication infrastructure, not a domain
+   capability port, and flexcore-ports was outside the P1.16 edit scope.
+   The durable implementation (`PgInboxStore`: the PostgreSQL table with
+   the unique constraint on `(consumer_name, idempotency_key)`,
+   consumed-at timestamp, consumer identity — P1.16 step 1) was rerouted
+   to the worker composition root during P1.19 with a recorded
+   interim-home rationale (`apps/worker/src/inbox.rs` module header — one
+   durable implementation, not a second definition), and the inbox TABLE
+   is owned by the adapter's embedded migration set
+   (`0024_worker_inbox_p1_16`, FRV1-R5-004). The recorded promotion path:
+   when the store implementation is promoted into
+   `flexcore-postgres-adapter` (P1.30 boundary-audit item), it lands next
+   to this trait and the worker module is deleted. If a later phase
+   promotes the trait itself to flexcore-ports, the definition moves
+   there and is deleted here — one home, one definition.
 
 2. **Sync ports / async adapter.** `EventOutbox` and `InboxStore` are sync
    (house rule: no port names a runtime). The adapter *consumes* them — it
@@ -83,22 +94,21 @@ scheduling is not expressible through the port and was not improvised.
    carries a `VERIFY-BUILD:` comment; re-verify them mechanically at the
    first `cargo build`.
 
-5. **Subject scheme verification result (P1.14 §9 binding).** The
-   flexcore-events scheme *shape* matches D-J1
-   (`flexcore.v1.<area>.<slug>`, lower snake_case slugs, no tenant token,
-   wildcards rejected) but the **area tokens diverge on 8 of 26 events**:
-   flexcore-events uses `asset` (for both `AssetRegistered`/
-   `AssetCapabilityUpdated` and `AssetAvailabilityChanged`), `schedule`,
-   `feasibility`, `plugin`, and `operator`, where P1.14 §3 defines
-   `registry`, `state`, `scheduling`, `validation`, `plugins`, and `audit`.
-   Consequence: subjects for events 1–2 would land on no Phase 1 stream
-   (`asset.*` matches no filter), and `operator_action_recorded` likewise
-   misses `FLEXCORE_AUDIT`. The adapter is scheme-agnostic — the publisher
-   publishes the outbox `destination_subject` verbatim and the consumer
-   derives DLQ subjects mechanically — so the reconciliation belongs in
-   flexcore-events (out of this subtask's edit scope). **This must be
-   reconciled before any real event flows.**
-
+5. **Subject scheme verification result (P1.14 §9 binding) — RECONCILED
+   (final review, FRV1-R5-006; supersedes the recorded "8 of 26 events
+   diverge" defect, which is CLOSED).** The flexcore-events scheme matches
+   D-J1 in shape (`flexcore.v1.<area>.<slug>`, lower snake_case slugs, no
+   tenant token, wildcards rejected) AND in area tokens: all 26 frozen
+   events now map onto the exact P1.14 §3 area tokens
+   (`registry`/`state`/`telemetry`/`flexibility`/`forecast`/`market`/
+   `scheduling`/`validation`/`dispatch`/`plugins`/`audit`) through the
+   single mapping home `crates/flexcore-events/src/subject.rs`
+   (`event_area` — the authority this crate's
+   `topology::stream_for_subject` doc cites), and the topology test pins
+   the subject-to-stream mapping over the same 26 subjects. The publisher
+   stays scheme-agnostic (it publishes the outbox
+   `destination_subject` verbatim); no re-mapping exists or is needed
+   here.
 6. **Hosting.** `OutboxPublisher::run` and `IdempotentConsumer::run` are
    loops driven by a `tokio::sync::watch` shutdown receiver. apps/worker
    (P1.19) provisions streams/consumers at start and hosts both as
@@ -109,7 +119,8 @@ scheduling is not expressible through the port and was not improvised.
 
 `tests/integration.rs` needs a real NATS server (2.15.x) and skip cleanly
 without it. No database is needed here (the durable inbox tests live with
-the postgres adapter — decision 1).
+the durable implementation's home — decision 1, as amended: see
+the `InboxStore` single-home note above).
 
 ```sh
 # start a NATS server (e.g. docker run -p 4222:4222 nats:2.15 -js)

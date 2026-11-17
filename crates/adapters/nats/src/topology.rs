@@ -277,8 +277,11 @@ pub const PHASE_1_STREAMS: &[&StreamDefinition] = &[
 /// mapping exists for provisioning, tests, and operations.
 ///
 /// See the crate README for the recorded verification result on the
-/// flexcore-events area tokens (8 of 26 events diverge from this table and
-/// must be reconciled there — the publisher does not remap).
+/// flexcore-events area tokens: RECONCILED (final review, FRV1-R5-006) —
+/// all 26 frozen events map onto exactly this table's P1.14 §3 area
+/// tokens through `crates/flexcore-events/src/subject.rs` (`event_area`,
+/// the single mapping home), and the topology test pins the mapping. The
+/// publisher does not remap (and does not need to).
 pub fn stream_for_subject(subject: &str) -> Option<&'static str> {
     if subject.starts_with(DLQ_SUBJECT_PREFIX) {
         // P11.13: a conforming quarantine copy routes to its family's

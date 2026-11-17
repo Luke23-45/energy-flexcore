@@ -13,15 +13,24 @@
 // 1. This is an interim single home, not a second definition: there is
 //    exactly one durable implementation of the trait in the workspace, and
 //    it lives in the composition root that wires it.
-// 2. The inbox TABLE is likewise created here (`ensure_table`,
-//    `CREATE TABLE IF NOT EXISTS`) because the postgres adapter's
-//    migration set is outside this subtask's edit scope. The P1.12/P1.16
-//    inbox schema obligations are honoured: per-consumer key, UNIQUE
-//    constraint, consumed-at timestamp, consumer identity.
+// 2. The inbox TABLE is owned by the adapter's embedded migration set:
+//    migration `0024_worker_inbox_p1_16` (in
+//    `crates/adapters/postgres/migrations/`) creates it with EXACTLY the
+//    schema the P1.19 runtime `CREATE TABLE IF NOT EXISTS` statement
+//    produced, with the recorded owner/grant conventions (the 0007 outbox
+//    precedent: an infrastructure working queue, not tenant-owned, no
+//    RLS). The P1.12/P1.16 inbox schema obligations are honoured:
+//    per-consumer key, UNIQUE constraint, consumed-at timestamp, consumer
+//    identity. (FRV1-R5-004, final review: the runtime `ensure_table` was
+//    REMOVED with the promotion — the migration is the single owner of
+//    the table; a database provisioned by migrations alone has it.)
 // 3. When the store is promoted into `flexcore-postgres-adapter`
 //    (P1.30 boundary audit item), the table DDL moves into the adapter's
 //    migration set and THIS MODULE IS DELETED — one home, one definition
-//    (P1.10 single-home rule).
+//    (P1.10 single-home rule). The DDL half of that promotion is DONE
+//    (0024); the store-implementation promotion (moving `PgInboxStore`
+//    next to the trait's durable home) remains the recorded follow-up,
+//    so the module stays until it lands.
 //
 // # Sync/async bridge and the transactional obligation
 //
@@ -52,14 +61,11 @@ use tokio::runtime::Runtime;
 
 /// The worker-owned inbox table. The UNIQUE constraint is the primary key
 /// on `(consumer_name, idempotency_key)` (P1.16 step 1: "unique
-/// constraint, consumed-at timestamp, and consumer identity").
-const SQL_ENSURE_TABLE: &str = "CREATE TABLE IF NOT EXISTS flexcore_worker_inbox (\
-     consumer_name text NOT NULL, \
-     idempotency_key text NOT NULL, \
-     consumed_at timestamptz NOT NULL DEFAULT now(), \
-     consumer_identity text NOT NULL DEFAULT 'flexcore-worker', \
-     PRIMARY KEY (consumer_name, idempotency_key))";
-
+/// constraint, consumed-at timestamp, and consumer identity"). The table
+/// DDL lives in the adapter's embedded migration
+/// `0024_worker_inbox_p1_16` (FRV1-R5-004: the P1.19 runtime
+/// `ensure_table` was removed with the promotion — the migration is the
+/// single owner; this store only SELECTs and INSERTs).
 const SQL_IS_RECORDED: &str = "SELECT EXISTS(\
      SELECT 1 FROM flexcore_worker_inbox \
      WHERE consumer_name = $1 AND idempotency_key = $2)";
@@ -116,16 +122,6 @@ impl PgInboxStore {
             pool,
             runtime: Arc::new(runtime),
         })
-    }
-
-    /// Creates the inbox table if absent (idempotent; run at startup).
-    /// Interim measure — see the module header for the promotion path.
-    pub fn ensure_table(&self) -> Result<(), InboxStoreError> {
-        let pool = self.pool.clone();
-        self.block(async move {
-            sqlx::query(SQL_ENSURE_TABLE).execute(&pool).await
-        })
-        .map(|_| ())
     }
 
     /// Runs one async database operation on the private runtime, with a

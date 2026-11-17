@@ -578,19 +578,31 @@ impl SyntheticPriceCurve {
     /// expanded onto a scheduling grid: the price of interval `i` is the
     /// hourly value at `(i * interval_seconds / 3600) % 24` (hour offset
     /// from the horizon start, modulo 24 — recorded in the decision doc).
-    pub fn v1_default(interval_count: usize, interval_seconds: u32) -> Self {
-        assert!(interval_seconds > 0, "interval_seconds must be positive");
-        assert!(interval_count > 0, "interval_count must be positive");
+    /// A non-positive `interval_seconds` is the named
+    /// [`ObjectiveError::NonPositiveIntervalSeconds`] refusal; a zero
+    /// `interval_count` is [`ObjectiveError::EmptySeries`] — the same named
+    /// errors the `new` validation path carries (a caller error is never a
+    /// panic).
+    pub fn v1_default(
+        interval_count: usize,
+        interval_seconds: u32,
+    ) -> Result<Self, ObjectiveError> {
+        if interval_seconds == 0 {
+            return Err(ObjectiveError::NonPositiveIntervalSeconds);
+        }
+        if interval_count == 0 {
+            return Err(ObjectiveError::EmptySeries { series: "price_curve" });
+        }
         let prices = (0..interval_count)
             .map(|i| {
                 let hour = ((i as u64 * interval_seconds as u64) / 3600) % 24;
                 SYNTHETIC_PRICE_CURVE_V1_HOURLY[hour as usize]
             })
             .collect();
-        Self {
+        Ok(Self {
             version: SYNTHETIC_PRICE_CURVE_V1_VERSION.to_string(),
             prices_per_interval: prices,
-        }
+        })
     }
 
     /// The curve version (travels into the term provenance record).
@@ -643,13 +655,17 @@ impl SyntheticSeries {
 
     /// The recorded default reference: flat zero export — the neutral
     /// synthetic baseline ([`SYNTHETIC_REFERENCE_TRAJECTORY_V1_VERSION`];
-    /// recorded in the decision doc with an ASSUMPTION label).
-    pub fn v1_default_flat_zero(interval_count: usize) -> Self {
-        assert!(interval_count > 0, "interval_count must be positive");
-        Self {
+    /// recorded in the decision doc with an ASSUMPTION label). A zero
+    /// `interval_count` is the named [`ObjectiveError::EmptySeries`]
+    /// refusal (a caller error is never a panic).
+    pub fn v1_default_flat_zero(interval_count: usize) -> Result<Self, ObjectiveError> {
+        if interval_count == 0 {
+            return Err(ObjectiveError::EmptySeries { series: "reference" });
+        }
+        Ok(Self {
             version: SYNTHETIC_REFERENCE_TRAJECTORY_V1_VERSION.to_string(),
             values_mw: vec![0.0; interval_count],
-        }
+        })
     }
 
     /// The series version.

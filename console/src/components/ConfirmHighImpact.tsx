@@ -124,7 +124,11 @@ export function ConfirmHighImpact({
   }
   const inputId = `confirm-high-impact-${actionId}`;
   return (
-    <div data-testid="confirm-high-impact">
+    // FRV1-R9-005-adjacent (wave 2): additive className for the deliberate
+    // safety-UI card treatment (styles/design-system.css). The testids, the
+    // label, and the checkbox are untouched, so the <label for=…> regex pins
+    // in statePrinciples/a11yPrinciples still hold.
+    <div className="confirm-high-impact" data-testid="confirm-high-impact">
       <p data-testid="confirm-high-impact-action">
         <strong>High-impact action: {action.id}</strong> — {action.description}
         {!action.consoleTriggerable && action.notTriggerableReason

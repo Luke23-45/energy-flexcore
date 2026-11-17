@@ -32,7 +32,9 @@ python apps/worker/python/reproducibility/seed_derivation.py
 python apps/worker/python/reproducibility/record_schema.py
 python apps/worker/python/reproducibility/rerun_check.py
 
-# (b) the pytest mirror:
+# (b) the pytest mirror (pytest itself is recorded, never installed, in
+#     apps/worker/python/requirements-dev.txt — SECONDARY-SOURCE PIN;
+#     RE-VERIFY AT FIRST INSTALL):
 PYTHONPATH=apps/worker/python/reproducibility python -m pytest \
   apps/worker/python/reproducibility/tests -v
 

@@ -6,9 +6,10 @@
 // 07_31_market_plugins_admin_alarms.md):
 // - EXISTS: the tenant registry read (P2.12: GET /api/v1/tenants lists the
 //   caller's OWN tenant only — read-only; a tenant-administrator surface);
-//   the closed authorization action vocabulary + the four roles
-//   (flexcore-authz action.rs / policy.rs — mirrored here WITH a drift
-//   note, the enum is authoritative); the retention configuration SHAPE
+//   the closed authorization action vocabulary + the five roles (derived
+//   from the capabilityMatrix ROLES, FRV1-R3-003 — flexcore-authz
+//   action.rs / policy.rs, the enum is authoritative); the retention
+//   configuration SHAPE
 //   (P4.30 RetentionPolicy, flexcore-storage/retention.rs: seven §16.3
 //   classes, each Unset by default — a configuration type, NOT a policy
 //   engine, and NO read API serves a deployment's configured values); the
@@ -24,6 +25,7 @@
 import type { SiteDto } from '../api/types';
 import type { TenantDto } from '../api/types';
 import type { SiteViewDto } from '../api/views';
+import { ROLES } from '../security/capabilityMatrix';
 
 /** The identity-integration statement (honest about dev-auth only). */
 export const IDENTITY_STATEMENT =
@@ -67,14 +69,11 @@ export const RETENTION_CLASSES: readonly string[] = [
   'model_forecast_outputs',
 ];
 
-/** The four authorization roles (flexcore-authz policy.rs Role; mirrored
- * with the drift note below). */
-export const AUTHZ_ROLES: readonly string[] = [
-  'platform-admin',
-  'tenant-admin',
-  'operator',
-  'viewer',
-];
+/** The closed five-role authorization vocabulary — DERIVED from the single
+ * authoritative role mirror (`ROLES` in ../security/capabilityMatrix,
+ * FRV1-R3-003; policy.rs Role::id spellings, verbatim, the P13.05
+ * `site-approver` extension included). Do NOT redeclare role ids here. */
+export const AUTHZ_ROLES: readonly string[] = ROLES;
 
 /** The closed authorization action vocabulary, mirrored from
  * crates/flexcore-authz/src/action.rs `Action::id()` as of P5.31, grouped

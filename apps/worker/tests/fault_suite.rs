@@ -317,7 +317,10 @@ fn harness_at(url: &str, prefix: u8) -> Harness {
     let asset_id = AssetId::new(fixture_uuid(prefix + 1));
     let ctx = seed_registry(&admin_store, &store, tenant_id, asset_id);
     let inbox = PgInboxStore::new(store.pool().clone()).expect("inbox store");
-    inbox.ensure_table().expect("inbox table");
+    // FRV1-R5-004: the inbox table is owned by the embedded migration
+    // 0024_worker_inbox_p1_16 (the harness connects to a
+    // migration-provisioned database); the runtime `ensure_table` was
+    // removed with the promotion.
     Harness {
         store,
         ctx,

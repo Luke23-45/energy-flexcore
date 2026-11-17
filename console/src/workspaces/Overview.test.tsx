@@ -429,3 +429,22 @@ describe('OverviewView (render honesty)', () => {
     expect(error).toContain('shows no data rather than');
   });
 });
+
+// --- FRV1-R9-001 (wave 2, Agent B, APPENDED — nothing above was modified) ----
+// Structural pin for the additive wide-table containment wrappers: the tables
+// that can overflow a fixed-radius card are wrapped in
+// <div className="table-scroll"> (styles/design-system.css implements the
+// scroll affordance; the wrapper is additive and carries no behavior).
+import { readFileSync as readSourceFs } from 'node:fs';
+import { join as joinSourcePath, dirname as dirnameSourcePath } from 'node:path';
+import { fileURLToPath as fileUrlToSourcePath } from 'node:url';
+
+describe('FRV1-R9-001 (wave 2): .table-scroll containment wrappers (source-pinned)', () => {
+  it('both wide Overview tables are wrapped in additive table-scroll divs', () => {
+    const source = readSourceFs(
+      joinSourcePath(dirnameSourcePath(fileUrlToSourcePath(import.meta.url)), 'Overview.tsx'),
+      'utf-8',
+    );
+    expect(source.split('<div className="table-scroll">').length - 1).toBe(2);
+  });
+});

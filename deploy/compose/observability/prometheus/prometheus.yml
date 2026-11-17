@@ -1,0 +1,84 @@
+# P11.09/P11.10 — Prometheus scrape + rule configuration for the dev
+#          Compose `observability` profile (FRV1-R8-001, final review:
+#          this file closes the "no scrape config anywhere; nothing
+#          references rule_files" consumer gap for the shipped
+#          observability tree).
+#
+# Consumed by the `prometheus` service in `deploy/compose/
+# docker-compose.yml` (profile `observability`, INERT until invoked —
+# Compose profiles do not start unless the profile is requested), which
+# mounts this file at /etc/prometheus/prometheus.yml and the sibling
+# `rules/` directory (the four P11.03/P11.13 rule files) at
+# /etc/prometheus/rules — the `rule_files` glob below is the ONLY
+# reference to those rule files anywhere in the repository (the P11.09
+# record §3 item 3 handoff).
+#
+# WRITTEN-UNRUN: no Prometheus process has ever run against this file in
+# this program (the loop bans docker commands; the first human run is the
+# gate). The dashboards, datasource provisioning, and rule files are
+# shipped as-is; the live provisioning check is the recorded human-gate
+# input (P11.09 record).
+#
+# METRICS-STORE SELECTION (P11-E-2): the decision is registered OPEN
+# (records/22_p11_10_metrics_store.md; DEFAULT RECOMMENDATION:
+# VictoriaMetrics single-node). This dev profile runs PROMETHEUS because
+# the shipped datasource provisioning names a service `prometheus` on the
+# Prometheus query port (the exact mismatch FRV1-R8-001 flagged), and the
+# dashboards and rule files are written against the Prometheus query/
+# rule surface. This wires a working dev shape without closing the
+# decision: an operator who closes P11-E-2 on the recorded DEFAULT swaps
+# this service for the single-node VictoriaMetrics service per the
+# P11.10 record — the datasource, dashboards, and rule files need no
+# changes (store-agnostic under the Prometheus-compatible query API).
+
+global:
+  # Dev-profile scrape cadence. The P11.02 SLO-register burn budgets
+  # (rules/slo_burn_rate_alerts.yml) are computed over windows far above
+  # this cadence; 15 s is the conventional Prometheus default shape, not
+  # a tuned FlexCore number (no scrape has ever run — nothing is tuned).
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # The shipped P11.03/P11.13 rule files, mounted from
+  # ./observability/prometheus/rules/ by the compose service:
+  # recording_rules.yml, slo_burn_rate_alerts.yml, dlq_depth_alerts.yml,
+  # protocol_adapter_alerts.yml. This glob is the repository's ONLY
+  # reference to those rule files (the P11.09 record §3 item 3 handoff,
+  # closed by FRV1-R8-001). The DLQ rules consume the NATS exporter's
+  # `jetstream_stream_messages{stream=...}` family — whose exact exported
+  # names remain UNVERIFIED against a live exporter (the P11.13 record
+  # and the rule-file header keep that caveat; the first human run of
+  # the exporter confirms or mechanically renames the families).
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # The control plane's P1.20/P11.01 metrics registry (request/error
+  # families, the P2.21 telemetry families at their honest not-composed
+  # zeros, the P11.01 SLI histograms, and the P11.20/P13.09 gauges).
+  - job_name: flexcore-control-plane
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["control-plane:8080"]
+
+  # The worker's P11.21 probe-server metrics surface (the command-consumer
+  # and ingestion families rendered by the worker's `/metrics` route). The
+  # worker service composes FLEXCORE_PROBE_ADDR=0.0.0.0:8081 in the
+  # observability profile so the probe server is reachable on the Compose
+  # network (the 127.0.0.1 default binds inside the container only).
+  - job_name: flexcore-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["worker:8081"]
+
+  # The NATS JetStream exporter (the `nats-exporter` service): the source
+  # of the DLQ rule files' `jetstream_stream_messages` family. The
+  # exporter scrapes the NATS monitor endpoint (`nats:8222`, already
+  # exposed by the base stack); its own metrics are served on :7777
+  # (the exporter's documented default listen port — VERIFY at the first
+  # human run, the same VERIFY-BUILD discipline as the NATS adapter's
+  # protocol constants).
+  - job_name: nats-exporter
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["nats-exporter:7777"]

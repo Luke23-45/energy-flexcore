@@ -621,7 +621,9 @@ async fn ingestion_for_another_tenants_asset_is_rejected_by_the_tenant_scoped_st
     let _ctx_b = seed_registry(&admin_store, &store, tenant_b, asset_b);
 
     let inbox = flexcore_worker::inbox::PgInboxStore::new(store.pool().clone()).expect("inbox");
-    inbox.ensure_table().expect("inbox table");
+    // FRV1-R5-004: the inbox table is owned by the embedded migration
+    // 0024_worker_inbox_p1_16 (migration-provisioned database); the
+    // runtime `ensure_table` was removed with the promotion.
     ensure_partitions(&url);
     let (task, metrics) = build_task(store.clone(), inbox);
 

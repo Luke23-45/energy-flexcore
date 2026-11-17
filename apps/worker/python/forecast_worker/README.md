@@ -65,9 +65,12 @@ vectors (the same numbers, two languages, one rule set).
    `dispatch.issue`, `secret.read`, or `network.any` (the NEVER-GRANTED
    set, mirrored verbatim from the kernel) is refused first.
 5. **Mode-locked** to simulation/shadow; no request field can change it.
-6. **Guarded deps.** numpy/pandas are guarded imports INSIDE functions
-   raising the NAMED `NUMPY_DEPLOYMENT_REQUIREMENT`; the frozen rule
-   sets are pure stdlib and never import a framework.
+6. **Guarded deps.** numpy is the ONLY framework guarded import (INSIDE
+   its function, raising the NAMED `NUMPY_DEPLOYMENT_REQUIREMENT`); the
+   frozen rule sets are pure stdlib and never import a framework. No
+   pandas exists anywhere in this worker — the token appears in no
+   import, guard, or comment in the code (final-review finding
+   FRV1-R4-007 corrected this line).
 
 ## Transport contract
 
@@ -92,9 +95,15 @@ envelope — a refusal is a result, never a crash.
 ## Self-tests (human gate)
 
 ```sh
-python apps/worker/python/forecast_worker/forecast_baseline_worker.py
+python apps/worker/python/forecast_worker/forecast_baseline_worker.py --self-test
 pytest apps/worker/python/forecast_worker/tests/
 ```
 
-The in-module `run_self_tests()` and the pytest suite are the same
-hand-computed cases; both were WRITTEN, never run in this loop.
+The pytest runner itself is recorded, never installed, in
+`apps/worker/python/requirements-dev.txt` (SECONDARY-SOURCE PIN;
+RE-VERIFY AT FIRST INSTALL).
+
+The `--self-test` flag runs the in-module `run_self_tests()` (bare
+invocation runs the documented stdin→stdout transport instead); the
+pytest suite carries the same hand-computed cases. Both were WRITTEN,
+never run in this loop.

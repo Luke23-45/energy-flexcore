@@ -92,6 +92,9 @@ function MarketProgramsReady({ data, readAt }: { data: MarketProgramsData; readA
         />
       ) : (
         <>
+          {/* FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+              horizontally inside its card instead of overflowing it. */}
+          <div className="table-scroll">
           <table>
             <caption>
               The registry `market_region` field per portfolio. Read at{' '}
@@ -116,6 +119,7 @@ function MarketProgramsReady({ data, readAt }: { data: MarketProgramsData; readA
               ))}
             </tbody>
           </table>
+          </div>
           {data.rows.some((row) => row.viewError !== null) && (
             <div role="note" data-testid="portfolio-view-failures">
               <p>

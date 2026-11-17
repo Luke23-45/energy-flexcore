@@ -23,14 +23,16 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import type { ApiClient } from '../api/client';
 import type { EdgeStatusDto } from '../api/edgeStatus';
+import type { SiteDto } from '../api/types';
 import {
   loadEdgeStatuses,
+  loadSitesEdgeStatus,
   mapEdgeStatus,
   clearCommandPathRequests,
   getCommandPathRequests,
   COMMAND_PATH_REQUEST_NOTE,
 } from './sitesEdgeStatus';
-import { SitesEdgeStatusSection } from './SitesEdgeStatus';
+import { SitesEdgeStatusPanel, SitesEdgeStatusSection } from './SitesEdgeStatus';
 
 const READ_AT = 1_794_490_000_000;
 
@@ -136,6 +138,90 @@ describe('loadEdgeStatuses (mocked fetch mapping)', () => {
     const failed = await loadEdgeStatuses(['edge-404'], failing, READ_AT);
     expect(failed.slots[0]?.row).toBeNull();
     expect(failed.slots[0]?.error).toContain('not_found');
+  });
+});
+
+// FRV1-R3-004 — the Sites-workspace wiring (the panel is composed on the
+// `sites` route by App.tsx's `SitesWithEdgeStatus`, below the unchanged
+// SitesWorkspace). These tests pin the data loader and the additive
+// composition: the sites' edge identities drive one status read per
+// DISTINCT identity, GET-only, and the panel renders the honest loading
+// state until its read lands.
+describe('loadSitesEdgeStatus (the Sites-workspace loader)', () => {
+  const SITE: SiteDto = {
+    id: 'site-a-uuid',
+    portfolio_id: 'portfolio-a-uuid',
+    tenant_id: 'tenant-a-uuid',
+    name: 'Depot A',
+    location: 'Test location',
+    timezone: 'UTC',
+    point_of_common_coupling: 'pcc-a',
+    grid_model_reference: 'grid-model-a',
+    edge_identity: 'edge-01',
+    created_at: '2026-01-01T00:00:00Z',
+  };
+
+  function sitesClient(
+    calls: Array<{ path: string; method: string }>,
+    sites: SiteDto[],
+  ): ApiClient {
+    return {
+      async get<T>(path: string): Promise<T> {
+        calls.push({ path, method: 'GET' });
+        if (path.startsWith('/api/v1/sites')) {
+          return { data: sites } as T;
+        }
+        return { data: STATUS } as T;
+      },
+      async request<T>(path: string, init?: RequestInit): Promise<T> {
+        calls.push({ path, method: init?.method ?? 'GET' });
+        return this.get<T>(path);
+      },
+    };
+  }
+
+  it('reads one status per DISTINCT site edge identity, GET-only', async () => {
+    const calls: Array<{ path: string; method: string }> = [];
+    const client = sitesClient(calls, [
+      SITE,
+      { ...SITE, id: 'site-b-uuid', edge_identity: 'edge-01' },
+      { ...SITE, id: 'site-c-uuid', edge_identity: 'edge-02' },
+    ]);
+    const data = await loadSitesEdgeStatus(client);
+    // Two sites share `edge-01`: the identity is read ONCE (the panel
+    // renders one article per edge identity — a duplicate fetch would
+    // double the requests and duplicate the React keys).
+    expect(data.slots.map((slot) => slot.deviceId)).toEqual(['edge-01', 'edge-02']);
+    const statusCalls = calls.filter((call) => call.path.includes('/edge/status'));
+    expect(statusCalls).toHaveLength(2);
+    expect(calls.every((call) => call.method === 'GET')).toBe(true);
+    expect(data.slots[0]?.row?.status.device_id).toBe('edge-01');
+    expect(data.slots[0]?.error).toBeNull();
+  });
+
+  it('fails the whole load when the site registry read fails (never fabricated)', async () => {
+    const failing: ApiClient = {
+      async get<T>(): Promise<T> {
+        throw new Error('not_found: no such resource');
+      },
+      async request<T>(path: string): Promise<T> {
+        return this.get<T>(path);
+      },
+    };
+    await expect(loadSitesEdgeStatus(failing)).rejects.toThrow(/not_found/);
+  });
+});
+
+describe('SitesEdgeStatusPanel (the composed Sites extension; FRV1-R3-004)', () => {
+  it('renders the panel mount with the honest loading state (SSR; effects unrun)', () => {
+    // The composition exists: App.tsx renders this panel below the
+    // unchanged SitesWorkspace on the `sites` route. Under server
+    // rendering the data effect has not run, so the panel shows its
+    // loading line — never a plausible status.
+    const html = renderToString(<SitesEdgeStatusPanel />);
+    expect(html).toContain('sites-edge-status-panel');
+    expect(html).toContain('sites-edge-status');
+    expect(html).toContain('Loading');
   });
 });
 

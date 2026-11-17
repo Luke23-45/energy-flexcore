@@ -390,6 +390,14 @@ pub enum EdgeAuditKind {
     /// deployment requirement; the un-checked state is audited, never
     /// reported as "not revoked").
     RevocationUnchecked,
+    // P18 — the OTA/update lifecycle (additive, the P6.06 additive-kind
+    // pattern; FRV1-R6-005, final review R6: the update-verification,
+    // interlock, drain, and activation streams previously rode `Startup`
+    // with only the dedicated event name in the detail text).
+    /// An OTA/update-lifecycle event: verification, activation, rollback,
+    /// interlock, drain, or conformance re-check (the dedicated
+    /// `EDGE_UPDATE_*` event name still leads the detail text).
+    UpdateLifecycle,
 }
 
 impl EdgeAuditKind {
@@ -407,6 +415,7 @@ impl EdgeAuditKind {
             EdgeAuditKind::CredentialExpiryWarning => "EDGE_CREDENTIAL_EXPIRY_WARNING",
             EdgeAuditKind::CredentialExpired => "EDGE_CREDENTIAL_EXPIRED",
             EdgeAuditKind::RevocationUnchecked => "EDGE_REVOCATION_UNCHECKED",
+            EdgeAuditKind::UpdateLifecycle => "EDGE_UPDATE_LIFECYCLE",
         }
     }
 }
@@ -693,5 +702,14 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].kind, EdgeAuditKind::Startup);
         assert_eq!(events[1].kind.name(), "EDGE_DEGRADED_BUFFERING_ENTERED");
+    }
+
+    #[test]
+    fn update_lifecycle_kind_is_pinned_and_distinct_from_startup() {
+        // FRV1-R6-005: the P18 OTA/update audit stream is classified with
+        // its own additive kind, never `Startup` (the name is pinned so a
+        // change is a deliberate, recorded one).
+        assert_eq!(EdgeAuditKind::UpdateLifecycle.name(), "EDGE_UPDATE_LIFECYCLE");
+        assert_ne!(EdgeAuditKind::UpdateLifecycle, EdgeAuditKind::Startup);
     }
 }

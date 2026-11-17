@@ -10,6 +10,19 @@
 // it 1:1 onto the storage adapter's unit-of-work repository — the mapping
 // obligation is recorded in the adapter's telemetry module header.
 //
+// ADAPTER STATUS (FRV1-R1-003, recorded at the seam): NO adapter
+// implements this port in the shipped baseline. The persistence adapter
+// implements the EQUIVALENT write operations as inherent unit-of-work
+// methods (single/batch insert with the P2.09 duplicate classification,
+// quarantine evidence writes, the latest-by-`event_time` snapshot read)
+// over a crate-local record mirror — the recorded P2.06-adjacent gap — so
+// the port contract and the adapter surface currently agree only by
+// hand-mirroring. Until the trait mapping lands (the recorded
+// composition step: map the port onto the unit-of-work repository 1:1 and
+// drop the crate-local record mirror), the only `TelemetryIngestStore`
+// implementation in the workspace is the in-crate test fake
+// ([`crate::fakes`]).
+//
 // Contract, precisely:
 //
 // - **Identity and dedup (P2.09 step 1, P2.05 D-P3)**: a sample's dedup

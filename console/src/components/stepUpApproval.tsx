@@ -176,7 +176,10 @@ export function StepUpApproval({
   check: StepUpCheck;
 }): JSX.Element {
   return (
-    <div data-testid="step-up-approval">
+    // FRV1-R9-005-adjacent (wave 2): additive className for the deliberate
+    // step-up card treatment (styles/design-system.css). Testids, labels,
+    // and inputs are untouched.
+    <div className="step-up-approval" data-testid="step-up-approval">
       <h5>Step-up approval for: {actionLabel} (§17.3)</h5>
       <p role="note">{STEP_UP_IMPLEMENTATION_NOTE}</p>
       <ol>

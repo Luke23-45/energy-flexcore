@@ -2,6 +2,11 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+// FRV1-R9 — the console visual system (one stylesheet keyed on the existing
+// semantic class names; contract:
+// docs/reviews/final_review_for_v1/01_reviews/design_spec_console_ios.md).
+// ADDITIVE import only — no other line of this entry point is modified.
+import './styles/design-system.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

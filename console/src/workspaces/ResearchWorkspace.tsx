@@ -272,6 +272,9 @@ function ShadowComparisonTable({
   comparisons: ShadowComparisonDto[];
 }): JSX.Element {
   return (
+    // FRV1-R9-001 (wave 2): wide-table containment — the table scrolls
+    // horizontally inside its card instead of overflowing it.
+    <div className="table-scroll">
     <table>
       <caption>
         The shadow-comparison rows vs the frozen deterministic baselines.
@@ -315,6 +318,7 @@ function ShadowComparisonTable({
         })}
       </tbody>
     </table>
+    </div>
   );
 }
 
