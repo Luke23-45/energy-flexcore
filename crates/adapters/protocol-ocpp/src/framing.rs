@@ -244,11 +244,12 @@ impl OcppFrame {
             .as_array()
             .ok_or(FramingError::NotAnArray)?
             .clone();
-        if items.is_empty() {
-            return Err(FramingError::NotAnArray);
-        }
-        let code = items[0]
-            .as_u64()
+        // An empty array IS an array (so not `NotAnArray`) but carries no
+        // message-type code — the faithful refusal is `InvalidMessageType`
+        // (the conformance vector pins `[]` to it).
+        let code = items
+            .first()
+            .and_then(|item| item.as_u64())
             .ok_or(FramingError::InvalidMessageType)?
             .try_into()
             .map_err(|_| FramingError::InvalidMessageType)?;
@@ -331,7 +332,7 @@ fn parse_error_code(name: &str) -> Result<CallErrorCode, FramingError> {
 }
 
 /// Framing errors. Every failure is named; nothing is silently repaired.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FramingError {
     /// The wire text is not valid JSON.
     MalformedJson,
@@ -595,7 +596,7 @@ mod tests {
         }
         let value: serde_json::Value = serde_json::from_str(&text).expect("json");
         assert_eq!(value[0], serde_json::json!(4));
-        assert_eq!(value.len(), 5);
+        assert_eq!(value.as_array().expect("a CALLERROR is an array").len(), 5);
     }
 
     #[test]

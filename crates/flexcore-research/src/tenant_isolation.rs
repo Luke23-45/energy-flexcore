@@ -903,7 +903,7 @@ impl ModelServingRegister {
                     serving_scope.canonical(),
                     self.artifact(artifact_ref)
                         .map(|r| r.owner_scope.canonical())
-                        .unwrap_or("(unknown)")
+                        .unwrap_or_else(|| "(unknown)".to_string())
                 ),
             ),
             Err(err) => (
@@ -1650,14 +1650,19 @@ mod tests {
                 training_data_ref: "training-data://tenant-a/ds-1".to_string(),
             })
             .expect("registers");
-        let worker_a = stamp("worker/gnn-1", ResearchWorkerFamily::Gnn, scope_a_s1());
+        let worker_b = stamp("worker/gnn-1", ResearchWorkerFamily::Gnn, scope_b_wide());
         let audit = MemoryTenantIsolationAuditSink::new();
         let clock = FixedClock { now: 7_000 };
 
         // Tenant B asks for the model trained on tenant A's data:
-        // REFUSED — no recorded approval exists.
+        // REFUSED — no recorded approval exists. (The serving worker
+        // holds the TARGET scope: step 3 of `enforce_model_serving`
+        // requires the worker's stamped scope to cover the serving scope,
+        // so a tenant-A worker serving to tenant B would refuse at step 3
+        // with TENANT_SCOPE_MISMATCH instead of reaching the approval
+        // check at step 5.)
         let err = register
-            .model_serving_audited(&worker_a, "artifact://models/gnn-warmstart.v1", &scope_b_wide(), &clock, &audit)
+            .model_serving_audited(&worker_b, "artifact://models/gnn-warmstart.v1", &scope_b_wide(), &clock, &audit)
             .expect_err("unapproved cross-tenant serving is refused");
         assert_eq!(err.name(), "RESEARCH_MODEL_SERVING_NOT_APPROVED");
         assert_eq!(
@@ -1686,13 +1691,19 @@ mod tests {
             })
             .expect("registers");
         let worker_a = stamp("worker/gnn-1", ResearchWorkerFamily::Gnn, scope_a_wide());
+        // Cross-tenant serving is done by a worker holding the TARGET
+        // scope (see the refusal test above: a tenant-A worker cannot
+        // serve into tenant B at all — step 3 — so it can never reach
+        // the approval check at step 5).
+        let worker_b = stamp("worker/gnn-1", ResearchWorkerFamily::Gnn, scope_b_wide());
         let audit = MemoryTenantIsolationAuditSink::new();
         let clock = FixedClock { now: 8_000 };
 
-        // Without an approval, tenant-b serving is refused.
+        // Without an approval, tenant-b serving is refused — through the
+        // AUDITED path, so the refusal is among the records counted below.
         assert_eq!(
             register
-                .enforce_model_serving(&worker_a, "artifact://models/gnn-warmstart.v1", &scope_b_wide())
+                .model_serving_audited(&worker_b, "artifact://models/gnn-warmstart.v1", &scope_b_wide(), &clock, &audit)
                 .expect_err("no approval yet")
                 .name(),
             "RESEARCH_MODEL_SERVING_NOT_APPROVED"
@@ -1717,13 +1728,17 @@ mod tests {
 
         // Now the serving is admitted — and audited as admitted.
         register
-            .model_serving_audited(&worker_a, "artifact://models/gnn-warmstart.v1", &scope_b_wide(), &clock, &audit)
+            .model_serving_audited(&worker_b, "artifact://models/gnn-warmstart.v1", &scope_b_wide(), &clock, &audit)
             .expect("recorded approval admits the serving");
-        let records = audit.records();
-        assert_eq!(records.len(), 3); // approval recorded + 1 refusal + 1 admission
-        assert_eq!(records[0].kind, TenantIsolationAuditKind::ServingApprovalRecorded);
-        assert_eq!(records[1].kind, TenantIsolationAuditKind::ModelServingRefused);
-        assert_eq!(records[2].kind, TenantIsolationAuditKind::ModelServingAdmitted);
+        // Scope the sink borrow: `Ref` keeps the sink borrowed until the
+        // end of its scope, and the duplicate-approval call below emits.
+        {
+            let records = audit.records();
+            assert_eq!(records.len(), 3); // 1 refusal + approval recorded + 1 admission
+            assert_eq!(records[0].kind, TenantIsolationAuditKind::ModelServingRefused);
+            assert_eq!(records[1].kind, TenantIsolationAuditKind::ServingApprovalRecorded);
+            assert_eq!(records[2].kind, TenantIsolationAuditKind::ModelServingAdmitted);
+        }
 
         // A duplicate approval is refused (append-only, one per key).
         let err = register

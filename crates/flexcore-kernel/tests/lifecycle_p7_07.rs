@@ -134,10 +134,12 @@ fn happy_path_walks_the_frozen_table_and_audits_every_transition() {
         .begin_drain(&mut drain, "operator", "upgrade requested")
         .expect("Ready -> Draining");
     assert_eq!(lifecycle.state(), LifecycleState::Draining);
-    // The configured deadline (30 s DEFAULT) on the injected clock.
-    assert_eq!(observed_deadline.get(), Some(31_000));
 
     let outcome = lifecycle.complete_drain("operator", "active work completed").expect("quiesced");
+    // The drain port is only invoked by `complete_drain`, so the deadline
+    // it was handed is observable only now: the configured deadline
+    // (30 s DEFAULT) on the injected clock (1_000 + 30_000).
+    assert_eq!(observed_deadline.get(), Some(31_000));
     assert_eq!(outcome, DrainOutcome::Quiesced { cancelled: 2 });
     assert_eq!(lifecycle.state(), LifecycleState::Stopped);
     assert!(lifecycle.state().is_terminal());
@@ -201,10 +203,18 @@ fn the_legal_set_is_exactly_the_frozen_table_plus_crash_edges() {
     assert!(is_legal_transition(LifecycleState::Draining, LifecycleState::Stopped));
     assert!(is_legal_transition(LifecycleState::Verified, LifecycleState::Rejected));
     assert!(is_legal_transition(LifecycleState::Failed, LifecycleState::Draining));
-    // Terminal states have no outgoing edge.
+    // Terminal states have no outgoing edge — except the recorded
+    // `Failed → Draining` cleanup edge (§5.6, in the frozen table; the
+    // ledger's "terminal except for the two recorded operations" model).
+    // The other recorded operation, the explicit restart, is an operation
+    // that consumes the lifecycle, not a transition, so it never appears
+    // in `is_legal_transition`.
     for from in LIFECYCLE_STATES {
         if from.is_terminal() {
             for to in LIFECYCLE_STATES {
+                if from == LifecycleState::Failed && to == LifecycleState::Draining {
+                    continue;
+                }
                 assert!(
                     !is_legal_transition(from, to),
                     "terminal state {from:?} must have no outgoing edge to {to:?}"
@@ -284,7 +294,7 @@ fn every_exit_method_respects_its_frozen_sources() {
     started.mark_compatible(pass(), "a", "r").expect("compatible");
     started.configure(pass(), "a", "r").expect("configure");
     started.start(pass(), "a", "r").expect("start");
-    let mut drain = ScriptedDrain::quiescing(0);
+    let (mut drain, _observed_deadline) = ScriptedDrain::quiescing(0);
     assert_error(
         started.begin_drain(&mut drain, "operator", "Started cannot drain").unwrap_err(),
         "ILLEGAL_TRANSITION",
@@ -471,10 +481,12 @@ fn a_failed_plugin_drains_before_removal() {
     let sink = MemoryAuditSink::new();
     let mut lifecycle = registered(&clock, &sink);
     lifecycle.verify(pass(), "a", "r").expect("verify");
-    lifecycle.fail("health-check", "initialization failure").expect("failed");
+    // A failure in Verified is a crash (the §5.6 `fail()` edges run from
+    // Started/Ready only); `crash()` is the path that records it here.
+    lifecycle.crash("health-check", "initialization failure").expect("failed");
     assert_eq!(lifecycle.state(), LifecycleState::Failed);
 
-    let mut drain = ScriptedDrain::quiescing(0);
+    let (mut drain, _observed_deadline) = ScriptedDrain::quiescing(0);
     lifecycle.begin_drain(&mut drain, "operator", "failed-plugin cleanup").expect("Failed -> Draining");
     lifecycle.complete_drain("operator", "nothing outstanding").expect("stopped");
     assert_eq!(lifecycle.state(), LifecycleState::Stopped);
@@ -523,8 +535,11 @@ fn crash_enters_failed_from_any_non_terminal_state_and_holds_the_last_state() {
         if matches!(start_state, LifecycleState::Ready | LifecycleState::Draining) {
             lifecycle.mark_ready(pass(), "a", "r").expect("ready");
         }
+        // Hoisted out of the `if`: begin_drain stores the &mut drain in
+        // the lifecycle for its whole lifetime, so the drain must outlive
+        // the block (the lifecycle is used below it).
+        let mut drain = ScriptedDrain::stuck(1);
         if start_state == LifecycleState::Draining {
-            let mut drain = ScriptedDrain::stuck(1);
             lifecycle.begin_drain(&mut drain, "operator", "upgrade").expect("draining");
         }
         assert_eq!(lifecycle.state(), start_state);
@@ -557,7 +572,9 @@ fn the_only_restart_path_is_explicit_and_audited_and_there_is_no_auto_restart() 
     lifecycle.verify(pass(), "a", "r").expect("verify");
     lifecycle.mark_compatible(pass(), "a", "r").expect("compatible");
     lifecycle.configure(pass(), "a", "r").expect("configure");
-    lifecycle.fail("health-check", "initialization failure").expect("failed");
+    // A failure in Configured is a crash (the §5.6 `fail()` edges run from
+    // Started/Ready only); `crash()` is the path that records it here.
+    lifecycle.crash("health-check", "initialization failure").expect("failed");
 
     // NO auto-restart: the gated forward step out of Failed is illegal.
     assert_error(

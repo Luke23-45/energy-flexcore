@@ -392,7 +392,7 @@ async fn a_failed_command_derives_a_dispatch_failure_alarm_with_its_source_evide
         )
         .expect("transition seeds");
 
-    let (status, body) = call(&router, &get("/api/v1/alarms", Some("admin-a"))).await;
+    let (status, body) = call(&router, get("/api/v1/alarms", Some("admin-a"))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let alarms = body["data"].as_array().expect("alarm array");
     assert_eq!(alarms.len(), 1, "exactly the FAILED command's alarm: {body}");
@@ -455,10 +455,16 @@ async fn good_data_derives_no_alarm_and_the_empty_response_names_the_absent_sour
         .insert_feasibility_check(&ctx, &feasibility_row(CHECK_A, tenant_id(TENANT_A_SEED), "PASSED"))
         .expect("check seeds");
 
-    let (status, body) = call(&router, &get("/api/v1/alarms", Some("admin-a"))).await;
+    let (status, body) = call(&router, get("/api/v1/alarms", Some("admin-a"))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["data"].as_array().expect("array").len(), 0);
-    assert_eq!(body["sources"]["dispatch_commands_consulted"], json!(1));
+    // The COMPLETED command is in NO qualifying alarm state (the
+    // derivation consults only the FAILED/EXPIRED/FALLBACK pages, per
+    // the P5.31 record and the DTO doc), so dispatch consulted is 0 —
+    // the old form expected 1, as if a COMPLETED command were listed.
+    // The PASSED check IS listed (the derivation reads the first page
+    // of checks regardless of outcome), so feasibility consulted is 1.
+    assert_eq!(body["sources"]["dispatch_commands_consulted"], json!(0));
     assert_eq!(body["sources"]["feasibility_checks_consulted"], json!(1));
     // The telemetry source is named unavailable (no port wired in this
     // composition) — never silently omitted, never fabricated.
@@ -484,7 +490,7 @@ async fn feasibility_evidence_derives_the_recorded_verdict_alarms() {
         )
         .expect("check seeds");
 
-    let (status, body) = call(&router, &get("/api/v1/alarms?code=FEASIBILITY_LIMIT_VIOLATED", Some("viewer-a"))).await;
+    let (status, body) = call(&router, get("/api/v1/alarms?code=FEASIBILITY_LIMIT_VIOLATED", Some("viewer-a"))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let alarms = body["data"].as_array().expect("array");
     assert_eq!(alarms.len(), 1);
@@ -536,7 +542,7 @@ async fn the_wired_telemetry_port_derives_telemetry_quality_alarms() {
             EVENT_MS,
         ),
     ]);
-    let (status, body) = call(&router, &get("/api/v1/alarms", Some("admin-a"))).await;
+    let (status, body) = call(&router, get("/api/v1/alarms", Some("admin-a"))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let alarms = body["data"].as_array().expect("array");
     assert_eq!(alarms.len(), 1, "exactly the BAD observation's alarm: {body}");
@@ -585,7 +591,7 @@ async fn the_derivation_never_leaks_another_tenant_s_records() {
         .insert_feasibility_check(&ctx_b, &feasibility_row(CHECK_A, tenant_id(TENANT_B_SEED), "FAIL_CLOSED"))
         .expect("check seeds");
 
-    let (status, body) = call(&router, &get("/api/v1/alarms", Some("admin-a"))).await;
+    let (status, body) = call(&router, get("/api/v1/alarms", Some("admin-a"))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"].as_array().expect("array").len(), 0);
     // The consulted counts reflect tenant A's (empty) pages, not tenant B's.
@@ -597,7 +603,7 @@ async fn active_only_false_is_refused_with_the_derivation_contract_reason() {
     let (router, _commands, _checks, _assets) = composed_alarm_router(phase5_default_policies(), None);
     let (status, body) = call(
         &router,
-        &get("/api/v1/alarms?active_only=false", Some("admin-a")),
+        get("/api/v1/alarms?active_only=false", Some("admin-a")),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -616,7 +622,7 @@ async fn malformed_filters_are_422_never_silent_match_all() {
         "/api/v1/alarms?asset_id=not-a-uuid",
         "/api/v1/alarms?from_event_unix_millis=200&to_event_unix_millis=100",
     ] {
-        let (status, body) = call(&router, &get(uri, Some("admin-a"))).await;
+        let (status, body) = call(&router, get(uri, Some("admin-a"))).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{uri}: {body}");
     }
 }
@@ -643,7 +649,7 @@ async fn the_time_window_filters_the_raised_at_event_time() {
     // Window containing the transition time: served.
     let (status, body) = call(
         &router,
-        &get(
+        get(
             &format!("/api/v1/alarms?from_event_unix_millis={}&to_event_unix_millis={}", EVENT_MS, EVENT_MS + 20_000),
             Some("admin-a"),
         ),
@@ -655,7 +661,7 @@ async fn the_time_window_filters_the_raised_at_event_time() {
     // filter key, not the derivation time).
     let (status, body) = call(
         &router,
-        &get(
+        get(
             &format!("/api/v1/alarms?to_event_unix_millis={EVENT_MS}"),
             Some("admin-a"),
         ),
@@ -669,15 +675,15 @@ async fn the_time_window_filters_the_raised_at_event_time() {
 async fn least_privilege_unauthenticated_401_empty_policy_403_every_role_reads() {
     let (router, _commands, _checks, _assets) = composed_alarm_router(phase5_default_policies(), None);
     // No credentials: 401.
-    let (status, _) = call(&router, &get("/api/v1/alarms", None)).await;
+    let (status, _) = call(&router, get("/api/v1/alarms", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     // Unknown token: 401 (never an anonymous fallback).
-    let (status, _) = call(&router, &get("/api/v1/alarms", Some("nobody"))).await;
+    let (status, _) = call(&router, get("/api/v1/alarms", Some("nobody"))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
     // Empty policy set: deny-by-default 403.
     let (denied, _commands2, _checks2, _assets2) = composed_alarm_router(PolicySet::new(), None);
-    let (status, body) = call(&denied, &get("/api/v1/alarms", Some("admin-a"))).await;
+    let (status, body) = call(&denied, get("/api/v1/alarms", Some("admin-a"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert!(body["error"]["message"]
         .as_str()
@@ -685,7 +691,7 @@ async fn least_privilege_unauthenticated_401_empty_policy_403_every_role_reads()
         .contains("alarm.read"));
 
     // Viewer (the least-privileged role) reads fine under the Phase 5 set.
-    let (status, _) = call(&router, &get("/api/v1/alarms", Some("viewer-a"))).await;
+    let (status, _) = call(&router, get("/api/v1/alarms", Some("viewer-a"))).await;
     assert_eq!(status, StatusCode::OK);
 }
 
@@ -693,7 +699,7 @@ async fn least_privilege_unauthenticated_401_empty_policy_403_every_role_reads()
 async fn the_alarm_surface_is_get_only_in_the_generated_openapi_and_at_runtime() {
     let (router, _commands, _checks, _assets) = composed_alarm_router(phase5_default_policies(), None);
     // The generated OpenAPI registers exactly one alarms path with GET.
-    let (status, body) = call(&router, &get("/api/v1/openapi.json", Some("admin-a"))).await;
+    let (status, body) = call(&router, get("/api/v1/openapi.json", Some("admin-a"))).await;
     assert_eq!(status, StatusCode::OK);
     let paths = body["paths"].as_object().expect("paths object");
     let alarm_paths: Vec<_> = paths
@@ -713,6 +719,6 @@ async fn the_alarm_surface_is_get_only_in_the_generated_openapi_and_at_runtime()
     );
 
     // And a live POST probe is refused (the route does not exist).
-    let (status, _) = call(&router, &post("/api/v1/alarms", "admin-a")).await;
+    let (status, _) = call(&router, post("/api/v1/alarms", "admin-a")).await;
     assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
 }

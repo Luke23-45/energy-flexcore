@@ -68,6 +68,7 @@ use flexcore_contracts::quality::{map_source_state, SourceQualityState, Telemetr
 use flexcore_contracts::time_model::{EventTime, ValidFrom, ValidUntil, ValidityWindow};
 use flexcore_contracts::units::{ActivePowerMW, ReactivePowerMVAr, ReactiveSignConvention};
 use flexcore_domain::command_lifecycle::{Actor, CommandTransition, LifecycleClock};
+use flexcore_domain::command_state::CommandState;
 use flexcore_domain::dispatch_command::{
     ActivePowerSignConvention, CommandAuthenticity, CommandIntent, CommandScope, ControlTarget,
     DeclaredSignConventions, EvidenceReferences, ExecutionRequirements, RampLimits,
@@ -502,6 +503,7 @@ fn quality_event(quality: TelemetryQuality, foreign_tenant: bool) -> EnvelopeTri
         asset_id: asset_id(),
         quality,
         previous_quality: Some(TelemetryQuality::Good),
+        event_time: EventTime::from_unix_millis(5_000).expect("valid instant"),
     })
 }
 
@@ -527,9 +529,9 @@ fn every_quality_state_transition_on_a_scoped_asset_invalidates_the_envelope() {
         );
         match &verdict.freshness {
             EnvelopeFreshness::Stale {
-                reason: StalenessReason::TelemetryQualityChanged { asset_id },
+                reason: StalenessReason::TelemetryQualityChanged { asset_id: changed_asset_id },
             } => {
-                assert_eq!(*asset_id, asset_id().to_string(), "state {:?}", quality.name());
+                assert_eq!(*changed_asset_id, asset_id().to_string(), "state {:?}", quality.name());
             }
             other => panic!(
                 "state {} must invalidate the envelope, got {:?}",
@@ -564,6 +566,7 @@ fn a_foreign_tenant_or_out_of_scope_quality_event_never_invalidates() {
         asset_id: AssetId::new(uuid(UUID_TENANT_OTHER)), // not in scope
         quality: TelemetryQuality::Bad,
         previous_quality: Some(TelemetryQuality::Good),
+        event_time: EventTime::from_unix_millis(5_000).expect("valid instant"),
     });
     let verdict = evaluate_envelope_trigger(
         &metadata,
@@ -850,7 +853,7 @@ fn missing_gaps_are_derived_markers_with_no_value_field() {
     assert_eq!(gaps.len(), 2);
     assert_eq!(
         gaps.iter().map(|g| g.event_time.unix_millis()).collect::<Vec<_>>(),
-        vec![base + 60_000, base + 180_000]
+        vec![base as i128 + 60_000, base as i128 + 180_000]
     );
     for gap in &gaps {
         assert_eq!(gap.quality, TelemetryQuality::Missing);

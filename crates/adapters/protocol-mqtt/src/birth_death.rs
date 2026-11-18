@@ -385,7 +385,7 @@ mod tests {
                 reason: RefusalReason::InvalidPayload,
                 state_unchanged: NodeSessionState::Live {
                     seq: SparkplugSeq::new(0).expect("valid"),
-                    bd_seq: BdSeq(3),
+                    bd_seq: BdSeq::from_raw(3),
                 },
             }
         );
@@ -403,7 +403,7 @@ mod tests {
             state,
             NodeSessionState::Live {
                 seq: SparkplugSeq::new(0).expect("valid"),
-                bd_seq: BdSeq(3),
+                bd_seq: BdSeq::from_raw(3),
             }
         );
         // The next DATA must carry seq 1 (the declared chain rule).
@@ -416,7 +416,7 @@ mod tests {
             state,
             NodeSessionState::Live {
                 seq: SparkplugSeq::new(1).expect("valid"),
-                bd_seq: BdSeq(3),
+                bd_seq: BdSeq::from_raw(3),
             }
         );
         // A gap is refused BY NAME, never skipped.
@@ -429,7 +429,7 @@ mod tests {
                 },
                 state_unchanged: NodeSessionState::Live {
                     seq: SparkplugSeq::new(1).expect("valid"),
-                    bd_seq: BdSeq(3),
+                    bd_seq: BdSeq::from_raw(3),
                 },
             }
         );
@@ -446,7 +446,7 @@ mod tests {
                 reason: RefusalReason::GenerationMismatch,
                 state_unchanged: NodeSessionState::Live {
                     seq: SparkplugSeq::new(0).expect("valid"),
-                    bd_seq: BdSeq(3),
+                    bd_seq: BdSeq::from_raw(3),
                 },
             }
         );
@@ -460,7 +460,7 @@ mod tests {
             state,
             NodeSessionState::Dead {
                 reason: DeathReason::DeathMessage,
-                bd_seq: BdSeq(3),
+                bd_seq: BdSeq::from_raw(3),
             }
         );
         // DATA after death is refused.
@@ -470,7 +470,7 @@ mod tests {
                 reason: RefusalReason::DataWithoutLiveBirth,
                 state_unchanged: NodeSessionState::Dead {
                     reason: DeathReason::DeathMessage,
-                    bd_seq: BdSeq(3),
+                    bd_seq: BdSeq::from_raw(3),
                 },
             }
         );
@@ -481,7 +481,7 @@ mod tests {
                 reason: RefusalReason::DeathWithoutLiveBirth,
                 state_unchanged: NodeSessionState::Dead {
                     reason: DeathReason::DeathMessage,
-                    bd_seq: BdSeq(3),
+                    bd_seq: BdSeq::from_raw(3),
                 },
             }
         );
@@ -498,7 +498,7 @@ mod tests {
                 reason: RefusalReason::StaleRebirth,
                 state_unchanged: NodeSessionState::Live {
                     seq: SparkplugSeq::new(0).expect("valid"),
-                    bd_seq: BdSeq(3),
+                    bd_seq: BdSeq::from_raw(3),
                 },
             }
         );
@@ -512,7 +512,7 @@ mod tests {
             state,
             NodeSessionState::Live {
                 seq: SparkplugSeq::new(0).expect("valid"),
-                bd_seq: BdSeq(4),
+                bd_seq: BdSeq::from_raw(4),
             }
         );
     }
@@ -545,7 +545,7 @@ mod tests {
             Observation::Accepted {
                 state_after: NodeSessionState::Dead {
                     reason: DeathReason::ConnectionLost,
-                    bd_seq: BdSeq(7),
+                    bd_seq: BdSeq::from_raw(7),
                 }
             }
         );

@@ -770,8 +770,8 @@ mod tests {
         assert_eq!(ledger.snapshot().len(), 4, "cap enforced");
         assert_eq!(
             ledger.snapshot().first().expect("oldest").reported_type,
-            "InvalidChargePointCertificate",
-            "the oldest was dropped"
+            "ConfigChange",
+            "the oldest (InvalidChargePointCertificate) was dropped; ConfigChange is now oldest"
         );
         assert_eq!(ledger.cap(), 4);
     }

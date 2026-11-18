@@ -18,7 +18,7 @@
 // The simulator's baseline behaviour is therefore reached through the
 // [`ShadowBaselineSource`] port declared HERE, implemented by the
 // composition root over the Phase 2 simulator crate (the same seam pattern
-// as `dispatch_simulator.rs`'s `SimulatorDispatchTransport`). The port is
+// as the simulator transport port in `dispatch_simulator.rs`). The port is
 // READ-ONLY: it has exactly one method (`baseline_sample`) — there is no
 // deliver, no issue, no write of any kind, and the structural test in
 // `tests/shadow_evaluation.rs` pins the port shape and scans this source
@@ -445,7 +445,7 @@ pub fn evaluate_shadow_comparison(
         let outcome = match sample {
             None => ShadowComparisonOutcome::NotComparable(NotComparableReason::NoBaseline),
             Some(sample) => {
-                if sample.quantity != input.target.quantity() {
+                if sample.quantity.label() != input.target.quantity() {
                     ShadowComparisonOutcome::NotComparable(
                         NotComparableReason::QuantityMismatch {
                             baseline_quantity: sample.quantity.label(),

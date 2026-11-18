@@ -489,7 +489,7 @@ fn compose_plugin_dto(record: &PluginRecord) -> PluginRecordDto {
         (status = 500, description = "The composed inventory source failed (infrastructure — honest, never a fake success)"),
     )
 )]
-async fn get_plugin_inventory(
+pub(crate) async fn get_plugin_inventory(
     State(state): State<AppState>,
     caller: CallerExtractor,
 ) -> Result<Json<DataEnvelope<PluginInventoryDto>>, ApiError> {
@@ -591,9 +591,11 @@ mod tests {
             .iter()
             .map(|p| p.plugin_id.as_str())
             .collect();
+        // Recorded order, not alphabetical: the vec is the shipped
+        // files' contents recorded verbatim (sim-builtin-ess first).
         assert_eq!(
             ids,
-            vec!["acme.forecast-worker", "neryva.optimizer-wasm-lp", "neryva.sim-builtin-ess"]
+            vec!["neryva.sim-builtin-ess", "acme.forecast-worker", "neryva.optimizer-wasm-lp"]
         );
         // Every plugin carries NO runtime report: the gap, not a state.
         for plugin in &snapshot.plugins {

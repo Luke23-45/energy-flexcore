@@ -76,7 +76,7 @@ pub struct ChargerRating {
 
 /// Errors of the depot load-management model. Every variant names the
 /// offending field or charger (the P3.04 named-error style).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DepotLoadError {
     /// The site transformer limit was non-finite or non-positive.
     InvalidTransformerLimit {
@@ -543,7 +543,9 @@ mod tests {
     #[test]
     fn a_doe_in_effect_caps_the_site_import_at_the_envelope_bound() {
         // DOE import bound 0.3 < transformer limit 0.5: the minimum
-        // governs.
+        // governs. The latest update is at `now()` (age 0, inside the
+        // 300 s × 2 = 600 s freshness budget), so the envelope is in
+        // effect at `now()` rather than stale.
         let envelope = DynamicOperatingEnvelope::new(
             "doe-17".to_string(),
             crate::doe_envelope::EnvelopeScope::Single(connection_point()),
@@ -554,7 +556,7 @@ mod tests {
                 expected_interval_seconds: 300,
                 max_intervals_before_stale: 2,
             },
-            1_699_999_000_000,
+            1_700_000_000_000,
             "test DNSP".to_string(),
             Provenance::Configured,
             "synthetic test envelope; no operator issued it".to_string(),

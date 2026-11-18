@@ -37,7 +37,7 @@ fn valid_manifest_json() -> serde_json::Value {
         "plugin-id": "neryva.test-ess",
         "name": "Test ESS Provider",
         "version": PLUGIN_VERSION,
-        "api-version": ">=0.5,<1.0",
+        "api-version": ">=0.5.0,<1.0.0",
         "class": "builtin-rust",
         "entry-point": { "registered-type": "neryva.builtin/test-ess" },
         "provider-of": ["ess.simulation"],

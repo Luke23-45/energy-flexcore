@@ -866,7 +866,11 @@ impl<'a> WebhookDispatcher<'a> {
 /// conventions §6.6 kernel patterns).
 #[derive(Default)]
 pub struct MemoryWebhookDeliveryStore {
-    deliveries: Mutex<BTreeMap<String, WebhookDeliveryRecord>>,
+    // Keyed by (tenant, delivery key): the key is unique PER TENANT
+    // (the migration's UNIQUE (tenant_id, delivery_key) contract, record
+    // 21 §1) — the old key-by-delivery-key-alone map made the same key
+    // string in another tenant a ConflictingDeliveryKey.
+    deliveries: Mutex<BTreeMap<(String, String), WebhookDeliveryRecord>>,
     attempts: Mutex<BTreeMap<String, WebhookAttemptRecord>>,
     dead_letters: Mutex<BTreeMap<String, WebhookDeadLetterRecord>>,
 }
@@ -883,7 +887,11 @@ impl WebhookDeliveryStore for MemoryWebhookDeliveryStore {
         record: WebhookDeliveryRecord,
     ) -> Result<WebhookDeliveryRecord, WebhookDeliveryError> {
         let mut deliveries = self.deliveries.lock().expect("poisoned mutex in test fake");
-        match deliveries.get(&record.delivery_key) {
+        let map_key = (
+            record.tenant_id.uuid().to_hyphenated(),
+            record.delivery_key.clone(),
+        );
+        match deliveries.get(&map_key) {
             Some(existing) => {
                 if existing.raw_body == record.raw_body
                     && existing.endpoint_id == record.endpoint_id
@@ -896,7 +904,7 @@ impl WebhookDeliveryStore for MemoryWebhookDeliveryStore {
                 }
             }
             None => {
-                deliveries.insert(record.delivery_key.clone(), record.clone());
+                deliveries.insert(map_key, record.clone());
                 Ok(record)
             }
         }
@@ -1135,26 +1143,33 @@ mod tests {
         }
     }
 
+    /// The seed endpoint resolver for the `dispatcher` helper: the
+    /// dispatcher borrows its endpoint resolver, so the resolver must not
+    /// capture the helper's locals — it recomputes the fixed seed-7
+    /// endpoint from the tenant on every call (the same record the old
+    /// capturing closure cloned).
+    fn resolve_seed_endpoint(
+        tid: &TenantId,
+        eid: &str,
+    ) -> Result<WebhookEndpointRecord, WebhookDeliveryError> {
+        if *tid == tenant(7) && eid == "ep-1" {
+            Ok(endpoint(tenant(7)))
+        } else {
+            Err(WebhookDeliveryError::EndpointNotFound)
+        }
+    }
+
     fn dispatcher<'a>(
         store: &'a MemoryWebhookDeliveryStore,
         http: &'a RecordingHttp,
         now: i64,
     ) -> WebhookDispatcher<'a> {
-        let tenant_seed = 7u8;
-        let t = tenant(tenant_seed);
-        let ep = endpoint(t);
         WebhookDispatcher::new(
             store,
             http,
             &RESOLVER,
             Box::new(move || now),
-            Box::new(move |tid, eid| {
-                if *tid == t && eid == "ep-1" {
-                    Ok(ep.clone())
-                } else {
-                    Err(WebhookDeliveryError::EndpointNotFound)
-                }
-            }),
+            &resolve_seed_endpoint,
         )
     }
 
@@ -1367,10 +1382,14 @@ mod tests {
             .values()
             .all(|a| a.outcome == "RETRYABLE_FAILURE" && a.failure_class.as_deref() == Some("NON_2XX")));
         // The dead letter exists with its reason; the depth metric reads 1.
+        // The guard MUST be dropped before count_dead_letters(): it locks
+        // the same dead_letters mutex, and std Mutex is non-reentrant — the
+        // old form self-deadlocked here (futex wait, 0 CPU, forever).
         let dead = store.dead_letters.lock().unwrap();
         assert_eq!(dead.len(), 1);
         let row = dead.values().next().unwrap();
         assert_eq!(row.reason, "NON_2XX");
+        drop(dead);
         assert_eq!(store.count_dead_letters().unwrap(), 1);
     }
 
@@ -1412,18 +1431,19 @@ mod tests {
         let mut ep = endpoint(t);
         ep.active = false;
         let ep_inactive = ep;
+        let endpoints = move |tid: &TenantId, eid: &str| {
+            if *tid == t && eid == "ep-1" {
+                Ok(ep_inactive.clone())
+            } else {
+                Err(WebhookDeliveryError::EndpointNotFound)
+            }
+        };
         let disp = WebhookDispatcher::new(
             &store,
             &http,
             &RESOLVER,
             Box::new(|| 1_000),
-            Box::new(move |tid, eid| {
-                if *tid == t && eid == "ep-1" {
-                    Ok(ep_inactive.clone())
-                } else {
-                    Err(WebhookDeliveryError::EndpointNotFound)
-                }
-            }),
+            &endpoints,
         );
         let delivery = disp
             .enqueue(
@@ -1455,18 +1475,19 @@ mod tests {
         // the scan.
         let t = tenant(7);
         let ep = endpoint(t);
+        let endpoints = move |tid: &TenantId, eid: &str| {
+            if *tid == t && eid == "ep-1" {
+                Ok(ep.clone())
+            } else {
+                Err(WebhookDeliveryError::EndpointNotFound)
+            }
+        };
         let disp = WebhookDispatcher::new(
             &store,
             &http,
             &RESOLVER,
             Box::new(|| 1_000),
-            Box::new(move |tid, eid| {
-                if *tid == t && eid == "ep-1" {
-                    Ok(ep.clone())
-                } else {
-                    Err(WebhookDeliveryError::EndpointNotFound)
-                }
-            }),
+            &endpoints,
         );
         disp.enqueue(
             tenant(7),

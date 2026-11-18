@@ -102,12 +102,24 @@ fn url_as(url: &str, user: &str, password: &str) -> String {
 /// grant requires the bootstrap superuser (CI's `flexcore` user).
 fn ensure_test_roles(pool: &PgPool) {
     let result = test_runtime().block_on(async {
-        sqlx::query(&format!(
+        // Concurrent ALTER ROLE on the same role fails with "tuple
+        // concurrently updated" (XX000): every test in every binary runs
+        // this helper against the one shared database. One advisory lock
+        // (one key, shared by every copy of this helper and by the
+        // partition setup) serializes the grant so it stays idempotent
+        // across processes; the lock is transaction-scoped and released
+        // by the commit below.
+        let mut tx = pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
             "ALTER ROLE flexcore_migrator WITH LOGIN PASSWORD 'flexcore_migrator_test_only' \
-             BYPASSRLS"
-        ))
-        .execute(pool)
+             BYPASSRLS",
+        )
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok::<(), sqlx::Error>(())
     });
     result.expect("the maintenance role must be grantable from the admin connection");
@@ -223,7 +235,7 @@ fn pre_creation_creates_partitions_with_expected_names_and_bounds() {
             PartitionCreateOutcome::AlreadyExists(name) => created.push(name),
         }
     }
-    PgUnitOfWork::commit(Arc::try_unwrap(shared).expect("unique")).expect("commit");
+    PgUnitOfWork::commit(Arc::into_inner(shared).expect("unique")).expect("commit");
 
     // Every planned month now exists with the D-P2 bounds.
     let unit = store.begin(None).expect("unit of work");
@@ -288,7 +300,7 @@ fn retention_detaches_only_out_of_window_partitions_and_refuses_the_rest() {
     // now; May is pre-created ahead of the frontier).
     ensure_partitions(&store, &[(2028, 1), (2028, 2), (2028, 3), (2028, 4), (2028, 5)]);
     let now = now_of_test();
-    let cutoff = retention_cutoff(now.year(), u8::from(now.month()), 2)
+    let cutoff = retention_cutoff(now.year(), now.month() as u32, 2)
         .expect("cutoff for a two-month horizon");
     // Cutoff = first day of (April − 2) = 2028-02-01: only January lies
     // entirely outside the window.
@@ -352,7 +364,7 @@ fn retention_detaches_only_out_of_window_partitions_and_refuses_the_rest() {
         detached_bounds.from_utc,
         month_bounds(2028, 1).expect("january").0
     );
-    PgUnitOfWork::commit(Arc::try_unwrap(shared).expect("unique")).expect("commit");
+    PgUnitOfWork::commit(Arc::into_inner(shared).expect("unique")).expect("commit");
 
     // January is no longer attached (but still exists as a table); the
     // in-window months remain attached.

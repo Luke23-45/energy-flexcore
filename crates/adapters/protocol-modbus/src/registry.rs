@@ -374,9 +374,20 @@ mod tests {
     #[test]
     fn map_validation_refuses_overlap_and_out_of_range() {
         let fields = vec![field("W", 0, RegisterType::I16, RegisterUnitKind::Watts)];
-        assert!(map_with(fields.clone(), 4).is_ok());
-        // Field beyond the block length: refused.
-        assert!(map_with(fields.clone(), 1).is_err());
+        // map_with unwraps `RegisterMap::new`: returning IS the acceptance.
+        let _valid = map_with(fields.clone(), 4);
+        // Field beyond the block length: refused. (A length-1 block fits
+        // the single I16 field at offset 0, so the field is offset to 1:
+        // end 2 > block 1.)
+        assert_eq!(
+            RegisterMap::new(
+                DeviceModelKey::new("test/inv").expect("valid key"),
+                SunSpecModel::InverterThreePhase,
+                vec![field("W", 1, RegisterType::I16, RegisterUnitKind::Watts)],
+                1,
+            ),
+            Err(RegistryError::FieldOutOfRange { label: "W".to_string() })
+        );
         // Overlap: W at 0..1 and another at 0 refused.
         let overlapping = vec![
             field("W", 0, RegisterType::I16, RegisterUnitKind::Watts),
@@ -397,8 +408,8 @@ mod tests {
     fn decode_i16_negative_watts_passes_through() {
         let m = map_with(vec![field("W", 0, RegisterType::I16, RegisterUnitKind::Watts)], 4);
         let f = m.field("W").expect("field").clone();
-        // -1500 as two's-complement i16 (0xFA1C).
-        let decoded = decode_register_window(&m, &f, &[0xFA1C]).expect("decode");
+        // -1500 as two's-complement i16 (0xFA24: 64036 - 65536).
+        let decoded = decode_register_window(&m, &f, &[0xFA24]).expect("decode");
         assert_eq!(decoded.value, -1500.0);
         assert_eq!(decoded.unit_kind, RegisterUnitKind::Watts);
     }

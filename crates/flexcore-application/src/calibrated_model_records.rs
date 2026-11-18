@@ -496,9 +496,9 @@ mod tests {
             .temperature_after(1.0, 20.0, 0.0)
             .expect("valid inputs");
         assert!((temp - 20.0).abs() < 1e-12);
-        // At 10 tau the response is within 5e-5 of steady state.
+        // At 13 tau the response is within 5e-5 of steady state.
         let temp = model
-            .temperature_after(1.0, 20.0, 20.0)
+            .temperature_after(1.0, 20.0, 26.0)
             .expect("valid inputs");
         assert!((temp - 30.0).abs() < 5e-5);
         // Negative power (import/cooling-side convention of the caller)

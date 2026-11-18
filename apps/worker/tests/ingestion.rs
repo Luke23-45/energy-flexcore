@@ -19,8 +19,9 @@
 //    and the current-state read (latest `event_time`) never regresses; a
 //    late newer record updates the state.
 // 5. Redelivery: the inbox detects the redelivered record — skipped.
-// 6. Source-auth failure: the stub authentication rejects an untrusted
-//    source; the recorded STUB status is stated.
+// 6. Source-auth failure: the stage-1 health + trusted-source-id check
+//    rejects an untrusted source; the recorded Ed25519 envelope status is
+//    stated.
 // 7. Decode failure: the undecodable frame is quarantined (stage 2), never
 //    stored.
 //
@@ -41,10 +42,12 @@ use flexcore_contracts::units::{ActivePowerMW, EnergyMWh};
 use flexcore_domain::entities::{Asset, AssetType, Portfolio, Site, Tenant};
 use flexcore_domain::ids::{AssetId, PortfolioId, SiteId, TenantId};
 use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
+use flexcore_ports::clock::Clock;
 use flexcore_ports::event_outbox::EventOutbox;
 use flexcore_ports::repository::{
     AssetRepository, PortfolioRepository, SiteRepository, TenantRepository,
 };
+use flexcore_ports::source_auth::{SourceAuthError, SourceAuthenticator, VerifiedEnvelope};
 use flexcore_ports::telemetry_source::{
     NormalizedTelemetry, NormalizedTelemetryParts, ProviderDeclaration, QualityMappingDeclaration,
     QuantityValue, SourceStateMapping, TelemetryQuery, TelemetryQuantity, TelemetrySource,
@@ -161,9 +164,13 @@ fn ensure_test_roles(pool: &PgPool) {
                 ("flexcore_app", "flexcore_app_test_only"),
                 ("flexcore_migrator", "flexcore_migrator_test_only"),
             ] {
-                sqlx::query(&format!(
+                // SAFETY (sqlx 0.9 SqlSafeStr): `role` and `password` are
+                // fixed test-only literals from the list above — no user
+                // input reaches this DDL, and role names/passwords cannot
+                // be bind parameters in ALTER ROLE.
+                sqlx::query(sqlx::AssertSqlSafe(format!(
                     "ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"
-                ))
+                )))
                 .execute(pool)
                 .await?;
             }
@@ -185,10 +192,14 @@ fn ensure_partitions(url: &str) {
         .expect("connect as flexcore_migrator");
     blocking_runtime().block_on(async {
         for (name, from, to) in PARTITION_MONTHS {
-            sqlx::query(&format!(
+            // SAFETY (sqlx 0.9 SqlSafeStr): `name`/`from`/`to` are fixed
+            // literals from the PARTITION_MONTHS const above — no user
+            // input reaches this DDL, and partition names/bounds cannot
+            // be bind parameters in CREATE TABLE.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE IF NOT EXISTS {name} PARTITION OF telemetry \
                  FOR VALUES FROM ('{from}') TO ('{to}')"
-            ))
+            )))
             .execute(&migrator_pool)
             .await
             .expect("partition DDL as the table owner");
@@ -341,6 +352,30 @@ fn pending_outbox_keys(store: &FlexCoreStore) -> Vec<String> {
         .collect()
 }
 
+/// Permissive source-auth double (Patch B): passes raw frames through
+/// unenveloped (`was_enveloped: false`, payload = the raw bytes) so the
+/// downstream-stage tests keep working with raw frames. The batch path
+/// skips the sequence-watermark advance entirely for unenveloped input.
+struct PassThroughAuthenticator;
+
+impl SourceAuthenticator for PassThroughAuthenticator {
+    fn authenticate(
+        &self,
+        ctx: &TenantContext,
+        payload: &[u8],
+    ) -> Result<VerifiedEnvelope, SourceAuthError> {
+        Ok(VerifiedEnvelope {
+            key_id: "test-double".to_string(),
+            source_id: "test-double".to_string(),
+            tenant_id: ctx.tenant_id(),
+            sequence: 0,
+            event_time_unix_millis: 0,
+            was_enveloped: false,
+            payload: payload.to_vec(),
+        })
+    }
+}
+
 /// Builds an ingestion task over the real store and a controllable fake
 /// source (the pipeline consumes ONLY the `TelemetrySource` port).
 fn build_task(
@@ -371,6 +406,7 @@ fn build_task(
             ..Default::default()
         },
         Arc::clone(&metrics),
+        Arc::new(PassThroughAuthenticator),
     ));
     (task, source, metrics)
 }
@@ -482,7 +518,7 @@ async fn mixed_batch_stores_valid_and_quarantines_out_of_range() {
     let out_of_range = record(h.ctx.tenant_id(), h.asset_id, JUN_2031_MS, 11, 2.0);
 
     let report = task
-        .process_batch(&h.ctx, &[valid, out_of_range])
+        .process_batch(&h.ctx, &[valid, out_of_range], None)
         .expect("the batch commits (the rejection is per-record, not whole-batch)");
 
     assert_eq!(report.stored, 1);
@@ -517,9 +553,9 @@ async fn duplicate_batch_stores_one_row() {
     let first = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 20, 1.5);
     let second = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 20, 1.5);
 
-    let first_report = task.process_batch(&h.ctx, &[first]).expect("first batch");
+    let first_report = task.process_batch(&h.ctx, &[first], None).expect("first batch");
     assert_eq!(first_report.stored, 1);
-    let second_report = task.process_batch(&h.ctx, &[second]).expect("second batch");
+    let second_report = task.process_batch(&h.ctx, &[second], None).expect("second batch");
     assert_eq!(second_report.exact_duplicates_acknowledged, 1);
     assert_eq!(second_report.stored, 0);
 
@@ -540,9 +576,9 @@ async fn out_of_order_batch_is_stored_and_the_current_state_never_regresses() {
     let late_older = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 31, 1.0);
     let late_newer = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS + 86_400_000 * 60, 32, 3.0);
 
-    let r1 = task.process_batch(&h.ctx, &[current]).expect("batch 1");
+    let r1 = task.process_batch(&h.ctx, &[current], None).expect("batch 1");
     assert_eq!(r1.state_updates, 1);
-    let r2 = task.process_batch(&h.ctx, &[late_older]).expect("batch 2");
+    let r2 = task.process_batch(&h.ctx, &[late_older], None).expect("batch 2");
     assert_eq!(r2.stored, 1, "the late older record is stored (valid history)");
     assert_eq!(
         r2.dispositions[0],
@@ -553,7 +589,7 @@ async fn out_of_order_batch_is_stored_and_the_current_state_never_regresses() {
         },
         "the current state is NOT regressed by the late older record"
     );
-    let r3 = task.process_batch(&h.ctx, &[late_newer]).expect("batch 3");
+    let r3 = task.process_batch(&h.ctx, &[late_newer], None).expect("batch 3");
     assert_eq!(r3.state_updates, 1, "the late newer record updates the state");
 
     // Three rows (valid history); the current-state read reports the NEWER
@@ -583,25 +619,25 @@ async fn forced_redelivery_is_detected_by_the_inbox_and_not_re_stored() {
     let (task, _source, _metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
 
     let record = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 40, 1.5);
-    let first = task.process_batch(&h.ctx, &[record.clone()]).expect("first");
+    let first = task.process_batch(&h.ctx, &[record.clone()], None).expect("first");
     assert_eq!(first.stored, 1);
 
     // Forced redelivery of the SAME record (the pipeline recorded the
     // delivery post-commit): detected by the inbox, NOT re-stored.
-    let again = task.process_batch(&h.ctx, &[record]).expect("redelivery");
+    let again = task.process_batch(&h.ctx, &[record], None).expect("redelivery");
     assert_eq!(again.redeliveries_skipped, 1);
     assert_eq!(again.stored, 0);
     assert_eq!(count_telemetry(&h.store, &h.ctx), 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn source_auth_failure_rejects_the_source_and_records_the_stub_status() {
+async fn source_auth_failure_rejects_the_source_and_records_the_envelope_status() {
     let Some(h) = harness("ingestion_source_auth", 0x1A) else {
         return;
     };
     // A configured trusted source that does NOT match the fake provider's
-    // declaration: the stage-1 stub authentication must reject the task at
-    // startup, before any decode or store runs.
+    // declaration: the stage-1 health + trusted-source-id check must reject
+    // the task at startup, before any decode or store runs.
     let (task, _source, metrics) = build_task(
         h.store.clone(),
         vec![record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 50, 1.5)],
@@ -625,8 +661,9 @@ async fn source_auth_failure_rejects_the_source_and_records_the_stub_status() {
     assert_eq!(metrics.snapshot().frames_rejected_auth, 1);
     // Nothing was stored.
     assert_eq!(count_telemetry(&h.store, &h.ctx), 0);
-    // The stub status is recorded honestly (the compile-time constant).
-    assert!(flexcore_worker::ingestion::SOURCE_AUTH_STATUS.contains("STUB"));
+    // The real envelope status is recorded honestly (the compile-time constant).
+    assert!(flexcore_worker::ingestion::SOURCE_AUTH_STATUS
+        .contains("Ed25519 signed envelopes (flexcore-telemetry-v1)"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -732,7 +769,7 @@ async fn quality_change_event_carries_previous_and_new_states() {
     let (task, _source, metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
 
     let good = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 60, 1.5);
-    task.process_batch(&h.ctx, &[good]).expect("batch 1");
+    task.process_batch(&h.ctx, &[good], None).expect("batch 1");
     let suspect = record_with_quality(
         h.ctx.tenant_id(),
         h.asset_id,
@@ -741,7 +778,7 @@ async fn quality_change_event_carries_previous_and_new_states() {
         9.9,
         TelemetryQuality::Suspect,
     );
-    task.process_batch(&h.ctx, &[suspect]).expect("batch 2");
+    task.process_batch(&h.ctx, &[suspect], None).expect("batch 2");
 
     let entries = h.store.pending(1000).expect("pending outbox read");
     let keys: Vec<String> = entries
@@ -783,7 +820,7 @@ async fn availability_change_emits_the_event_only_on_a_change() {
         true,
         TelemetryQuality::Good,
     );
-    task.process_batch(&h.ctx, &[up]).expect("batch 1");
+    task.process_batch(&h.ctx, &[up], None).expect("batch 1");
     assert_eq!(metrics.snapshot().availability_changed_events, 1);
 
     // Second signal: the asset reports unavailable (GOOD, false).
@@ -796,7 +833,7 @@ async fn availability_change_emits_the_event_only_on_a_change() {
         false,
         TelemetryQuality::Good,
     );
-    task.process_batch(&h.ctx, &[down]).expect("batch 2");
+    task.process_batch(&h.ctx, &[down], None).expect("batch 2");
     assert_eq!(metrics.snapshot().availability_changed_events, 2);
 
     // Third signal: identical to the current state (GOOD, false).
@@ -809,7 +846,7 @@ async fn availability_change_emits_the_event_only_on_a_change() {
         false,
         TelemetryQuality::Good,
     );
-    task.process_batch(&h.ctx, &[down_again]).expect("batch 3");
+    task.process_batch(&h.ctx, &[down_again], None).expect("batch 3");
     assert_eq!(metrics.snapshot().availability_changed_events, 2);
 
     // Two events in the outbox, both `AssetAvailabilityChanged`.
@@ -844,7 +881,7 @@ async fn a_stale_availability_signal_does_not_change_the_availability() {
         true,
         TelemetryQuality::Good,
     );
-    task.process_batch(&h.ctx, &[up]).expect("batch 1");
+    task.process_batch(&h.ctx, &[up], None).expect("batch 1");
     assert_eq!(metrics.snapshot().availability_changed_events, 1);
 
     // A STALE availability record that moves the current state forward:
@@ -857,7 +894,7 @@ async fn a_stale_availability_signal_does_not_change_the_availability() {
         false,
         TelemetryQuality::Stale,
     );
-    task.process_batch(&h.ctx, &[stale]).expect("batch 2");
+    task.process_batch(&h.ctx, &[stale], None).expect("batch 2");
     assert_eq!(
         metrics.snapshot().availability_changed_events,
         1,
@@ -884,11 +921,11 @@ async fn redelivery_does_not_duplicate_events() {
         true,
         TelemetryQuality::Good,
     );
-    let report = task.process_batch(&h.ctx, &[first.clone()]).expect("first");
+    let report = task.process_batch(&h.ctx, &[first.clone()], None).expect("first");
     assert_eq!(report.stored, 1);
 
     // Forced redelivery of the SAME record.
-    let again = task.process_batch(&h.ctx, &[first]).expect("redelivery");
+    let again = task.process_batch(&h.ctx, &[first], None).expect("redelivery");
     assert_eq!(again.redeliveries_skipped, 1);
     assert_eq!(again.stored, 0);
 
@@ -925,7 +962,7 @@ async fn a_mixed_batch_produces_exactly_the_expected_outbox_events() {
 
     // Establish the current state (GOOD, seq 90).
     let good = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 90, 1.0);
-    task.process_batch(&h.ctx, &[good]).expect("batch 1");
+    task.process_batch(&h.ctx, &[good], None).expect("batch 1");
 
     // Mixed batch 2: a GOOD record (no quality event) + a SUSPECT record
     // (quality event GOOD->SUSPECT) + a conflicting duplicate of seq 91's
@@ -943,7 +980,7 @@ async fn a_mixed_batch_produces_exactly_the_expected_outbox_events() {
     let conflict = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS + 60_000, 91, 7.7);
     let exact_dup = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 90, 1.0);
     let report = task
-        .process_batch(&h.ctx, &[fresh_good, suspect, conflict, exact_dup])
+        .process_batch(&h.ctx, &[fresh_good, suspect, conflict, exact_dup], None)
         .expect("batch 2");
     assert_eq!(report.stored, 2);
     assert_eq!(report.conflicting_quarantined, 1);
@@ -990,7 +1027,7 @@ async fn pipeline_metrics_record_ingestion_delay_and_quality_states() {
     let first = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 100, 1.5);
     let second = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS + 60_000, 101, 2.5);
     let report = task
-        .process_batch(&h.ctx, &[first, second])
+        .process_batch(&h.ctx, &[first, second], None)
         .expect("both records store");
     assert_eq!(report.stored, 2);
 
@@ -1045,6 +1082,7 @@ async fn the_staleness_signal_fires_against_the_configured_freshness_limit() {
             ..Default::default()
         },
         Arc::clone(&limited_metrics),
+        Arc::new(PassThroughAuthenticator),
     ));
 
     // January 2020 is long past the wall clock: stale under any one-minute
@@ -1055,10 +1093,10 @@ async fn the_staleness_signal_fires_against_the_configured_freshness_limit() {
         record(h.ctx.tenant_id(), h.asset_id, JAN_2020_MS + 60_000, 111, 2.0);
 
     unlimited
-        .process_batch(&h.ctx, &[stale_unlimited])
+        .process_batch(&h.ctx, &[stale_unlimited], None)
         .expect("the 2020 record stores (its partition exists)");
     limited
-        .process_batch(&h.ctx, &[stale_limited])
+        .process_batch(&h.ctx, &[stale_limited], None)
         .expect("the 2020 record stores");
 
     assert_eq!(
@@ -1090,7 +1128,7 @@ async fn quarantine_metrics_carry_the_closed_reason_class() {
 
     let valid = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 120, 1.0);
     let out_of_range = record(h.ctx.tenant_id(), h.asset_id, JUN_2031_MS, 121, 2.0);
-    task.process_batch(&h.ctx, &[valid, out_of_range])
+    task.process_batch(&h.ctx, &[valid, out_of_range], None)
         .expect("the batch commits with the per-record rejection");
 
     let reasons = metrics.quarantine_reasons();

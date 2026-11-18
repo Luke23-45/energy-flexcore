@@ -88,7 +88,7 @@ pub const CBL_RECENCY_WINDOW_DAYS: usize = 10;
 
 /// Why the engine recorded a gap instead of a baseline. Named, never
 /// absorbed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BaselineGapReason {
     /// The program declared a method outside the closed supported set
     /// (LR-073: recorded, never approximated).
@@ -198,7 +198,7 @@ impl std::fmt::Display for BaselineGapReason {
 /// The RECORDED GAP ROW: the honest record of a baseline that could not
 /// be computed and why (LR-073). Persisting it with its P11 audit-chain
 /// linkage is the caller's obligation (a financial-adjacent record).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BaselineGapRecord {
     pub tenant_id: String,
     pub program_id: String,
@@ -248,7 +248,7 @@ impl BaselineGapRecord {
 /// The engine's named errors (construction-time refusals; computation
 /// outcomes are `BaselineOutcome::Gap`, not errors — a gap is a RECORD,
 /// not an exception).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BaselineEngineError {
     EmptyField {
         field: &'static str,
@@ -528,9 +528,12 @@ pub enum BaselineOutcome {
 
 // --- The engine ---------------------------------------------------------------------
 
-/// Filters the eligible candidate days: non-event days matching the
-/// declared day-type filter (exact equality) and weather-index filter
+/// Filters the eligible candidate days: days matching the declared
+/// day-type filter (exact equality) and weather-index filter
 /// (|candidate − event| ≤ tolerance; days without an index never match).
+/// Event-day exclusion is NOT done here: the CBL recency window applies
+/// over the candidate days first and the event day inside it is excluded
+/// from the windowed set (decision record 04_p16_04_baseline_engine.md).
 /// Deterministic: the input BTreeMap is already day-key ordered.
 fn filter_candidates<'a>(
     config: &ProgramBaselineConfig,
@@ -538,7 +541,6 @@ fn filter_candidates<'a>(
 ) -> Vec<&'a DayProfile> {
     eligible_days
         .values()
-        .filter(|day| !day.is_event_day)
         .filter(|day| match &config.day_type_filter {
             Some(filter) => day.day_type.as_deref() == Some(filter.day_type.as_str()),
             None => true,
@@ -561,14 +563,20 @@ fn filter_candidates<'a>(
 /// selection with explicit tie-breaking (total descending, then day key
 /// ascending); for day-matching, the program's declared rule over the
 /// full filtered set.
-fn select_days(
+fn select_days<'b>(
     config: &ProgramBaselineConfig,
-    candidates: Vec<&DayProfile>,
-) -> Result<Vec<&DayProfile>, BaselineGapReason> {
+    candidates: Vec<&'b DayProfile>,
+) -> Result<Vec<&'b DayProfile>, BaselineGapReason> {
     match config.method_name.as_str() {
         "CBL_10_IN_10" => highest_n_after_recency_window(candidates, 10),
         "CBL_5_IN_10" => highest_n_after_recency_window(candidates, 5),
         "DAY_MATCHING" => {
+            // Day-matching has no recency window: the event day is
+            // excluded from the full filtered set.
+            let candidates: Vec<&DayProfile> = candidates
+                .into_iter()
+                .filter(|day| !day.is_event_day)
+                .collect();
             // The program declares the selection rule; an absent rule is
             // `All` (the match set is the selection — the program named
             // the days through its filters).
@@ -595,11 +603,17 @@ fn highest_n_after_recency_window(
     mut candidates: Vec<&DayProfile>,
     n: usize,
 ) -> Result<Vec<&DayProfile>, BaselineGapReason> {
-    // The recency window: the LAST ten eligible candidates by day key
-    // (the BTreeMap iteration is day-key ascending, so the tail is the
-    // most recent).
+    // The recency window: the LAST ten candidates by day key (the
+    // BTreeMap iteration is day-key ascending, so the tail is the most
+    // recent) — applied BEFORE event-day exclusion, so a day outside the
+    // window can never slide in to replace an excluded event day.
     let window_start = candidates.len().saturating_sub(CBL_RECENCY_WINDOW_DAYS);
     let windowed: Vec<&DayProfile> = candidates.drain(window_start..).collect();
+    // The event day inside the window is excluded from the windowed set.
+    let windowed: Vec<&DayProfile> = windowed
+        .into_iter()
+        .filter(|day| !day.is_event_day)
+        .collect();
     if windowed.len() < n {
         return Err(BaselineGapReason::InsufficientEligibleDays {
             required: n,
@@ -763,15 +777,18 @@ pub fn compute_baseline(
         _ => None,
     };
 
+    // The recorded source days are in day-key order (chronological), not
+    // selection order: the selection ranks by total, the record lists
+    // days chronologically.
+    let mut source_day_keys: Vec<String> =
+        selected.iter().map(|day| day.day_key.clone()).collect();
+    source_day_keys.sort();
     BaselineOutcome::Computed(BaselineProfile {
         tenant_id: config.tenant_id.clone(),
         program_id: config.program_id.clone(),
         method_name: config.method_name.clone(),
         interval_values_mw: baseline,
-        source_day_keys: selected
-            .iter()
-            .map(|day| day.day_key.clone())
-            .collect(),
+        source_day_keys,
         sda_applied,
         computed_at_unix_ms: now_unix_ms,
     })

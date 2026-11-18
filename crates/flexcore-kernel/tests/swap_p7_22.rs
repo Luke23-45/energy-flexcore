@@ -305,7 +305,7 @@ fn manifest_json(plugin_id: &str, version: &str, provides: &[&str]) -> serde_jso
         "plugin-id": plugin_id,
         "name": "Swap test plugin",
         "version": version,
-        "api-version": ">=0.5,<1.0",
+        "api-version": ">=0.5.0,<1.0.0",
         "class": "builtin-rust",
         "entry-point": { "registered-type": "test/type" },
         "provider-of": provides,
@@ -424,11 +424,13 @@ fn the_optimizer_swap_never_touches_application_or_domain_code() {
     let audit = MemoryAuditSink::new();
 
     // The composition: registry + lifecycles, registered from the plan.
+    // The registry is Solver-typed, so only the optimizer contract is
+    // registered here — `register_from_plan` would demand a factory for
+    // EVERY plan contract (including the grid contract this registry
+    // cannot serve); the single-contract `register` is the seam for it.
     let mut registry: ProviderRegistry<dyn Solver> = ProviderRegistry::new(&plan);
-    let mut factories = std::collections::BTreeMap::new();
-    factories.insert(seed::CONTRACT_OPTIMIZER.to_string(), highs_factory());
     registry
-        .register_from_plan(&plan, factories)
+        .register(seed::CONTRACT_OPTIMIZER, highs_factory())
         .expect("the seed composition registers completely");
 
     // The drain port is declared BEFORE the lifecycle (it is borrowed for
@@ -603,10 +605,13 @@ fn the_grid_provider_swap_follows_the_same_lifecycle_path() {
     let clock = FixedClock::new(20_000);
     let audit = MemoryAuditSink::new();
 
+    // The registry is GridPort-typed, so only the grid contract is
+    // registered here (see the optimizer test: `register_from_plan` would
+    // demand a factory for every plan contract).
     let mut registry: ProviderRegistry<dyn GridPort> = ProviderRegistry::new(&plan);
-    let mut factories = std::collections::BTreeMap::new();
-    factories.insert(seed::CONTRACT_GRID_MODEL.to_string(), pandapower_factory());
-    registry.register_from_plan(&plan, factories).expect("seed grid composition registers");
+    registry
+        .register(seed::CONTRACT_GRID_MODEL, pandapower_factory())
+        .expect("seed grid composition registers");
 
     // The drain port is declared BEFORE the lifecycle (borrow-order rule).
     let mut grid_drain = CooperativeDrain { outstanding: 1 };
@@ -696,9 +701,9 @@ fn swap_refusals_are_named_and_ordered() {
     let audit = MemoryAuditSink::new();
 
     let mut registry: ProviderRegistry<dyn Solver> = ProviderRegistry::new(&plan);
-    let mut factories = std::collections::BTreeMap::new();
-    factories.insert(seed::CONTRACT_OPTIMIZER.to_string(), highs_factory());
-    registry.register_from_plan(&plan, factories).expect("registers");
+    registry
+        .register(seed::CONTRACT_OPTIMIZER, highs_factory())
+        .expect("registers");
 
     let mut optimizer_lifecycle = PluginLifecycle::register(
         seed::PLUGIN_OPTIMIZER_DEFAULT,

@@ -315,11 +315,18 @@ mod tests {
         );
 
         // One state change, one outbox append for the frozen event, in that
-        // order, before the commit marker (§6.3 step 1 evidence).
+        // order, before the commit marker (§6.3 step 1 evidence). The
+        // setup `insert` above is the first journal op (the fixture
+        // asset's registration); the use case's own writes follow it.
         h.journal.record_commit();
         assert_eq!(
             h.journal.ops(),
             vec![
+                FakeJournalOp::StateChange {
+                    entity: "assets".to_string(),
+                    operation: StateChangeOperation::Insert,
+                    tenant_scope: Some(TenantId::new(uuid(UUID_TENANT_A))),
+                },
                 FakeJournalOp::StateChange {
                     entity: "assets".to_string(),
                     operation: StateChangeOperation::Update,
@@ -347,6 +354,9 @@ mod tests {
             .expect("asset registered for the test");
 
         // Empty reason: validation-class rejection, no write, no event.
+        // The journal already holds the setup `insert` (one op); the
+        // rejected execute must add nothing to it.
+        let baseline = h.journal.ops().len();
         let err = h
             .use_case
             .execute(
@@ -361,7 +371,11 @@ mod tests {
             matches!(err, ApplicationError::Validation(_)),
             "an empty reason is a validation-class rejection: {err}"
         );
-        assert!(h.journal.ops().is_empty());
+        assert_eq!(
+            h.journal.ops().len(),
+            baseline,
+            "no state change and no outbox write after the validation rejection"
+        );
 
         // Happy path first, then the terminal guard.
         let _ = h
@@ -407,6 +421,9 @@ mod tests {
             .expect("asset registered under tenant A");
 
         let other_ctx = tenant_ctx(UUID_TENANT_B);
+        // The journal already holds the setup `insert` under tenant A;
+        // the cross-tenant rejection must add nothing to it.
+        let baseline = h.journal.ops().len();
         let err = h
             .use_case
             .execute(
@@ -423,7 +440,11 @@ mod tests {
                 entity: "assets"
             })
         );
-        assert!(h.journal.ops().is_empty());
+        assert_eq!(
+            h.journal.ops().len(),
+            baseline,
+            "no state change and no outbox write after the cross-tenant rejection"
+        );
     }
 
     #[test]

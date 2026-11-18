@@ -63,8 +63,10 @@ use flexcore_application::payload_encoding::EventPayloadEncoder;
 use flexcore_contracts::ids::FlexUuid;
 use flexcore_contracts::time_model::{ValidFrom, ValidUntil, ValidityWindow};
 use flexcore_contracts::units::{ActivePowerMW, ReactivePowerMVAr, ReactiveSignConvention};
+use flexcore_application::command_record::replay_full_lifecycle;
 use flexcore_domain::command_lifecycle::{
-    Actor, CommandTransition, ExpiryMilestone, LifecycleClock, LifecycleError,
+    Actor, AuthorizationOutcome, CommandTransition, EvidenceReference, ExpiryMilestone,
+    GateOutcome, LifecycleClock, LifecycleError,
 };
 use flexcore_domain::command_state::{try_transition, CommandState};
 use flexcore_domain::dispatch_command::{
@@ -643,7 +645,9 @@ fn propose_input(command_tag: u8, sequence: u64) -> ProposeCommandInput {
             component_version: "plugin/1.2.3".to_string(),
         },
         schedule: ScheduleReference {
-            schedule_id: ScheduleId::new(uuid(UUID_SCHEDULE)),
+            schedule_id: ScheduleId::new(
+                FlexUuid::parse(UUID_SCHEDULE).expect("valid schedule uuid"),
+            ),
             revision: 2,
         },
         intent: CommandIntent {
@@ -886,7 +890,29 @@ fn fixture_approved_expiring_before_issue_reaches_expired_with_the_milestone() {
 fn fixture_issued_expiring_before_acknowledgement_reaches_expired_with_the_milestone() {
     let h = harness(5_000);
     let (command, decision_record) = walk_to_approved(&h, 11, 17);
-    issue_to_simulator(&h, &command, &decision_record);
+    // The simulator adapter's issue() is issue + acknowledgement in ONE
+    // call (dispatch_simulator.rs:1188), so issue_to_simulator can never
+    // leave a command ISSUED — but this fixture IS the ISSUED state
+    // (expiring before acknowledgement). Drive ONLY the issue transition
+    // through the domain engine: replay the gates' journal to APPROVED,
+    // record the issue, journal it through the store seam.
+    let view = h
+        .store
+        .load_command(&context(), command.command_id())
+        .expect("the command loads")
+        .expect("the command exists");
+    let mut lifecycle = replay_full_lifecycle(command.command_id(), &view)
+        .expect("the journal replays to APPROVED");
+    let issued = lifecycle
+        .record_issue(
+            EvidenceReference::new("authenticity:test").expect("evidence"),
+            actor("svc:dispatcher"),
+            h.clock,
+        )
+        .expect("issue");
+    h.store
+        .journal_transition(&context(), &issued)
+        .expect("the issue is journalled");
     assert_eq!(h.store.current_state(command.command_id()), CommandState::Issued);
 
     // The window passes with no acknowledgement: the adapter cannot advance
@@ -1077,11 +1103,39 @@ fn expiry_never_fires_before_the_window_ends_and_the_boundary_is_end_exclusive()
     assert!(matches!(error, CommandExpiryError::WrongState { .. }));
 
     // The domain guard (the engine the sweep applies through): expiry never
-    // fires before the window ends — re-pinned here directly.
+    // fires before the window ends — re-pinned here directly. BeforeIssue
+    // applies ONLY from APPROVED (ExpiryMilestone::expected_for) — a
+    // freshly proposed lifecycle has no expiry milestone — so the
+    // lifecycle is walked to APPROVED first.
     use flexcore_domain::command_lifecycle::CommandLifecycle;
     let mut lifecycle =
         CommandLifecycle::propose(command, ValidUntil::from_unix_millis(9_000).unwrap())
             .expect("propose");
+    let walk_clock = TestClock { now_unix_millis: Mutex::new(8_000) };
+    lifecycle
+        .record_validation(
+            GateOutcome::pass(EvidenceReference::new("validation:test").expect("evidence")),
+            actor("svc:validator"),
+            &walk_clock,
+        )
+        .expect("validation");
+    lifecycle
+        .record_feasibility(
+            GateOutcome::pass(EvidenceReference::new("feasibility:test").expect("evidence")),
+            actor("svc:grid-gate"),
+            &walk_clock,
+        )
+        .expect("feasibility");
+    lifecycle
+        .record_authorization(
+            AuthorizationOutcome::approve(
+                EvidenceReference::new("authz:test").expect("evidence"),
+                actor("svc:approver"),
+            ),
+            &walk_clock,
+        )
+        .expect("authorization");
+    assert_eq!(lifecycle.state(), CommandState::Approved);
     let error = lifecycle
         .record_expiry(ExpiryMilestone::BeforeIssue, actor("svc:expiry-sweep"), &TestClock {
             now_unix_millis: Mutex::new(8_000),
@@ -1090,9 +1144,6 @@ fn expiry_never_fires_before_the_window_ends_and_the_boundary_is_end_exclusive()
     assert!(matches!(error, LifecycleError::ValidityNotLapsed { .. }));
     // At the boundary instant (now == valid_until, §10.3 end-exclusive) the
     // guard allows the expiry.
-    let mut lifecycle =
-        CommandLifecycle::propose(command, ValidUntil::from_unix_millis(9_000).unwrap())
-            .expect("propose");
     let transition = lifecycle
         .record_expiry(ExpiryMilestone::BeforeIssue, actor("svc:expiry-sweep"), &TestClock {
             now_unix_millis: Mutex::new(9_000),

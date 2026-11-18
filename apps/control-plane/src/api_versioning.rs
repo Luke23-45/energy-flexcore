@@ -218,7 +218,7 @@ pub fn detect_breaking_changes(old: &Value, new: &Value) -> Vec<SpecDiff> {
             diffs.push(SpecDiff::PathRemoved { path: path.clone() });
             continue;
         };
-        for (method, old_op) in old_item {
+        for (method, old_op) in old_item.as_object().into_iter().flatten() {
             // Recognized operation keys: the standard HTTP methods plus the
             // parameters block (parameters are diffed as unclassified
             // locations when removed — conservative by the closed-vocabulary
@@ -430,9 +430,13 @@ mod tests {
             "/api/v1/sites": {}
         }});
         let diffs = detect_breaking_changes(&old, &new_missing_op);
+        // /api/v1/assets is gone entirely in this spec too, so BOTH
+        // removals are reported (the old form expected only the operation).
         assert_eq!(
             diffs,
-            vec![SpecDiff::OperationRemoved {
+            vec![
+                SpecDiff::PathRemoved { path: "/api/v1/assets".to_string() },
+                SpecDiff::OperationRemoved {
                 path: "/api/v1/sites".to_string(),
                 method: "get".to_string(),
             }]
@@ -539,7 +543,7 @@ mod tests {
 
     #[test]
     fn a_spec_without_paths_is_reported_as_unclassified_breaking() {
-        let old = json!({"paths": {"/api/v1/x": {"get": {"responses": {}}}});
+        let old = json!({"paths": {"/api/v1/x": {"get": {"responses": {}}}}});
         let new = json!({"openapi": "3.0.3"});
         let diffs = detect_breaking_changes(&old, &new);
         assert_eq!(

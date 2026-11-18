@@ -129,6 +129,14 @@ fn composed_router() -> (Router, Arc<FakeTelemetryReader>, Arc<FakeEventOutbox>)
                 caller_for(TENANT_B_SEED, "user:admin-b", Role::TenantAdmin),
             ),
             (
+                // PlatformAdmin bound to tenant A: tenant creation is a
+                // platform act (record 41) and create_tenant_a posts as
+                // "platform-a" — the old resolver had no such caller, so
+                // setup died with 401.
+                "platform-a".to_string(),
+                caller_for(TENANT_A_SEED, "user:platform-a", Role::PlatformAdmin),
+            ),
+            (
                 "viewer".to_string(),
                 caller_for(TENANT_A_SEED, "user:viewer", Role::Viewer),
             ),
@@ -150,6 +158,7 @@ fn composed_router() -> (Router, Arc<FakeTelemetryReader>, Arc<FakeEventOutbox>)
         Arc::new(resolver),
         passing_readiness(),
         Some(telemetry.clone()),
+        300_000,
     );
     (stage1_router(state), telemetry, outbox)
 }
@@ -228,9 +237,11 @@ fn create_tenant_body() -> Value {
 }
 
 async fn create_tenant_a(router: &Router) {
+    // Tenant creation is a PLATFORM act: record 41 (P13.15) pins
+    // `tenant.create` to PlatformAdmin (see tests/api.rs).
     let (status, _) = call(
         router,
-        post_json("/api/v1/tenants", Some("caller-a"), create_tenant_body()),
+        post_json("/api/v1/tenants", Some("platform-a"), create_tenant_body()),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "tenant A setup");

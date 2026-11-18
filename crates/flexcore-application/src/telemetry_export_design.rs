@@ -96,6 +96,12 @@ impl ExportMarket {
     }
 }
 
+impl std::fmt::Display for ExportMarket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 // --- Declared cadence budgets (cited, re-verify at use) ----------------------
 
 /// ERCOT ADER: the 2-second ICCP telemetry budget, in milliseconds

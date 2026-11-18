@@ -364,7 +364,7 @@ pub fn generate_evidence_pack(
         histogram.provenance().name().to_string(),
     );
     for (index, count) in histogram.counts().iter().enumerate() {
-        let dod_bins = histogram.dod_bin_edges().len() - 1;
+        let _dod_bins = histogram.dod_bin_edges().len() - 1;
         let soc_bins = histogram.mean_soc_bin_edges().len() - 1;
         let dod_bin = index / soc_bins.max(1);
         let soc_bin = index % soc_bins.max(1);

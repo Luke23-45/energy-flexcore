@@ -244,9 +244,11 @@ pub(crate) fn evse_tick(
     let hours = cadence_s as f64 / 3600.0;
     let (p, energy) = if connected && *soc < params.soc_target {
         // Seeded jitter only — connections follow the declared windows, not
-        // arrival-time distributions.
+        // arrival-time distributions. The jitter scales the draw but never
+        // above the rated charging power: a charger cannot draw more than
+        // its rating (the load and PV profiles clamp the same way).
         let scale = 1.0 + rng.f64_in(-params.jitter_fraction, params.jitter_fraction);
-        let mut p_mag = params.charging_power_mw * scale;
+        let mut p_mag = (params.charging_power_mw * scale).min(params.charging_power_mw);
         let mut e_grid = p_mag * hours;
         let soc_new = *soc + e_grid * EV_CHARGING_EFFICIENCY / battery_mwh;
         if soc_new >= params.soc_target {

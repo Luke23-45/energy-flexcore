@@ -649,7 +649,11 @@ impl MtlsUplinkChannel {
     /// disconnected channel dials only after its backoff window has
     /// elapsed (a too-early attempt is a named error, not a silent spin).
     pub fn ensure_connected(&mut self) -> Result<(), EdgeError> {
-        let now = self.clock.now_ingest_time().unix_millis();
+        // `IngestTime::unix_millis` is i128 by contract; the edge treats
+        // millis as i64 — the crate-wide `try_from(...).unwrap_or(i64::MAX)`
+        // clamp (command_forward, update_session, and six other files).
+        let now = i64::try_from(self.clock.now_ingest_time().unix_millis())
+            .unwrap_or(i64::MAX);
         match self.state {
             ChannelState::Connected {
                 last_activity_millis,
@@ -724,7 +728,9 @@ impl UplinkChannel for MtlsUplinkChannel {
         }
         let payload = self.encoder.encode(samples)?;
         self.ensure_connected()?;
-        let now = self.clock.now_ingest_time().unix_millis();
+        // Same i128 -> i64 millis clamp as `ensure_connected` above.
+        let now = i64::try_from(self.clock.now_ingest_time().unix_millis())
+            .unwrap_or(i64::MAX);
         match self.transport.send_and_await_ack(&payload) {
             Ok(()) => {
                 self.state = ChannelState::Connected {
@@ -1014,7 +1020,10 @@ mod tests {
         assert_eq!(schedule.wait_for(1), 1_000);
         assert_eq!(schedule.wait_for(2), 2_000);
         assert_eq!(schedule.wait_for(3), 4_000);
-        assert_eq!(schedule.wait_for(7), 64_000);
+        // The doubling would reach 64_000 at n=7, but the configured cap
+        // (60_000) bites first -- the last uncapped doubling is n=6.
+        assert_eq!(schedule.wait_for(6), 32_000);
+        assert_eq!(schedule.wait_for(7), 60_000);
         assert_eq!(
             schedule.wait_for(30),
             60_000,

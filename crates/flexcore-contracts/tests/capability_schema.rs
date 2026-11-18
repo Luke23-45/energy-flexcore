@@ -133,7 +133,7 @@ fn wire_payload_rejects_inverted_validity_windows() {
 #[test]
 fn interval_boundaries_from_a_deserialized_payload() {
     let model: CapabilityModel = serde_json::from_value(sample_model_json()).unwrap();
-    let start = model.feasible_set.horizon_start;
+    let start = model.feasible_set.horizon_start.timestamp();
     let (s0, e0) = model.feasible_set.interval_span(0).unwrap();
     assert_eq!(s0, start);
     assert_eq!(e0 - s0, time::Duration::seconds(900));

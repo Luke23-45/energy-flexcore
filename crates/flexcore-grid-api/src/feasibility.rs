@@ -66,7 +66,7 @@ use crate::port::{
 };
 use crate::translation::{candidate_to_backend, injection_from_backend};
 use flexcore_contracts::quality::TelemetryQuality;
-use flexcore_contracts::units::ReactiveSignConvention;
+use flexcore_contracts::units::{ActivePowerMW, ReactivePowerMVAr, ReactiveSignConvention};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -1859,6 +1859,10 @@ pub fn apply_and_run_power_flow(
     };
 
     let result = output.result();
+    // Provider identity is read BEFORE `output` moves into the record
+    // (the borrow above cannot outlive the move).
+    let provider_id = result.provider_id.clone();
+    let provider_version = result.provider_version.clone();
     let record = FeasibilityAttemptRecord {
         attempt_id: attempt_id.to_string(),
         started_at_millis,
@@ -1877,8 +1881,8 @@ pub fn apply_and_run_power_flow(
             .map(|d| d.derivation_ref.clone())
             .collect(),
         output,
-        provider_id: result.provider_id.clone(),
-        provider_version: result.provider_version.clone(),
+        provider_id,
+        provider_version,
         unbalanced_deferral_note: UNBALANCED_DEFERRAL_NOTE.to_string(),
     };
     // The record must be complete before it leaves the pipeline: a
@@ -2079,8 +2083,11 @@ mod tests {
             result_record_snapshot_ref: "schedule_input_snapshot:env-v1".to_string(),
             created_at_millis: 1_000,
             valid_from_millis: 2_000,
-            valid_until_millis: 5_000,
-            stated_duration_millis: 3_000,
+            // A 3-minute candidate (180_000 ms): the step-2 test pins
+            // "1.0 MW/min x 3 min = 3.0 MW allowed", and step 1 requires
+            // the window to equal the stated duration.
+            valid_until_millis: 182_000,
+            stated_duration_millis: 180_000,
             setpoints: vec![CandidateSetpoint {
                 setpoint_id: "sp-1".to_string(),
                 asset_id: "asset-1".to_string(),

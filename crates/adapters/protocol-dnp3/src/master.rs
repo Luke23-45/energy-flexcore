@@ -74,7 +74,10 @@ impl MasterRoleAssessment {
         reasons: Vec<String>,
         reopen_evidence: Vec<String>,
     ) -> Result<Self, MasterRoleError> {
-        if adapter_id.into().trim().is_empty() {
+        // Convert once: the emptiness check and the struct field both need
+        // the owned String (converting twice moves `adapter_id`).
+        let adapter_id: String = adapter_id.into();
+        if adapter_id.trim().is_empty() {
             return Err(MasterRoleError::IncompleteAssessment("adapter_id"));
         }
         if reasons.is_empty() || reasons.iter().any(|r| r.trim().is_empty()) {
@@ -84,7 +87,7 @@ impl MasterRoleAssessment {
             return Err(MasterRoleError::IncompleteAssessment("reopen_evidence"));
         }
         Ok(Self {
-            adapter_id: adapter_id.into(),
+            adapter_id,
             verdict: MasterRoleVerdict::Defer,
             reasons,
             reopen_evidence,

@@ -97,13 +97,19 @@ fn parse_fixture(plugin_id: &str, provides: &[&str], permissions: &[&str]) -> Ma
         .expect("fixture manifest must be valid")
 }
 
-/// The three seed built-ins, as resolvable manifests for the active
+/// The four seed built-ins, as resolvable manifests for the active
 /// profile selections.
 fn seed_set() -> Vec<Manifest> {
     vec![
         parse_fixture("builtin.simulator-telemetry", &["telemetry.source"], &["telemetry.read"]),
         parse_fixture("builtin.highs-optimizer", &["optimization.solver"], &["schedule.propose"]),
         parse_fixture("builtin.pandapower-grid", &["grid.model"], &[]),
+        // The example Class A ESS manifest (its `api-version` was corrected
+        // to the 3-component grammar, so the sim-lab entry is active — the
+        // ledger O-14 condition is met). The fixture mirrors the shipped
+        // manifest's provides/permissions; it consumes nothing, so the
+        // composition stays closed.
+        parse_fixture("neryva.sim-builtin-ess", &["ess.simulation"], &["telemetry.read"]),
     ]
 }
 
@@ -139,14 +145,21 @@ fn sim_lab_loads_with_the_seed_selections_active_and_deferred_entries_stripped()
         .iter()
         .map(|s| s.manifest_id.as_str())
         .collect();
-    // The three active seed selections, in declared order.
+    // The four active seed selections, in declared order. The sim-lab
+    // entry for `neryva.sim-builtin-ess` is ACTIVE: the example manifest's
+    // `api-version` was corrected to the 3-component grammar, meeting the
+    // ledger O-14 condition for activating it.
     assert_eq!(
         selected,
-        vec!["builtin.simulator-telemetry", "builtin.highs-optimizer", "builtin.pandapower-grid"]
+        vec![
+            "builtin.simulator-telemetry",
+            "builtin.highs-optimizer",
+            "builtin.pandapower-grid",
+            "neryva.sim-builtin-ess"
+        ]
     );
     // The commented-out deferred entries are NOT loaded — they are
     // documentation of intent, nothing more.
-    assert!(!selected.contains(&"neryva.sim-builtin-ess"));
     assert!(!selected.contains(&"builtin.mock-market"));
     assert!(!selected.contains(&"builtin.replay-tools"));
     // The ceiling is the sim-lab ceiling (no dispatch-side permission).
@@ -322,10 +335,10 @@ fn profile_plan_validation_is_deterministic_across_runs_and_input_orders() {
     let plan_c: CompositionPlan = validate_profile(&profile, &shuffled).expect("shuffled run");
     assert_eq!(plan_a, plan_c);
 
-    // The plan is the resolver's output shape: three registrations, three
+    // The plan is the resolver's output shape: four registrations, four
     // resolved contracts, all explicitly selected by the profile.
-    assert_eq!(plan_a.registrations.len(), 3);
-    assert_eq!(plan_a.contracts.len(), 3);
+    assert_eq!(plan_a.registrations.len(), 4);
+    assert_eq!(plan_a.contracts.len(), 4);
     for contract in &plan_a.contracts {
         assert_eq!(contract.basis.name(), "SELECTION_EXPLICIT");
     }
@@ -347,6 +360,7 @@ fn a_protected_kernel_claim_is_refused_through_a_profile() {
         parse_fixture("builtin.simulator-telemetry", &["telemetry.source"], &["telemetry.read"]),
         hostile,
         parse_fixture("builtin.pandapower-grid", &["grid.model"], &[]),
+        parse_fixture("neryva.sim-builtin-ess", &["ess.simulation"], &["telemetry.read"]),
     ];
     let err = validate_profile(&profile, &manifests)
         .expect_err("a protected-kernel claim must be refused");
@@ -417,6 +431,7 @@ fn two_selections_pin_one_contract_is_a_named_error() {
         grid_a,
         grid_b,
         parse_fixture("builtin.highs-optimizer", &["optimization.solver"], &["schedule.propose"]),
+        parse_fixture("neryva.sim-builtin-ess", &["ess.simulation"], &["telemetry.read"]),
     ];
     let err = validate_profile(&profile, &manifests).expect_err("a double pin must be refused");
     assert_eq!(err.name(), "PROFILE_DUPLICATE_CONTRACT_PIN");

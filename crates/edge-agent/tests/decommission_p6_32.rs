@@ -98,8 +98,8 @@ fn sample(sequence: u64) -> EdgeTelemetrySample {
         value: QuantityValue::Power(ActivePowerMW::new(1.5).expect("finite")),
         quality: TelemetryQuality::Good,
         source_quality_code: None,
-        event_time: EventTime::from_unix_millis(BASE_MILLIS + sequence).expect("valid"),
-        ingest_time: IngestTime::from_unix_millis(BASE_MILLIS + sequence + 1).expect("valid"),
+        event_time: EventTime::from_unix_millis(BASE_MILLIS + sequence as i64).expect("valid"),
+        ingest_time: IngestTime::from_unix_millis(BASE_MILLIS + sequence as i64 + 1).expect("valid"),
         source_sequence: sequence,
         source_id: "edge:pilot-site-A:openems-rest:ess-01:active_power".to_string(),
     })
@@ -314,7 +314,7 @@ fn un_uploaded_audit_records_follow_the_recorded_rule() {
         &buffer,
         false,
         &|_records| Ok(()), // never called on the gap path
-        &audit_sink,
+        &*audit_sink,
         &ledger,
         DEVICE,
         BASE_MILLIS + 3_000,
@@ -365,7 +365,7 @@ fn un_uploaded_audit_records_follow_the_recorded_rule() {
 #[test]
 fn the_confirmation_record_names_identity_tenant_site_actor_and_time() {
     let audit = Arc::new(InMemoryAuditSink::new());
-    DecommissionWipe::audit_confirmation(&confirmation(), &audit, BASE_MILLIS + 2_000)
+    DecommissionWipe::audit_confirmation(&confirmation(), &*audit, BASE_MILLIS + 2_000)
         .expect("confirmed");
     let events = audit.events();
     assert_eq!(events.len(), 1);
@@ -380,7 +380,7 @@ fn the_confirmation_record_names_identity_tenant_site_actor_and_time() {
     // name what it confirms is not a confirmation.
     let mut empty_actor = confirmation();
     empty_actor.actor = "  ".to_string();
-    assert!(DecommissionWipe::audit_confirmation(&empty_actor, &audit, BASE_MILLIS).is_err());
+    assert!(DecommissionWipe::audit_confirmation(&empty_actor, &*audit, BASE_MILLIS).is_err());
 }
 
 // --- Idempotence ---------------------------------------------------------------------

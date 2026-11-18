@@ -223,6 +223,16 @@ impl CriteriaError {
     }
 }
 
+impl std::fmt::Display for TerminationCriteria {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "termination criteria: epsilon_abs={} epsilon_rel={} max_iterations={} max_stale_iterations={}",
+            self.epsilon_abs, self.epsilon_rel, self.max_iterations, self.max_stale_iterations
+        )
+    }
+}
+
 impl std::fmt::Display for CriteriaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -736,6 +746,19 @@ pub struct AdmmCoordination<'a> {
     pub fallback: &'a dyn CentralizedFallbackSolver,
     /// The termination + staleness criteria.
     pub criteria: TerminationCriteria,
+}
+
+impl<'a> std::fmt::Debug for AdmmCoordination<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The worker port and fallback are `&dyn` trait objects with no
+        // `Debug` bound, so the derive cannot apply; the participant ids
+        // are the inspectable part of the worker map.
+        f.debug_struct("AdmmCoordination")
+            .field("problem", self.problem)
+            .field("workers", &self.workers.keys().collect::<Vec<_>>())
+            .field("criteria", &self.criteria)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> AdmmCoordination<'a> {
@@ -1524,7 +1547,7 @@ mod tests {
         assert!(FALLBACK_SEAM.contains("priority-list.v1"));
         assert!(FALLBACK_SEAM.contains("baseline/highs-tier1-lp"));
         assert!(FALLBACK_SEAM.contains("NEVER an unstudied heuristic"));
-        assert!(FALLBACK_SEAM.contains("never an unvalidated warm start"));
+        assert!(FALLBACK_SEAM.contains("never the failed ADMM output as an unvalidated warm start"));
     }
 
     #[test]
@@ -2334,7 +2357,7 @@ mod tests {
             "ledger/phase-08-advanced-coordination/07_admm_dmpc.md"
         );
         // The payload is deterministic: sorted object keys, sorted setpoints.
-        let keys: Vec<&str> = proposal.payload.as_object().expect("object").keys().collect();
+        let keys: Vec<&str> = proposal.payload.as_object().expect("object").keys().map(String::as_str).collect();
         let mut sorted = keys.clone();
         sorted.sort_unstable();
         assert_eq!(keys, sorted, "payload keys are sorted");

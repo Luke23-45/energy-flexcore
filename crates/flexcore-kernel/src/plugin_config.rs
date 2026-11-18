@@ -771,8 +771,11 @@ pub fn resolve_for_instance(
             found_version: manifest.version.to_string(),
         });
     }
+    // No constraints document: the empty constraints (the inherent
+    // `default(&self, property)` accessor shadows the `Default` trait
+    // method in path syntax, so the trait form is spelled out).
     let parsed_constraints = match constraints {
-        None => ConfigConstraints::default(),
+        None => <ConfigConstraints as Default>::default(),
         Some(document) => {
             let text_len = document.to_string().len();
             if text_len > MAX_CONSTRAINTS_BYTES {
@@ -807,6 +810,20 @@ fn resolve_checked(
     };
     let schema = &manifest.configuration_schema;
 
+    // Declared-secret collisions FIRST: a config property named exactly
+    // like a manifest secret is a smuggling attempt (secrets live in the
+    // manifest's `secrets` object), refused before any value is examined.
+    // This must precede the unknown-property check: a secret-named key is
+    // by definition not a declared schema property, so the unknown check
+    // would otherwise shadow the collision error out of existence.
+    for secret in &manifest.secrets {
+        if obj.contains_key(&secret.name) {
+            return Err(ConfigError::SecretFieldCollision {
+                property: secret.name.clone(),
+            });
+        }
+    }
+
     // Unknown properties, sorted selection (no dependence on map iteration
     // order; the error names the FIRST unknown property in sorted order).
     let mut unknown: Vec<&String> = obj
@@ -818,17 +835,6 @@ fn resolve_checked(
         return Err(ConfigError::UnknownProperty {
             property: (*property).clone(),
         });
-    }
-
-    // Declared-secret collisions: a config property named exactly like a
-    // manifest secret is a smuggling attempt (secrets live in the
-    // manifest's `secrets` object), refused before any value is examined.
-    for secret in &manifest.secrets {
-        if obj.contains_key(&secret.name) {
-            return Err(ConfigError::SecretFieldCollision {
-                property: secret.name.clone(),
-            });
-        }
     }
 
     let mut values: BTreeMap<String, ResolvedValue> = BTreeMap::new();
@@ -862,10 +868,13 @@ fn resolve_checked(
         // Secret-shaped refusals (before constraint checks: an inline
         // credential must not survive further processing at all).
         if let Value::String(text) = supplied {
-            if is_reference_value(supplied) {
-                // A reference: validate the FORM (scheme + non-empty
-                // location) and resolve to a HANDLE — no read, no store
-                // contact. The handle carries scheme + location only.
+            if has_reference_prefix(text) {
+                // A reference ATTEMPT (valid or not): validate the FORM
+                // (scheme + non-empty location) and resolve to a HANDLE —
+                // no read, no store contact. The handle carries scheme +
+                // location only. A scheme prefix with an empty location
+                // lands here as SecretRefInvalid, never in the vocabulary
+                // rule below.
                 let (scheme, location) = split_reference(text).ok_or_else(|| {
                     ConfigError::SecretRefInvalid {
                         property: property.clone(),
@@ -905,7 +914,7 @@ fn resolve_checked(
     })
 }
 
-/// Whether the string is a secret REFERENCE (one of the closed scheme
+/// Whether a string is a secret REFERENCE (one of the closed scheme
 /// prefixes followed by a non-empty location). The schemes are the P7.05
 /// closed vocabulary; any string matching one is resolved to a handle, not
 /// kept as a literal (recorded D-P7.19-3 in the decision record).
@@ -916,14 +925,25 @@ fn is_reference_value(value: &Value) -> bool {
     }
 }
 
+/// Whether a string STARTS with one of the closed scheme prefixes — a
+/// reference ATTEMPT, valid or malformed. `split_reference` requires a
+/// non-empty location, so gating the reference branch on
+/// `is_reference_value` would let a malformed reference (`secret-store:`)
+/// fall through to the secret-vocabulary rule instead of landing on
+/// `SecretRefInvalid` (and would leave the `ok_or_else` form check inside
+/// the branch unreachable).
+fn has_reference_prefix(text: &str) -> bool {
+    SECRET_REFERENCE_SCHEMES.iter().any(|scheme| text.starts_with(scheme))
+}
+
 /// Splits a reference string into its scheme and location. `None` when the
 /// string carries no scheme prefix with a non-empty location.
 fn split_reference(text: &str) -> Option<(SecretRefScheme, &str)> {
     for scheme in SECRET_REFERENCE_SCHEMES {
-        if let Some(rest) = text.strip_prefix(*scheme) {
+        if let Some(rest) = text.strip_prefix(scheme) {
             let location = rest.trim();
             if !location.is_empty() {
-                let typed = match *scheme {
+                let typed = match scheme {
                     "env:" => SecretRefScheme::Env,
                     "file:" => SecretRefScheme::File,
                     "secret-store:" => SecretRefScheme::SecretStore,

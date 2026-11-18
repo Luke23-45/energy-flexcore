@@ -643,6 +643,11 @@ mod tests {
             .expect("a fresh session resolves");
         assert_eq!(caller.ctx.subject(), "user:alice");
         clock.store(2_000, Ordering::SeqCst);
+        // A second resolve AT 2000 touches the anchor to 2000 (the old
+        // form listed without resolving, so last_seen stayed 1000).
+        resolver
+            .resolve_session(bearer(), Some(&session.session_id))
+            .expect("the session still resolves at 2000");
         let record = resolver
             .list_active_for_subject(&tenant(TENANT_A_UUID), "user:alice")
             .expect("the list reads")
@@ -661,8 +666,8 @@ mod tests {
         // Even with a perfectly valid token AND a live session reference,
         // the trait path (which cannot see the header) denies.
         assert_eq!(
-            IdentityResolver::resolve(&resolver, bearer()),
-            Err(AuthError::MissingCredentials),
+            IdentityResolver::resolve(&resolver, bearer()).expect_err("the resolver must deny this request"),
+            AuthError::MissingCredentials,
             "the bare trait path never authenticates (the wrong-composition shape is a total denial)"
         );
         let _ = session;
@@ -675,18 +680,18 @@ mod tests {
             .create_session(tenant(TENANT_A_UUID), "user:alice")
             .expect("the session creates");
         assert_eq!(
-            resolver.resolve_session(bearer(), None),
-            Err(AuthError::MissingCredentials),
+            resolver.resolve_session(bearer(), None).expect_err("the resolver must deny this request"),
+            AuthError::MissingCredentials,
             "no session header = no authentication"
         );
         assert_eq!(
-            resolver.resolve_session(bearer(), Some("sess-does-not-exist")),
-            Err(AuthError::InvalidCredentials),
+            resolver.resolve_session(bearer(), Some("sess-does-not-exist")).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials,
             "an unknown session reference denies"
         );
         assert_eq!(
-            resolver.resolve_session(bearer(), Some("   ")),
-            Err(AuthError::MissingCredentials),
+            resolver.resolve_session(bearer(), Some("   ")).expect_err("the resolver must deny this request"),
+            AuthError::MissingCredentials,
             "a whitespace-only session reference denies (fail closed)"
         );
     }
@@ -703,8 +708,8 @@ mod tests {
         // The token is unchanged and still valid for the inner resolver;
         // the SESSION gate is what denies — at the resolver, not the UI.
         assert_eq!(
-            resolver.resolve_session(bearer(), Some(&session.session_id)),
-            Err(AuthError::InvalidCredentials),
+            resolver.resolve_session(bearer(), Some(&session.session_id)).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials,
             "a revoked session denies at the resolver"
         );
         // Revocation is idempotent; revoking an unknown session is a
@@ -726,19 +731,27 @@ mod tests {
         // Advance past the idle timeout (30 min default) without use.
         clock.store(1_000 + 30 * 60 * 1000, Ordering::SeqCst);
         assert_eq!(
-            resolver.resolve_session(bearer(), Some(&session.session_id)),
-            Err(AuthError::InvalidCredentials),
+            resolver.resolve_session(bearer(), Some(&session.session_id)).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials,
             "an idled-out session denies"
         );
-        // The denial did not refresh the anchor: advancing the clock back
-        // inside the window still denies, because last_seen was never
-        // touched by the denied attempts.
-        clock.store(1_100, Ordering::SeqCst);
+        // The denial did not refresh the anchor: one millisecond past
+        // the deadline still denies — had the denied attempt touched
+        // last_seen, the deadline would have moved to 1_801_000 + 30 min
+        // and this resolve would have succeeded.
+        clock.store(1_000 + 30 * 60 * 1000 + 1, Ordering::SeqCst);
         assert_eq!(
-            resolver.resolve_session(bearer(), Some(&session.session_id)),
-            Err(AuthError::InvalidCredentials),
-            "the idle deadline was anchored at creation (1_000 + 30 min), so 1_100 is still past it"
+            resolver.resolve_session(bearer(), Some(&session.session_id)).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials,
+            "a denied request never extends the session"
         );
+        // And the denial did not terminate the session either: back
+        // inside the window (clock 1_100, anchor still 1_000) it resolves
+        // again — the success touches the anchor to 1_100.
+        clock.store(1_100, Ordering::SeqCst);
+        resolver
+            .resolve_session(bearer(), Some(&session.session_id))
+            .expect("a denied session is not terminated; inside the window it resolves");
     }
 
     #[test]
@@ -747,9 +760,13 @@ mod tests {
         let session = resolver
             .create_session(tenant(TENANT_A_UUID), "user:alice")
             .expect("the session creates");
-        // Heavy activity: touches at 6h and 11h keep the session alive…
-        for hour in [6u64, 11] {
-            clock.store(1_000 + hour * 60 * 60 * 1000, Ordering::SeqCst);
+        // Heavy activity keeps the session alive — but each touch must
+        // land inside the 30-minute IDLE window (the old form touched at
+        // 6h and 11h, and the session had already idled out by 6h). Touch
+        // every 15 minutes up to 11h45m: inside the idle window every time,
+        // inside the 12h absolute window every time.
+        for step in 1..=47u64 {
+            clock.store(1_000 + (step as i64) * 15 * 60 * 1000, Ordering::SeqCst);
             resolver
                 .resolve_session(bearer(), Some(&session.session_id))
                 .expect("activity inside both windows keeps the session alive");
@@ -758,8 +775,8 @@ mod tests {
         // use was recent.
         clock.store(1_000 + 12 * 60 * 60 * 1000, Ordering::SeqCst);
         assert_eq!(
-            resolver.resolve_session(bearer(), Some(&session.session_id)),
-            Err(AuthError::InvalidCredentials),
+            resolver.resolve_session(bearer(), Some(&session.session_id)).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials,
             "the absolute lifetime expires an actively-used session"
         );
     }
@@ -777,8 +794,8 @@ mod tests {
             .create_session(tenant(TENANT_A_UUID), "user:mallory")
             .expect("the second subject's session creates");
         assert_eq!(
-            resolver.resolve_session(bearer(), Some(&other.session_id)),
-            Err(AuthError::InvalidCredentials),
+            resolver.resolve_session(bearer(), Some(&other.session_id)).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials,
             "another subject's session reference never rides on alice's token"
         );
         let _ = session;
@@ -826,12 +843,12 @@ mod tests {
             .expect("the tenant-wide revocation books");
         assert_eq!(revoked, 2, "exactly the two ACTIVE tenant-A sessions were revoked");
         assert_eq!(
-            resolver.resolve_session(bearer(), Some(&a1.session_id)),
-            Err(AuthError::InvalidCredentials)
+            resolver.resolve_session(bearer(), Some(&a1.session_id)).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials
         );
         assert_eq!(
-            resolver.resolve_session(bearer(), Some(&a2.session_id)),
-            Err(AuthError::InvalidCredentials)
+            resolver.resolve_session(bearer(), Some(&a2.session_id)).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials
         );
         // Tenant B is untouched (the offboarding revocation is
         // tenant-scoped, never global).

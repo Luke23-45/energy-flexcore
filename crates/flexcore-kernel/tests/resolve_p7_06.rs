@@ -47,7 +47,7 @@ fn manifest_json(plugin_id: &str, provides: &[&str], consumes: &[&str], api_vers
 }
 
 fn m(plugin_id: &str, provides: &[&str], consumes: &[&str]) -> Manifest {
-    manifest_with_range(plugin_id, provides, consumes, ">=0.5,<1.0")
+    manifest_with_range(plugin_id, provides, consumes, ">=0.5.0,<1.0.0")
 }
 
 fn manifest_with_range(plugin_id: &str, provides: &[&str], consumes: &[&str], api_version: &str) -> Manifest {
@@ -158,7 +158,7 @@ fn incompatible_api_version_is_named() {
         "gamma.scheduler",
         &[],
         &["ess.simulation"],
-        ">=0.6,<1.0",
+        ">=0.6.0,<1.0.0",
     );
     // [0.5.0, 0.6.0) vs [0.6.0, 1.0.0): touching but disjoint.
     assert_rejected(
@@ -175,7 +175,10 @@ fn incompatible_api_version_is_named() {
 #[test]
 fn compatible_api_version_ranges_compose() {
     let provider = manifest_with_range("alpha.ess-provider", &["ess.simulation"], &[], "^0.5.0");
-    let consumer = manifest_with_range("gamma.scheduler", &[], &["ess.simulation"], ">=0.5.2,<1.0");
+    // Overlapping with ^0.5.0 ([0.5.0, 0.6.0)) AND covering the platform
+    // version 0.5.0 — a lower bound above 0.5.0 would trip the platform
+    // gate before composition, however well the ranges overlap.
+    let consumer = manifest_with_range("gamma.scheduler", &[], &["ess.simulation"], ">=0.5.0,<1.0.0");
     let plan = resolve(&[provider, consumer], &ExplicitSelections::new()).expect("overlapping ranges compose");
     assert_eq!(plan.registrations.len(), 2);
 }
@@ -318,7 +321,7 @@ fn empty_manifest_set_is_refused() {
 #[test]
 fn manifest_not_covering_platform_api_version_is_refused() {
     assert_eq!(CURRENT_PLATFORM_API_VERSION, SemVer::new(0, 5, 0));
-    let p = manifest_with_range("alpha.future", &["graph.a"], &[], ">=1.0");
+    let p = manifest_with_range("alpha.future", &["graph.a"], &[], ">=1.0.0");
     assert_rejected(
         &[p],
         &ExplicitSelections::new(),
@@ -391,7 +394,7 @@ fn a_three_way_conflict_names_all_providers() {
     let err = assert_rejected(
         &[p3, p1, p2],
         &ExplicitSelections::new(),
-        |e| matches!(e, ResolveError::ConflictingProviders { providers } if providers.len() == 3),
+        |e| matches!(e, ResolveError::ConflictingProviders { providers, .. } if providers.len() == 3),
         "CONFLICTING_PROVIDERS",
     );
     match &err {

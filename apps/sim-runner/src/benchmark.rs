@@ -340,11 +340,14 @@ pub struct ScalingSpec {
 /// portfolio site, `factor` times, with the deterministic suffix
 /// `--x<factor>-<k>` (k = 1..=factor) on `site_key` and every `asset_key`,
 /// and `meta.scenario_id` suffixed `--x<factor>`. `faults.injections` and
-/// `expected_quality.per_asset` asset keys are remapped to the copy-1 key of
-/// the referenced asset (the scenario loader validates injection keys
-/// against the portfolio). Every copy is suffixed — including the first —
-/// so the base, ×2, and ×4 key sets are pairwise disjoint. Generation walks
-/// the document in order: the same input yields byte-identical output.
+/// `expected_quality.per_asset` entries are replicated once per copy, each
+/// replica's asset key remapped to the copy-k key of the referenced asset
+/// (the scenario loader validates injection keys against the portfolio) —
+/// so the ×N run carries N faithful copies of the base's faults and the
+/// record count scales exactly. Every copy is suffixed — including the
+/// first — so the base, ×2, and ×4 key sets are pairwise disjoint.
+/// Generation walks the document in order: the same input yields
+/// byte-identical output.
 ///
 /// Factor 1 returns the input unchanged. Factor 0 is a usage error.
 pub fn scaling_scenario_json(scenario_json: &str, factor: u32) -> Result<String, ReplayError> {
@@ -404,14 +407,27 @@ pub fn scaling_scenario_json(scenario_json: &str, factor: u32) -> Result<String,
         scenario["meta"]["scenario_id"] = Value::String(format!("{id}--x{factor}"));
     }
 
-    // Remap the injection and expected-quality asset keys to their copy-1
-    // keys (the loader rejects injection keys that are not in the
-    // portfolio). Keys with no mapped original are left verbatim — the
-    // loader's own validation then fails loudly if they are invalid.
-    let remap = |value: &mut Value| {
-        if let Some(key) = value.get("asset_key").and_then(Value::as_str) {
-            if let Some(mapped) = key_map.get(key) {
-                value["asset_key"] = Value::String(mapped.clone());
+    // Replicate the injection and expected-quality entries once per copy,
+    // each replica's asset key remapped to its copy-k key (the loader
+    // rejects injection keys that are not in the portfolio). A copy-1-only
+    // remap would leave copies 2..=factor fault-free, so the ×N run would
+    // carry one dropout instead of N and the record count would not scale
+    // exactly. Keys with no mapped original are left verbatim in every
+    // replica — the loader's own validation then fails loudly if they are
+    // invalid.
+    let replicate = |entries: &mut Vec<Value>| {
+        let originals = entries.clone();
+        entries.clear();
+        for original in &originals {
+            for k in 1..=factor {
+                let mut copy = original.clone();
+                if let Some(key) = copy.get("asset_key").and_then(Value::as_str) {
+                    if key_map.contains_key(key) {
+                        copy["asset_key"] =
+                            Value::String(format!("{key}--x{factor}-{k}"));
+                    }
+                }
+                entries.push(copy);
             }
         }
     };
@@ -420,18 +436,14 @@ pub fn scaling_scenario_json(scenario_json: &str, factor: u32) -> Result<String,
         .and_then(|f| f.get_mut("injections"))
         .and_then(Value::as_array_mut)
     {
-        for injection in injections {
-            remap(injection);
-        }
+        replicate(injections);
     }
     if let Some(entries) = scenario
         .get_mut("expected_quality")
         .and_then(|q| q.get_mut("per_asset"))
         .and_then(Value::as_array_mut)
     {
-        for entry in entries {
-            remap(entry);
-        }
+        replicate(entries);
     }
 
     serde_json::to_string(&scenario)
@@ -601,8 +613,9 @@ impl BenchmarkRecord {
                 "deep copy of every portfolio site, factor times, deterministic suffix \
                  '--x<factor>-<k>' (k = 1..=factor) on site_key and every asset_key; \
                  meta.scenario_id suffixed '--x<factor>'; faults.injections and \
-                 expected_quality.per_asset asset keys remapped to the copy-1 key. \
-                 Generated in document order — byte-identical for the same input."
+                 expected_quality.per_asset entries replicated once per copy, each \
+                 replica's asset key remapped to its copy-k key. Generated in \
+                 document order — byte-identical for the same input."
                     .to_string()
             },
             copied_site_keys,

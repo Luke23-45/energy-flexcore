@@ -73,7 +73,6 @@
 // dispatch authority, control states, or the simulation-only ceiling.
 
 use crate::record::AuditRecord;
-use flexcore_contracts::ids::FlexUuid;
 use flexcore_domain::ids::TenantId;
 
 // --- Constants -----------------------------------------------------------------
@@ -236,7 +235,11 @@ pub(crate) fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
 /// fixed-width working key from arbitrary-length deployment material via
 /// HMAC domain separation, so a deployment may supply any secret of at
 /// least [`CHAIN_KEY_MIN_BYTES`] bytes.
-pub struct ChainKey([u8; 32]);
+///
+/// The raw bytes are visible inside this crate only (`pub(crate)`): the
+/// audit-chain modules in this crate derive namespace keys from them,
+/// while downstream crates can only obtain a key through `from_bytes`.
+pub struct ChainKey(pub(crate) [u8; 32]);
 
 impl ChainKey {
     /// Derives the working key from deployment-supplied material. Refuses
@@ -286,7 +289,9 @@ impl Drop for ChainKey {
         // elimination; copies the compiler may have made are out of scope
         // — the honest bound stated in the type's doc comment).
         for byte in self.0.iter_mut() {
-            std::ptr::write_volatile(byte as *mut u8, 0);
+            // SAFETY: `byte` borrows a live `u8` inside `self`; the pointer
+            // is valid, aligned, and exclusively borrowed for the write.
+            unsafe { std::ptr::write_volatile(byte as *mut u8, 0) };
         }
     }
 }
@@ -885,6 +890,7 @@ mod tests {
         ActorIdentity, AuditAction, AuditObject, AuditRecordFields, DecisionOutcome,
         EvidenceReference, RecordReference,
     };
+    use flexcore_contracts::ids::FlexUuid;
     use flexcore_contracts::time_model::{EventTime, IngestTime};
 
     fn sample_uuid(tag: u8) -> FlexUuid {
@@ -980,13 +986,25 @@ mod tests {
         namespace_key: &ChainKey,
         records: &'a [AuditRecord],
     ) -> Vec<TenantChainEntry<'a>> {
-        let mut head = genesis_head(namespace_key);
+        chained_entries_from(namespace_key, genesis_head(namespace_key), 1, records)
+    }
+
+    /// Chains records from an explicit seed head with an explicit first
+    /// sequence: a continuation window's entries are chained from the
+    /// previous window's head, not from genesis.
+    fn chained_entries_from<'a>(
+        namespace_key: &ChainKey,
+        seed_head: [u8; 32],
+        first_sequence: i64,
+        records: &'a [AuditRecord],
+    ) -> Vec<TenantChainEntry<'a>> {
+        let mut head = seed_head;
         let mut entries = Vec::with_capacity(records.len());
         for (i, record) in records.iter().enumerate() {
             let digest = chain_step(namespace_key, &head, record);
             head = digest;
             entries.push(TenantChainEntry {
-                chain_sequence: (i + 1) as i64,
+                chain_sequence: first_sequence + i as i64,
                 stored_digest: digest,
                 record,
             });
@@ -1169,20 +1187,16 @@ mod tests {
         assert!(anchor.audit_text().contains("never a release signature"));
 
         // A continuation window seeds from the previous head and carries it
-        // in the anchor.
+        // in the anchor. Its entries are chained FROM that head (sequences
+        // 3, 4) — chaining them from genesis would commit to a different
+        // history than the anchor claims, and the export refuses it.
+        let previous_head = verify_tenant_chain(&namespace_key, &entries).expect("verifies");
         let window_two_records = vec![
             sample_record(4, Some(tenant)),
             sample_record(5, Some(tenant)),
         ];
-        let window_two = chained_entries(&namespace_key, &window_two_records)
-            .into_iter()
-            .enumerate()
-            .map(|(i, mut entry)| {
-                entry.chain_sequence = 3 + i as i64;
-                entry
-            })
-            .collect::<Vec<_>>();
-        let previous_head = verify_tenant_chain(&namespace_key, &entries).expect("verifies");
+        let window_two =
+            chained_entries_from(&namespace_key, previous_head, 3, &window_two_records);
         let anchor_two = export_tenant_anchor(
             &namespace_key,
             Some(tenant),

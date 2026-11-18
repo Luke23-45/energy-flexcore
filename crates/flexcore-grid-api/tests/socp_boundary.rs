@@ -407,13 +407,22 @@ fn a_residual_tolerance_breach_is_a_recorded_finding_that_travels() {
     assert_eq!(assessment.findings[0].kind, ResidualFindingKind::ConeViolated);
     assert!(assessment.findings[0].statement.contains("VIOLATED"));
 
-    // The finding travels onto the gate result — never hidden.
+    // The finding travels onto the gate result — never hidden. The gate
+    // carries FOUR findings here: the three standing no-assumption
+    // conditions (pinned by the valid-record test above — every Tier 2
+    // gate records them) plus the one residual breach.
     let socp = tier2_gate(Some(&report));
     match socp {
         SocpBoundaryGate::Tier2VerifiedForAcCheck { findings, .. } => {
-            assert_eq!(findings.len(), 1);
-            assert!(findings[0].contains("VIOLATED"));
-            assert!(findings[0].contains("line_2_3"));
+            assert_eq!(findings.len(), 4);
+            let violated: Vec<&String> =
+                findings.iter().filter(|finding| finding.contains("VIOLATED")).collect();
+            assert_eq!(violated.len(), 1);
+            assert!(violated[0].contains("line_2_3"));
+            assert_eq!(
+                findings.iter().filter(|finding| finding.contains("NOT assumed")).count(),
+                3
+            );
         }
         other => panic!(
             "a breach is a finding, not a gate failure: the AC verification \

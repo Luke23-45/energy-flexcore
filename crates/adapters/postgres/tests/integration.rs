@@ -42,6 +42,7 @@ use flexcore_domain::ids::{AssetId, PortfolioId, SiteId, TenantId};
 use flexcore_domain::tenant_context::{
     AuthenticatedClaims, TenantContext, VerifiedClaims,
 };
+use flexcore_ports::clock::Clock;
 use flexcore_ports::backend_error::BackendError;
 use flexcore_ports::event_outbox::{EventOutbox, OutboxWrite};
 use flexcore_ports::id_generator::IdGenerator;
@@ -55,7 +56,7 @@ use sqlx::PgPool;
 // The recorded down files (P1.12 §7: every migration has a down file or a
 // recorded irreversible reason; the only irreversible part — role removal —
 // is documented in 0001's down file).
-const DOWN_FILES: [&str; 17] = [
+const DOWN_FILES: [&str; 26] = [
     include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0001_quality_enum.down.sql"
@@ -129,6 +130,49 @@ const DOWN_FILES: [&str; 17] = [
     include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0017_feasibility_checks_p4_30.down.sql"
+    )),
+    // The table had lagged at 0017 while the up pass applies all 26, so
+    // the down pass left the 0018..0026 tables behind — 0005's down then
+    // failed dropping `assets` while 0022's market tables still
+    // referenced it (2BP01). The down files replay in reverse, newest
+    // first, so 0022 drops the market tables before 0005 drops assets,
+    // and 0018/0023/0026 drop their tenant-scoped tables before 0002
+    // drops tenants.
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0018_edge_device_registry_p6_06.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0019_audit_chain_p11_15.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0020_webhook_delivery_p13_09.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0021_interconnection_records_p15_15.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0022_market_records_p16_01.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0023_edge_fleet_registry_p18_12.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0024_worker_inbox_p1_16.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0025_dispatch_commands_tenant_idx_p4_10.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0026_source_signing_keys_p2_07.down.sql"
     )),
 ];
 
@@ -206,7 +250,7 @@ fn fixture_uuid(prefix: u8) -> FlexUuid {
     bytes[6] = (run_key() >> 24) as u8;
     bytes[7] = (run_key() >> 16) as u8;
     bytes[8] = (run_key() >> 8) as u8;
-    bytes[9] = run_key() as u8;
+    bytes[9] = *run_key() as u8;
     let counter = next_counter().to_be_bytes();
     bytes[10..16].copy_from_slice(&counter[2..8]);
     FlexUuid::from_bytes(bytes)
@@ -250,14 +294,22 @@ fn ensure_test_roles(pool: &PgPool) {
         .build()
         .expect("test runtime")
         .block_on(async {
+            // See the advisory-lock note in the other copies of this
+            // helper: concurrent ALTER ROLE on the same role fails with
+            // "tuple concurrently updated" (XX000).
+            let mut tx = pool.begin().await?;
+            sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+                .execute(&mut *tx)
+                .await?;
             sqlx::query("ALTER ROLE flexcore_app WITH LOGIN PASSWORD 'flexcore_app_test_only'")
-                .execute(pool)
+                .execute(&mut *tx)
                 .await?;
             sqlx::query(
                 "ALTER ROLE flexcore_migrator WITH LOGIN PASSWORD 'flexcore_migrator_test_only'",
             )
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
+            tx.commit().await?;
             Ok::<(), sqlx::Error>(())
         });
     result.expect("test roles must be grantable from the migration/admin connection");
@@ -341,7 +393,10 @@ fn migrations_run_up_and_down_cleanly_from_an_empty_database() {
         .block_on(PgPool::connect(&admin_url))
         .expect("connect to the test database server");
     let created: Result<(), sqlx::Error> = rt.block_on(async {
-        sqlx::query(format!("CREATE DATABASE {temp_db}").as_str())
+        // AUDITED (Batch 32+): temp_db is a test-generated identifier
+        // (`flexcore_p1_13_mig_{hex}` from the fixed run key + a test
+        // counter); a database name cannot be a bind parameter.
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {temp_db}")))
             .execute(&base_pool)
             .await
             .map(|_| ())
@@ -371,7 +426,11 @@ fn migrations_run_up_and_down_cleanly_from_an_empty_database() {
     run_migrations_up_down_up(&temp_url);
 
     let _ = rt.block_on(async {
-        sqlx::query(format!("DROP DATABASE {temp_db} WITH (FORCE)").as_str())
+        // AUDITED (Batch 32+): same test-generated identifier as the
+        // CREATE above; a database name cannot be a bind parameter.
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP DATABASE {temp_db} WITH (FORCE)"
+        )))
             .execute(&base_pool)
             .await
     });
@@ -437,7 +496,10 @@ fn run_migrations_up_down_up(url: &str) {
                 if statement.is_empty() {
                     continue;
                 }
-                sqlx::query(statement)
+                // AUDITED (Batch 32+): each statement is a ';' fragment of
+                // the repo's own recorded down-migration files (DOWN_FILES);
+                // no caller text reaches the query.
+                sqlx::query(sqlx::AssertSqlSafe(statement))
                     .execute(&pool)
                     .await
                     .expect("down migration");
@@ -494,6 +556,7 @@ fn rls_isolates_tenant_a_from_tenant_b_for_the_runtime_role() {
     if skipped(&admin_url) {
         return;
     }
+    let rt = test_runtime();
     let admin_store = FlexCoreStore::connect(&admin_url).expect("admin store");
     admin_store.run_migrations().expect("migrations");
     ensure_test_roles(admin_store.pool());
@@ -809,6 +872,14 @@ fn soc_outside_the_unit_interval_is_rejected_by_the_database() {
             .await
             .expect("set_config");
         for soc in [1.5f64, -0.01, 2.0] {
+            // A failed statement aborts the whole transaction in
+            // PostgreSQL (25P02 on anything after it), so each probe
+            // runs under its own savepoint; the in-range fraction below
+            // then still applies in the same transaction.
+            sqlx::query("SAVEPOINT soc_probe")
+                .execute(&mut *tx)
+                .await
+                .expect("savepoint");
             let result = sqlx::query("UPDATE asset_state SET soc = $1 WHERE asset_id = $2::uuid")
                 .bind(soc)
                 .bind(asset_id.to_string())
@@ -820,6 +891,10 @@ fn soc_outside_the_unit_interval_is_rejected_by_the_database() {
                 matches!(err, sqlx::Error::Database(_)),
                 "the rejection must come from the database constraint, got {err}"
             );
+            sqlx::query("ROLLBACK TO SAVEPOINT soc_probe")
+                .execute(&mut *tx)
+                .await
+                .expect("savepoint rollback");
         }
         // The fraction form inside [0,1] is accepted.
         sqlx::query("UPDATE asset_state SET soc = $1 WHERE asset_id = $2::uuid")

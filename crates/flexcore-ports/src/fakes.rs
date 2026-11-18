@@ -137,6 +137,13 @@ impl FakeWriteJournal {
         self.push(FakeJournalOp::Commit);
     }
 
+    /// Records one operation, in order. The in-crate fakes call the
+    /// private `push` directly; fakes in other crates (the control-plane
+    /// Phase 3/4 record stores) record their state changes through this.
+    pub fn record(&self, op: FakeJournalOp) {
+        self.push(op);
+    }
+
     fn push(&self, op: FakeJournalOp) {
         self.ops
             .lock()
@@ -1514,22 +1521,22 @@ mod tests {
 
     #[test]
     fn counting_generator_yields_distinct_non_nil_ids_and_counts() {
-        let gen = CountingIdGenerator::new();
-        assert_eq!(gen.generated_count(), 0);
-        let a = gen.new_uuid();
-        let b = gen.new_tenant_id();
-        let c = gen.new_asset_id();
+        let generator = CountingIdGenerator::new();
+        assert_eq!(generator.generated_count(), 0);
+        let a = generator.new_uuid();
+        let b = generator.new_tenant_id();
+        let c = generator.new_asset_id();
         assert_ne!(a, FlexUuid::NIL);
         assert_ne!(a, b.uuid());
         assert_ne!(b.uuid(), c.uuid());
-        assert_eq!(gen.generated_count(), 3);
+        assert_eq!(generator.generated_count(), 3);
     }
 
     #[test]
     fn counting_generator_sequence_is_deterministic() {
-        let gen = CountingIdGenerator::new();
-        let first = gen.new_uuid();
-        let second = gen.new_uuid();
+        let generator = CountingIdGenerator::new();
+        let first = generator.new_uuid();
+        let second = generator.new_uuid();
         let expected_first = FlexUuid::from_bytes(1u128.to_be_bytes());
         let expected_second = FlexUuid::from_bytes(2u128.to_be_bytes());
         assert_eq!(first, expected_first);

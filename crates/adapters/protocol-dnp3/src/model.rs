@@ -156,7 +156,7 @@ impl DerPointKind {
 /// The declared source-unit scaling of one point: how a canonical value
 /// renders into the integer point the protocol carries. Declared per
 /// profile — the platform never assumes a scale (contracts units.rs).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct DeclaredScaling {
     /// Multiplicative factor from the canonical unit to the source unit
     /// (e.g. MW → kW is 1000.0; declared, never inferred).

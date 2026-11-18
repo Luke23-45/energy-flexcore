@@ -47,7 +47,7 @@ use serde::{Deserialize, Serialize};
 /// Model errors of the payload types. Every failure names the offending
 /// field/value — never a bare "invalid input" (the P3.04 error-catalogue
 /// style).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ModelError {
     /// A required field is empty. Silence is never a payload.
     EmptyField(&'static str),

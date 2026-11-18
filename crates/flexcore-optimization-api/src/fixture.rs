@@ -16,7 +16,7 @@ use crate::problem::{
     VariableUnit,
 };
 use flexcore_contracts::ids::FlexUuid;
-use time::macros::offset;
+use time::macros::datetime;
 
 /// A fixed, valid candidate identity for the reference fixtures
 /// (`00000000-0000-0000-0000-000000000c4d1d`, nil-adjacent but non-nil).
@@ -41,7 +41,7 @@ fn fixture_provenance() -> ProblemProvenance {
     ProblemProvenance {
         candidate_id: fixture_candidate_id(),
         input_snapshot_id: "synthetic-snapshot-p3.17-0001".to_string(),
-        data_timestamp: Some(offset!(2026-11-07 00:00:00 UTC)),
+        data_timestamp: Some(datetime!(2026-11-07 00:00:00 UTC)),
         grid_model_version: None,
         objective_config_version: Some("synthetic-objective-v1".to_string()),
         envelope_version: None,

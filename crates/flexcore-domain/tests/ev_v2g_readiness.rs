@@ -171,7 +171,8 @@ fn the_ledger_is_deterministic_and_never_authorizes() {
     // any lifecycle state (the structural ADR-010 guarantee, pinned by the
     // statement + the verdict-only surface).
     assert!(READINESS_NEVER_AUTHORIZES_DISPATCH.contains("never a command"));
-    assert!(READINESS_NEVER_AUTHORIZES_DISPATCH.contains("three gates"));
+    assert!(READINESS_NEVER_AUTHORIZES_DISPATCH
+        .contains("validation, feasibility, and authorization gates"));
 }
 
 #[test]
@@ -185,7 +186,7 @@ fn the_ocpp21_hooks_are_declared_design_records_never_adapter_actions() {
         vec!["NotifyAllowedEnergyTransfer", "AFRRSignal", "SetDERControl"]
     );
     for hook in DECLARED_OCPP21_HOOKS {
-        let note = Ocpp21V2xHook::note(*hook);
+        let note = Ocpp21V2xHook::note(hook);
         assert!(note.contains("UNVERIFIED"), "hook {}", hook.name());
         assert!(note.contains("[S-125]"), "hook {}", hook.name());
     }

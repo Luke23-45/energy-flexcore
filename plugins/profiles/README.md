@@ -104,13 +104,14 @@ resolve when the corresponding manifests are supplied at composition time.
 
 ### 5.1 Deferred entries and their reasons (why commented out)
 
-- `neryva.sim-builtin-ess` — the example Class A ESS manifest exists, but
-  its `api-version` (`>=0.5,<1.0`) uses two-component comparator versions,
-  which the v1 manifest grammar rejects (versions are strict
-  `MAJOR.MINOR.PATCH` cores). The entry stays commented out until the
-  example manifest is corrected. (Observed inconsistency between the
-  published schema document's example and the validator's grammar;
-  recorded in the decision record — not silently "fixed" here.)
+- `neryva.sim-builtin-ess` — NO LONGER DEFERRED: the example Class A ESS
+  manifest's `api-version` was corrected to the 3-component grammar
+  (`>=0.5.0, <1.0.0`), meeting the condition recorded here and in ledger
+  O-14, and the sim-lab entry is active. (The original inconsistency —
+  the two-component `>=0.5,<1.0` form against the strict `MAJOR.MINOR.PATCH`
+  grammar — remains recorded in the decision record; the schema document's
+  §2 example still uses the two-component form and is the P7.05 owner's to
+  correct.)
 - `acme.forecast-worker`, `neryva.optimizer-wasm-lp` — the illustrative
   SDK examples; each consumes a contract (`telemetry.history`,
   `portfolio.read`) that no v0.5.0 manifest provides, so a profile

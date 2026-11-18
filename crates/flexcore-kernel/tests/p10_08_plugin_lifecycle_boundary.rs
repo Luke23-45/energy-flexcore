@@ -88,7 +88,7 @@ fn valid_builtin_json() -> serde_json::Value {
         "plugin-id": "neryva.sim-builtin-ess",
         "name": "Built-in ESS Simulator Provider",
         "version": "0.1.0",
-        "api-version": ">=0.5,<1.0",
+        "api-version": ">=0.5.0,<1.0.0",
         "class": "builtin-rust",
         "entry-point": { "registered-type": "neryva.builtin/sim-ess" },
         "provider-of": ["ess.simulation"],
@@ -359,7 +359,9 @@ fn an_illegal_upgrade_from_discovered_is_refused_audited_and_leaves_the_state_un
         .begin_drain(&mut port, "attacker", "upgrade requested from Discovered")
         .expect_err("drain from Discovered is illegal");
     assert_eq!(error.name(), "ILLEGAL_TRANSITION");
-    assert!(error.to_string().contains("Discovered -> Draining"));
+    // The error names the attempted edge in the state's canonical
+    // UPPER_SNAKE form (the `Display` rendering, as for `LifecycleState`).
+    assert!(error.to_string().contains("DISCOVERED -> DRAINING"));
     assert_eq!(lifecycle.state(), LifecycleState::Discovered, "the state is UNCHANGED");
     // RECORDED FINDING F-P10.08-1 (observed behaviour, asserted as found —
     // NOT fixed here; src logic is outside this subtask's ownership): an
@@ -413,9 +415,10 @@ fn an_explicit_restart_is_only_legal_from_failed_no_auto_restart_exists() {
     // From Discovered: refused (no auto-restart; the explicit restart is a
     // Failed-only operation).
     let lifecycle = fresh_lifecycle(&clock, &audit);
-    let error = lifecycle
-        .restart_explicitly("operator", "restart without a failure")
-        .expect_err("restart only from Failed");
+    let error = match lifecycle.restart_explicitly("operator", "restart without a failure") {
+        Ok(_) => panic!("restart only from Failed"),
+        Err(error) => error,
+    };
     assert_eq!(error.name(), "ILLEGAL_TRANSITION");
     // From Failed: the audited explicit restart (tested below with a real
     // failure path).
@@ -591,6 +594,10 @@ fn a_mid_dispatch_upgrade_is_refused_drain_deadline_exceeded_restores_the_incumb
         .count();
     assert_eq!(refused, 1, "the refused stop is audited");
     assert_eq!(restored, 1, "the restoration is audited");
+    // The `records` borrow must be released before the next lifecycle call:
+    // `Ref` has a `Drop` impl, so the sink stays borrowed until the end of
+    // the scope, and `require_fully_drained` emits a refusal record.
+    drop(records);
     // The replacement is STILL blocked: the incumbent is active again.
     let error = lifecycle
         .require_fully_drained("composition-root", "attempt the replacement anyway")
@@ -735,6 +742,18 @@ fn the_explicit_restart_starts_a_fresh_lifecycle_and_is_audited() {
     lifecycle
         .verify(GateOutcome::Passed, "composition-root", "provenance")
         .expect("verify");
+    // The §5.6 failure edge runs from Started: walk the gates there first
+    // (a failure in Verified would be a crash, not the `fail()` edge, and
+    // would record `failed_from` as Verified, not Started).
+    lifecycle
+        .mark_compatible(GateOutcome::Passed, "composition-root", "compatibility")
+        .expect("compatible");
+    lifecycle
+        .configure(GateOutcome::Passed, "composition-root", "configured")
+        .expect("configure");
+    lifecycle
+        .start(GateOutcome::Passed, "composition-root", "started")
+        .expect("start");
     lifecycle
         .fail("supervisor", "initialization failed")
         .expect("the §5.6 failure edge");
@@ -746,11 +765,15 @@ fn the_explicit_restart_starts_a_fresh_lifecycle_and_is_audited() {
         .restart_explicitly("operator", "operator-approved restart after the failure")
         .expect("the explicit restart");
     assert_eq!(restarted.state(), LifecycleState::Discovered, "a fresh lifecycle");
-    let records = audit.records();
-    assert!(records.iter().any(|r| r.kind == LifecycleAuditKind::ExplicitRestart
-        && r.from == Some(LifecycleState::Failed)
-        && r.to == Some(LifecycleState::Discovered)
-        && r.actor == "operator"));
+    // Scope the sink borrow: `Ref` keeps the sink borrowed until the end
+    // of its scope, and the fresh lifecycle emits below.
+    {
+        let records = audit.records();
+        assert!(records.iter().any(|r| r.kind == LifecycleAuditKind::ExplicitRestart
+            && r.from == Some(LifecycleState::Failed)
+            && r.to == Some(LifecycleState::Discovered)
+            && r.actor == "operator"));
+    }
     // The fresh lifecycle walks the forward path again.
     restarted
         .verify(GateOutcome::Passed, "composition-root", "provenance re-accepted")

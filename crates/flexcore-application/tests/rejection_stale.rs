@@ -770,6 +770,7 @@ fn f_st_3_a_stale_telemetry_quality_event_makes_the_envelope_stale_and_the_gate_
             asset_id: asset_id(),
             quality: TelemetryQuality::Stale,
             previous_quality: Some(TelemetryQuality::Good),
+            event_time: EventTime::from_unix_millis(5_000).expect("valid instant"),
         });
         let verdict = evaluate_envelope_trigger(
             &metadata,
@@ -799,7 +800,7 @@ fn f_st_3_a_stale_telemetry_quality_event_makes_the_envelope_stale_and_the_gate_
     };
     let (first_passed, first_check, first_journal, first_events) = run();
     assert!(!first_passed);
-    let check = first_check.expect("the failing check is named");
+    let check = first_check.as_ref().expect("the failing check is named");
     assert!(
         check.starts_with("envelope_stale:TelemetryQualityChanged"),
         "the check names the STALE-telemetry staleness reason: {check}"
@@ -889,7 +890,7 @@ fn f_st_4_a_snapshot_older_than_the_configured_max_age_rejects_and_the_boundary_
         EnvelopeFreshness::Stale { reason: StalenessReason::MaxAgeExceeded { .. } }
     ));
     assert!(!first_passed);
-    let check = first_check.expect("the failing check is named");
+    let check = first_check.as_ref().expect("the failing check is named");
     assert!(
         check.starts_with("envelope_stale:MaxAgeExceeded"),
         "the check names the configured max-age reason: {check}"

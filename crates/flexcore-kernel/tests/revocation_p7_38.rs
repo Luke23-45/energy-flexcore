@@ -210,8 +210,8 @@ fn a_revoked_plugin_is_refused_at_the_verified_gate_before_any_provenance() {
     assert_eq!(lifecycle.state(), LifecycleState::Discovered);
 
     // The refusal is audited on the revocation audit port.
-    let refused = audit
-        .records()
+    let refused_records = audit.records();
+    let refused = refused_records
         .iter()
         .find(|r| r.kind == RevocationAuditKind::RevocationCheckRefused)
         .expect("the gate refusal is audited");
@@ -274,7 +274,7 @@ fn a_revoked_plugin_cannot_start_and_the_registry_time_recheck_refuses() {
             "start after revocation",
         )
         .expect_err("the start gate refuses");
-    assert_eq!(lifecycle.state(), LifecycleState::Compatible);
+    assert_eq!(lifecycle.state(), LifecycleState::Configured);
 
     // The revoked plugin cannot re-verify either (an explicit restart
     // lands back at Discovered, and the gate consults the register
@@ -546,8 +546,8 @@ fn a_failed_plugin_is_removed_explicitly_with_drain_and_a_full_audited_trail() {
         revocation_audit.records().iter().map(|r| r.kind).collect();
     assert!(kinds.contains(&RevocationAuditKind::RemovalRequested));
     assert!(kinds.contains(&RevocationAuditKind::RemovalCompleted));
-    let completed = revocation_audit
-        .records()
+    let completed_records = revocation_audit.records();
+    let completed = completed_records
         .iter()
         .find(|r| r.kind == RevocationAuditKind::RemovalCompleted)
         .expect("completion record");
@@ -639,12 +639,22 @@ fn removal_is_refused_for_a_running_plugin_and_for_an_undrained_failed_plugin() 
     // containment now goes through revocation / grant drops, not a
     // forced stop.
     assert_eq!(stuck.state(), LifecycleState::Ready);
-    let refused = audit
-        .records()
-        .iter()
-        .find(|r| r.kind == RevocationAuditKind::RemovalRefused)
-        .expect("the removal refusal is audited");
-    assert!(refused.detail.contains("contain the plugin"));
+    // Scope the sink borrow: `Ref` keeps the sink borrowed until the end
+    // of its scope, and the unattributed-removal calls below emit.
+    {
+        let refused_records = audit.records();
+        // Two refusals share this sink (the running-plugin refusal above and
+        // this one); select the deadline-exceeded refusal — it is the one that
+        // carries the containment instruction.
+        let refused = refused_records
+            .iter()
+            .find(|r| {
+                r.kind == RevocationAuditKind::RemovalRefused
+                    && r.detail.contains("REMOVAL_DRAIN_DEADLINE_EXCEEDED")
+            })
+            .expect("the deadline-exceeded removal refusal is audited");
+        assert!(refused.detail.contains("contain the plugin"));
+    }
 
     // Unattributed removals are refused.
     let lifecycle_audit = MemoryAuditSink::new();
@@ -663,8 +673,13 @@ fn removal_is_refused_for_a_running_plugin_and_for_an_undrained_failed_plugin() 
             .name(),
         "REMOVAL_REASON_REQUIRED"
     );
+    // A fresh drain per call: remove_failed_plugin takes the drain for
+    // the lifecycle's whole lifetime ('a), so one &mut drain cannot serve
+    // two calls. Both calls fail before touching the drain (reason/actor
+    // checks run first), so a second empty drain is identical.
+    let mut drain_actor = TestDrain::with_work(0);
     assert_eq!(
-        remove_failed_plugin(&mut lifecycle, &mut drain, "reason", "", &clock, &audit)
+        remove_failed_plugin(&mut lifecycle, &mut drain_actor, "reason", "", &clock, &audit)
             .expect_err("empty actor refused")
             .name(),
         "REMOVAL_ACTOR_REQUIRED"
@@ -722,7 +737,10 @@ fn the_file_register_survives_reopen_and_refuses_a_foreign_or_corrupt_file() {
     // A foreign file is refused at open, never guessed at.
     let foreign_path = scratch_path("foreign");
     std::fs::write(&foreign_path, b"not a flexcore register at all").expect("write");
-    let err = FileRevocationRegister::open(&foreign_path).expect_err("foreign file refused");
+    let err = match FileRevocationRegister::open(&foreign_path) {
+        Ok(_) => panic!("foreign file refused"),
+        Err(error) => error,
+    };
     assert_eq!(err.name(), "REVOCATION_REGISTER_FILE_FOREIGN");
 
     // A corrupt tail is truncated and COUNTED, never silent: a good

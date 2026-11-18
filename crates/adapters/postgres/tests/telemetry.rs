@@ -35,6 +35,7 @@ use flexcore_domain::tenant_context::{
     AuthenticatedClaims, TenantContext, VerifiedClaims,
 };
 use flexcore_contracts::time_model::SiteTimezone;
+use flexcore_ports::clock::Clock;
 use flexcore_ports::repository::{
     AssetRepository, PortfolioRepository, SiteRepository, TenantRepository,
 };
@@ -114,7 +115,7 @@ fn fixture_uuid(prefix: u8) -> FlexUuid {
     bytes[6] = (run_key() >> 24) as u8;
     bytes[7] = (run_key() >> 16) as u8;
     bytes[8] = (run_key() >> 8) as u8;
-    bytes[9] = run_key() as u8;
+    bytes[9] = *run_key() as u8;
     let counter = next_counter().to_be_bytes();
     bytes[10..16].copy_from_slice(&counter[2..8]);
     FlexUuid::from_bytes(bytes)
@@ -149,11 +150,21 @@ fn sample_tenant_entity(tenant_id: TenantId) -> Tenant {
     .expect("valid test tenant")
 }
 
-fn test_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("test runtime")
+/// One runtime for the whole test binary, shared by every helper (the
+/// recorded `test_runtime` pattern, fixed): a sqlx pool opened under a
+/// runtime keeps that runtime's I/O driver for its connections, so a pool
+/// created under a fresh per-call runtime dies with it — the next query
+/// on it fails with "A Tokio 1.x context was found, but it is being
+/// shutdown". A multi-thread runtime also allows concurrent `block_on`
+/// from the harness's parallel test threads.
+fn test_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+    })
 }
 
 fn url_as(url: &str, user: &str, password: &str) -> String {
@@ -172,16 +183,32 @@ fn url_as(url: &str, user: &str, password: &str) -> String {
 /// the P2.06 telemetry roles).
 fn ensure_test_roles(pool: &PgPool) {
     let result = test_runtime().block_on(async {
+        // Concurrent ALTER ROLE on the same role fails with "tuple
+        // concurrently updated" (XX000): every test in every binary runs
+        // this helper against the one shared database. One advisory lock
+        // (one key, shared by every copy of this helper and by the
+        // partition setup) serializes the grant so it stays idempotent
+        // across processes; the lock is transaction-scoped and released
+        // by the commit below.
+        let mut tx = pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+            .execute(&mut *tx)
+            .await?;
         for (role, password) in [
             ("flexcore_app", "flexcore_app_test_only"),
             ("flexcore_migrator", "flexcore_migrator_test_only"),
             ("flexcore_ingest", "flexcore_ingest_test_only"),
             ("flexcore_query", "flexcore_query_test_only"),
         ] {
-            sqlx::query(&format!("ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"))
-                .execute(pool)
+            // AUDITED (Batch 32+): role/password are fixed test-only literals
+            // from the loop above; DDL identifiers cannot be bind parameters.
+            sqlx::query(sqlx::AssertSqlSafe(
+                format!("ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"),
+            ))
+                .execute(&mut *tx)
                 .await?;
         }
+        tx.commit().await?;
         Ok::<(), sqlx::Error>(())
     });
     result.expect("test roles must be grantable from the migration/admin connection");
@@ -198,15 +225,28 @@ fn ensure_partitions(url: &str) -> PgPool {
         )))
         .expect("connect as flexcore_migrator");
     test_runtime().block_on(async {
+        // CREATE TABLE IF NOT EXISTS is not concurrency-safe: two
+        // sessions can both pass the existence check and collide with
+        // 42P07 "already exists". The same advisory lock as the role
+        // setup serializes partition creation across test processes.
+        let mut tx = migrator_pool.begin().await.expect("partition setup tx");
+        sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+            .execute(&mut *tx)
+            .await
+            .expect("partition setup lock");
         for (name, from, to) in PARTITION_MONTHS {
-            sqlx::query(&format!(
+            // AUDITED (Batch 32+): partition names and calendar-formatted bounds
+            // come from the file's own PARTITION_MONTHS const; identifiers and
+            // literal bounds cannot be bind parameters.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE IF NOT EXISTS {name} PARTITION OF telemetry \
                  FOR VALUES FROM ('{from}') TO ('{to}')"
-            ))
-            .execute(&migrator_pool)
+            )))
+            .execute(&mut *tx)
             .await
             .expect("partition DDL as the table owner");
         }
+        tx.commit().await.expect("partition setup commit");
     });
     migrator_pool
 }
@@ -336,9 +376,11 @@ fn count_telemetry_as(pool: &PgPool, tenant_text: &str) -> i64 {
 /// owner after the fact — so this is the routing proof).
 fn count_in_partition(pool: &PgPool, partition: &str, asset_text: &str) -> i64 {
     test_runtime().block_on(async {
-        sqlx::query_scalar::<_, i64>(&format!(
+        // AUDITED (Batch 32+): the partition name is a fixed literal from the
+        // test's own PARTITION_MONTHS names; the asset value is a bound $1.
+        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM {partition} WHERE asset_id = $1::uuid"
-        ))
+        )))
         .bind(asset_text)
         .fetch_one(pool)
         .await
@@ -494,7 +536,10 @@ fn time_bounded_query_explains_with_partition_pruning() {
             .execute(&mut *tx)
             .await
             .expect("set_config");
-        let rows: Vec<String> = sqlx::query_scalar(&explain_sql)
+        // AUDITED (Batch 32+): EXPLAIN needs literal bounds for partition
+        // pruning (parameters cannot be pruned at plan time); the values are
+        // hyphenated UUIDs generated in-test plus fixed date literals.
+        let rows: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(explain_sql))
             .fetch_all(&mut *tx)
             .await
             .expect("EXPLAIN query");
@@ -780,13 +825,21 @@ fn out_of_range_event_time_is_typed_and_does_not_poison_the_unit_of_work() {
         )))
         .expect("connect as flexcore_migrator");
     test_runtime().block_on(async {
+        // Same race as the loop copies: IF NOT EXISTS is not
+        // concurrency-safe (see ensure_partitions).
+        let mut tx = migrator_pool.begin().await.expect("partition setup tx");
+        sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+            .execute(&mut *tx)
+            .await
+            .expect("partition setup lock");
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS telemetry_y2030m01 PARTITION OF telemetry \
              FOR VALUES FROM ('2030-01-01 00:00:00+00') TO ('2030-02-01 00:00:00+00')",
         )
-        .execute(&migrator_pool)
+        .execute(&mut *tx)
         .await
         .expect("partition DDL");
+        tx.commit().await.expect("partition setup commit");
     });
 
     let tenant_a = fixture_tenant_id(0xA5);
@@ -1032,8 +1085,11 @@ fn time_range_query_and_latest_per_asset_are_correct_and_tenant_scoped() {
         )
         .expect("range query");
         assert_eq!(rows.len(), 5);
-        assert_eq!(rows[0].quantity, Quantity::Soc);
-        assert_eq!(rows[0].source_sequence, 600);
+        // Newest first (event_time DESC): Jan 7 active_power, then Jan 6
+        // active_power, then Jan 6 soc — the "latest" block below agrees
+        // the newest active_power is Jan 7.
+        assert_eq!(rows[0].quantity, Quantity::ActivePower);
+        assert_eq!(rows[0].source_sequence, 7);
         // A quantity filter narrows to that quantity only.
         let reactive_rows = PgUnitOfWork::query_telemetry(
             &unit,

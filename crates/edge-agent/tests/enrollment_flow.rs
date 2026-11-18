@@ -218,7 +218,7 @@ fn binding_outside_the_approved_scope_fails_closed() {
     let mut issuer =
         ScriptedCredentialIssuer::new(vec![(TENANT_A.to_string(), SITE_A.to_string())], record_template());
     let mut client = TokenEnrollmentAdapter::new(Box::new(issuer));
-    let store = TempFileCredentialStore::new("p6-06-wrong-tenant");
+    let mut store = TempFileCredentialStore::new("p6-06-wrong-tenant");
 
     let wrong_tenant = DeviceBinding::new(TENANT_B.to_string(), SITE_A.to_string());
     let error = client

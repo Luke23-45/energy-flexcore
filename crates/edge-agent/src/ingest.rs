@@ -304,7 +304,14 @@ impl EmsSource for AdapterIngestSource {
         let mut acl_rejections: usize = 0;
         let mut first_failure: Option<String> = None;
 
-        for point in &self.points {
+        // Index-based loop (not `for point in &self.points`): the body
+        // calls `self.record_failure` (`&mut self`), which cannot coexist
+        // with the iterator's outstanding shared borrow of `self.points`.
+        // Each iteration's borrow of one point ends at its last use, before
+        // any `&mut self` call; disjoint-field mutations (`self.stats.*`,
+        // `self.dedup`) were already fine and are unchanged.
+        for point_index in 0..self.points.len() {
+            let point = &self.points[point_index];
             if emitted.len() >= max_samples {
                 break;
             }
@@ -741,9 +748,13 @@ mod tests {
             Arc::new(FixedClock::at_unix_millis(EDGE_INGEST_MILLIS)),
             64,
         );
+        let error = match empty {
+            Ok(_) => panic!("an empty point set must fail composition"),
+            Err(error) => error,
+        };
         assert!(
-            matches!(empty, Err(IngestConfigError::EmptyPointSet)),
-            "an empty point set is a composition error: {empty:?}"
+            matches!(error, IngestConfigError::EmptyPointSet),
+            "an empty point set is a composition error: {error:?}"
         );
         let zero = AdapterIngestSource::new(
             Box::new(SimulatedEmsSource::new(fixture())),
@@ -752,9 +763,13 @@ mod tests {
             Arc::new(FixedClock::at_unix_millis(EDGE_INGEST_MILLIS)),
             0,
         );
+        let error = match zero {
+            Ok(_) => panic!("a zero dedup capacity must fail composition"),
+            Err(error) => error,
+        };
         assert!(
-            matches!(zero, Err(IngestConfigError::ZeroDedupCapacity)),
-            "a zero dedup capacity is a composition error: {zero:?}"
+            matches!(error, IngestConfigError::ZeroDedupCapacity),
+            "a zero dedup capacity is a composition error: {error:?}"
         );
     }
 }

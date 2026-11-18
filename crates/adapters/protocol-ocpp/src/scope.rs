@@ -147,7 +147,7 @@ pub fn csms_scope() -> Result<ProtocolScopeDeclaration, ProtocolScopeError> {
 /// not expressible in the common type (P14.01).
 pub fn csms_manifest() -> Result<ProtocolAdapterManifest, ManifestError> {
     let scope = csms_scope()?;
-    let mut manifest = ProtocolAdapterManifest::new(
+    let manifest = ProtocolAdapterManifest::new(
         crate::ADAPTER_ID.to_string(),
         crate::PROTOCOL_ID.to_string(),
         crate::PROTOCOL_EDITION.to_string(),

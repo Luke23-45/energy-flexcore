@@ -54,8 +54,11 @@
 // 5. **Model→artifact lineage is required, not optional.** A model
 //    entry names the artifact kinds it produces; an artifact entry names
 //    the model ref that produced it (cross-references are validated at
-//    registration: a lineage ref that names nothing registered is
-//    refused — lineage cannot silently dangle).
+//    registration: a lineage ref that names a registry entry but nothing
+//    registered is refused — lineage cannot silently dangle; an
+//    `input://` ref names external input data outside the registry and
+//    is exempt from resolution, so a first entry can chain from its
+//    input data).
 //
 // Control status: registry records for the simulation-only 0.x line
 // (ADR-010 extension, conventions §6.3). Nothing here authorizes, issues,
@@ -65,8 +68,6 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-
-use serde::Serialize;
 
 /// The registry version: the version of the REGISTRY SHAPE as a whole
 /// (adding a field or a vocabulary member is a registry version bump;
@@ -86,8 +87,7 @@ pub const MODEL_REGISTRY_STATEMENT: &str = "the model registry is append-only an
 /// The registry entry kinds (closed). Forecast artifacts and models are
 /// distinct entry kinds — an artifact is a produced series record; a
 /// model is a producing-forecaster record.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RegistryEntryKind {
     /// A forecast artifact (a versioned, provenance-signed series; the
     /// P15.01 artifact vocabulary).
@@ -109,8 +109,7 @@ impl RegistryEntryKind {
 /// The training state of a registered model (closed; UNTRAINED is the
 /// state every model in this delivery registers — a first-class state,
 /// not an absence).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrainingState {
     /// Registered, never trained: no runtime data exists; no training run
     /// is claimed. THE state of every model in this delivery.
@@ -258,7 +257,7 @@ pub fn registry_content_digest(canonical: &str) -> String {
 
 /// One registry entry: the identity, kind, lineage, training state, and
 /// chain position of a registered model or artifact.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryEntry {
     /// The stable entry ref (e.g. `model://registry/persistence-v1`).
     pub entry_ref: String,
@@ -267,8 +266,9 @@ pub struct RegistryEntry {
     /// The entry version (a content change is a NEW ref + NEW entry, so
     /// this is the version of the ENTRY SHAPE's description; starts v1).
     pub version: String,
-    /// The lineage references this entry names (validated to resolve at
-    /// registration; REQUIRED non-empty).
+    /// The lineage references this entry names (registry refs validated
+    /// to resolve at registration; `input://` external input-data refs
+    /// exempt; REQUIRED non-empty).
     pub lineage_refs: Vec<String>,
     /// The artifact kinds the entry relates to (a model entry: the kinds
     /// it produces — at least one REQUIRED; an artifact entry: its own
@@ -454,12 +454,20 @@ impl ModelRegistry {
                 found: previous_head_digest,
             });
         }
-        // Lineage resolution: every lineage ref must name an ALREADY
-        // registered entry (lineage cannot dangle; the first entry of a
-        // fresh registry therefore cannot carry a lineage into nothing —
-        // its lineage must name the eval set / input data records the
-        // caller registered first, or the REGISTRY REFUSES).
+        // Lineage resolution: every lineage ref that names a REGISTRY
+        // entry must name an ALREADY registered entry (lineage cannot
+        // dangle). A ref with the `input://` scheme names EXTERNAL input
+        // data — a raw fixture outside the registry, never a registry
+        // entry — so it is exempt from resolution: the first entry of a
+        // fresh registry chains from its input data (the eval-set record
+        // is registered first, then the model, then the artifact), and
+        // requiring an `input://` ref to resolve would make the FIRST
+        // registration impossible (nothing is registered yet, and lineage
+        // is required non-empty), deadlocking the registry permanently.
         for lineage_ref in &lineage_refs {
+            if lineage_ref.starts_with("input://") {
+                continue;
+            }
             if !self.entries.contains_key(lineage_ref) {
                 return Err(RegistryError::LineageRefUnresolved {
                     entry_ref: entry_ref.clone(),

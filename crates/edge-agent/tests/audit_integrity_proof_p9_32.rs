@@ -192,7 +192,13 @@ fn every_tamper_class_produces_a_named_error_never_a_vacuous_pass() {
         Err(AuditChainError::CountMismatch { expected: 3, computed: 2 })
     ));
 
-    // TAMPER CLASS 5 — DUPLICATED RECORD: the count is the named finding.
+    // TAMPER CLASS 5 — DUPLICATED RECORD: repeating a record repeats its
+    // sequence (3 then 3), so the set is non-monotonic and the disorder
+    // refusal fires BEFORE the count check (verify_against_anchor
+    // recomputes the head first; the recompute refuses a non-increasing
+    // set outright). The duplication is still detected -- by the earlier
+    // check, not by the count. The count finding itself is pinned by
+    // classes 2 and 4.
     let duplicated = vec![
         records[0].clone(),
         records[1].clone(),
@@ -201,7 +207,10 @@ fn every_tamper_class_produces_a_named_error_never_a_vacuous_pass() {
     ];
     assert!(matches!(
         verify_against_anchor(SITE, &duplicated, &anchor),
-        Err(AuditChainError::CountMismatch { expected: 3, computed: 4 })
+        Err(AuditChainError::NonMonotonicSequence {
+            previous_sequence: 3,
+            found_sequence: 3
+        })
     ));
 
     // TAMPER CLASS 6 — PADDED/PREPENDED SET (same count, different range):

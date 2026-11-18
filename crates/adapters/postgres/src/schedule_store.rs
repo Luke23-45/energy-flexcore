@@ -52,9 +52,10 @@
 // declarations in `unit_of_work.rs`, which repairs every module at once;
 // that file was outside this subtask's ownership.
 
+use sqlx::Row;
 use crate::error::{is_unique_violation, map_backend};
 use crate::unit_of_work::{tx_ref, PgUnitOfWork};
-use crate::uuid_map::uuid_from_text;
+use crate::uuid_map::{uuid_from_text, uuid_text};
 use flexcore_domain::tenant_context::TenantContext;
 use flexcore_storage::schedule_revision::{
     ScheduleRevisionChainStore, ScheduleRevisionError, ScheduleRevisionReceipt,
@@ -63,7 +64,7 @@ use flexcore_storage::schedule_revision::{
 use flexcore_storage::schedule_store::{
     ComparisonStoreError, ScheduleComparisonReceipt, ScheduleComparisonRow,
     ScheduleComparisonStore, ScheduleRecordReceipt, ScheduleRecordRow, ScheduleRecordStore,
-    ScheduleStoreError,
+    ScheduleStoreError, SCHEDULE_RESULT_STATUSES,
 };
 use serde_json::Value;
 
@@ -132,7 +133,7 @@ impl ScheduleRecordStore for PgUnitOfWork {
             .bind(&row.grid_model_site_reference)
             .bind(&row.schedule_proposed_key)
             .bind(payload)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_schedule_store_error(err, &row.candidate_id))?;
             if result.rows_affected() != 1 {
@@ -164,14 +165,16 @@ impl ScheduleRecordStore for PgUnitOfWork {
                     code: err.code().to_string(),
                     message: err.message().to_string(),
                 })?;
-            let row = sqlx::query(&format!(
+            // sqlx 0.9 audit: this statement interpolates only the
+            // SCHEDULE_RESULT_SELECT const fragment; every value is a $n bind.
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{SCHEDULE_RESULT_SELECT} WHERE candidate_id = $1::uuid AND tenant_id = $2::uuid"
-            ))
+            )))
             .bind(candidate_id)
             .bind(uuid_text(ctx.tenant_id().uuid()))
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
-            .map_err(map_schedule_store_error)?;
+            .map_err(|err| map_schedule_store_error(err, candidate_id))?;
             match row {
                 None => Ok(None),
                 Some(row) => decode_schedule_record_row(&row).map(Some),
@@ -223,7 +226,7 @@ impl ScheduleRecordStore for PgUnitOfWork {
                 })?;
             // One parameterized shape: the filters are always bound (None =
             // no constraint), so the statement text is constant.
-            let rows = sqlx::query(&format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{SCHEDULE_RESULT_SELECT} \
                  WHERE tenant_id = $1::uuid \
                    AND ($2::uuid IS NULL OR portfolio_id = $2::uuid) \
@@ -232,14 +235,14 @@ impl ScheduleRecordStore for PgUnitOfWork {
                    AND ($5::uuid IS NULL OR candidate_id > $5::uuid) \
                  ORDER BY candidate_id ASC \
                  LIMIT $6"
-            ))
+            )))
             .bind(uuid_text(ctx.tenant_id().uuid()))
             .bind(portfolio_id)
             .bind(site_id)
             .bind(status)
             .bind(after_candidate_id)
             .bind(limit_i64)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(|err| map_schedule_store_error(err, "<listing>"))?;
             rows.iter().map(decode_schedule_record_row).collect()
@@ -460,7 +463,7 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
                 .bind(&row.schedule_id)
                 .bind(uuid_text(ctx.tenant_id().uuid()))
                 .bind(revision_i64 - 1)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await
                 .map_err(|err| {
                     map_schedule_revision_error(err, &row.schedule_id, row.revision)
@@ -546,7 +549,7 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
             .bind(row.supersedes_candidate_id.as_deref())
             .bind(&row.candidate_id)
             .bind(payload)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| {
                 map_schedule_revision_error(err, &row.schedule_id, row.revision)
@@ -615,7 +618,7 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
             .bind(revision_i64)
             .bind(target_i64)
             .bind(&superseded_by.candidate_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_schedule_revision_error(err, schedule_id, revision))?;
             match marked {
@@ -636,7 +639,7 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
                     .bind(schedule_id)
                     .bind(uuid_text(ctx.tenant_id().uuid()))
                     .bind(revision_i64)
-                    .fetch_optional(&mut *tx)
+                    .fetch_optional(&mut **tx)
                     .await
                     .map_err(|err| {
                         map_schedule_revision_error(err, schedule_id, revision)
@@ -672,14 +675,14 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
                     code: err.code().to_string(),
                     message: err.message().to_string(),
                 })?;
-            let row = sqlx::query(&format!(
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{SCHEDULE_REVISION_SELECT} WHERE schedule_id = $1::uuid \
                  AND tenant_id = $2::uuid AND revision = $3"
-            ))
+            )))
             .bind(schedule_id)
             .bind(uuid_text(ctx.tenant_id().uuid()))
             .bind(revision_i64)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_schedule_revision_error(err, schedule_id, revision))?;
             match row {
@@ -704,13 +707,13 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
                 })?;
             // The partial unique index admits at most one active revision
             // per (tenant, schedule); `FETCH 1` makes that explicit.
-            let row = sqlx::query(&format!(
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{SCHEDULE_REVISION_SELECT} WHERE schedule_id = $1::uuid \
                  AND tenant_id = $2::uuid AND state = 'active' FETCH FIRST 1 ROW ONLY"
-            ))
+            )))
             .bind(schedule_id)
             .bind(uuid_text(ctx.tenant_id().uuid()))
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_schedule_revision_error(err, schedule_id, 0))?;
             match row {
@@ -733,13 +736,13 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
                     code: err.code().to_string(),
                     message: err.message().to_string(),
                 })?;
-            let rows = sqlx::query(&format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{SCHEDULE_REVISION_SELECT} WHERE schedule_id = $1::uuid \
                  AND tenant_id = $2::uuid ORDER BY revision ASC"
-            ))
+            )))
             .bind(schedule_id)
             .bind(uuid_text(ctx.tenant_id().uuid()))
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(|err| map_schedule_revision_error(err, schedule_id, 0))?;
             rows.iter()
@@ -771,7 +774,7 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
             .bind(schedule_id)
             .bind(uuid_text(ctx.tenant_id().uuid()))
             .bind(revision_i64)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_schedule_revision_error(err, schedule_id, revision))?;
             match row {
@@ -833,7 +836,7 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
             // no constraint), so the statement text is constant. The keyset
             // comparison is the row-value pair comparison over the primary
             // key (D-P3.22-1).
-            let rows = sqlx::query(&format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{SCHEDULE_REVISION_SELECT} \
                  WHERE tenant_id = $1::uuid \
                    AND ($2::uuid IS NULL OR portfolio_id = $2::uuid) \
@@ -841,13 +844,13 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
                         OR (schedule_id, revision) > ($3::uuid, $4)) \
                  ORDER BY schedule_id ASC, revision ASC \
                  LIMIT $5"
-            ))
+            )))
             .bind(uuid_text(ctx.tenant_id().uuid()))
             .bind(portfolio_id)
             .bind(after_schedule_id)
             .bind(after_revision_i64)
             .bind(limit_i64)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(|err| map_schedule_revision_error(err, "<listing>", 0))?;
             rows.iter().map(decode_schedule_revision_row).collect()
@@ -1040,7 +1043,7 @@ impl ScheduleComparisonStore for PgUnitOfWork {
                 ComparisonStoreError::InvalidRecord { field: "candidate_count" }
             })?)
             .bind(payload)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_comparison_store_error(err, &row.comparison_id))?;
             if result.rows_affected() != 1 {
@@ -1069,13 +1072,13 @@ impl ScheduleComparisonStore for PgUnitOfWork {
                     code: err.code().to_string(),
                     message: err.message().to_string(),
                 })?;
-            let row = sqlx::query(&format!(
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{SCHEDULE_COMPARISON_SELECT} WHERE comparison_id = $1::uuid \
                  AND tenant_id = $2::uuid"
-            ))
+            )))
             .bind(comparison_id)
             .bind(uuid_text(ctx.tenant_id().uuid()))
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_comparison_store_error(err, comparison_id))?;
             match row {

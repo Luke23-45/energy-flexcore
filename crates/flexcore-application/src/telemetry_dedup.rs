@@ -321,20 +321,22 @@ impl TelemetryDeduplicator {
         inbox: &I,
     ) -> Result<DedupReport, DedupError> {
         // 1. Inbox pre-check: skip redeliveries before any store call.
+        // Fallible: an inbox failure is a DedupError, never a silent
+        // "not recorded" (the collect carries the Result outward).
         let mut dispositions: Vec<Option<RecordDisposition>> = records
             .iter()
-            .map(|record| {
+            .map(|record| -> Result<Option<RecordDisposition>, DedupError> {
                 let key = delivery_key(record);
                 if inbox
                     .is_recorded(&self.consumer, &key)
                     .map_err(DedupError::Inbox)?
                 {
-                    Some(RecordDisposition::RedeliverySkipped)
+                    Ok(Some(RecordDisposition::RedeliverySkipped))
                 } else {
-                    None
+                    Ok(None)
                 }
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         let processed: Vec<usize> = (0..records.len())
             .filter(|&i| dispositions[i].is_none())
             .collect();
@@ -661,7 +663,13 @@ mod tests {
             .process_batch(&ctx(), &[record(1_000, 1, 1.5)], &store, &inbox)
             .unwrap();
         assert_eq!(first.stored, 1);
-        record_deliveries(&d, &inbox, &first);
+        // Deliberately NOT recording the delivery in the inbox here:
+        // recording it would make the second delivery a RedeliverySkipped
+        // (the P1.16 inbox path, covered by
+        // `a_forced_redelivery_is_detected_and_not_re_stored`), and this
+        // test exercises the STORE-level exact-duplicate acknowledgement
+        // instead — the same no-deliveries-recorded setup as
+        // `a_delivery_lost_to_a_rollback_is_made_harmless_by_the_store_dedup`.
 
         let second = d
             .process_batch(&ctx(), &[record(1_000, 1, 1.5)], &store, &inbox)
@@ -836,7 +844,7 @@ mod tests {
         let first = d
             .process_batch(&ctx(), &[record(1_000, 1, 1.5)], &store, &inbox)
             .unwrap();
-        assert!(!first.quality_changes, "a first value changed from nothing");
+        assert_eq!(first.quality_changes, 0, "a first value changed from nothing");
         record_deliveries(&d, &inbox, &first);
 
         let mut suspect = record_parts(2_000, 2, 9.9);

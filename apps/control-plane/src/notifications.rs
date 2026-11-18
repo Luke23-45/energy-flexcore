@@ -39,6 +39,7 @@
 // (`crate::webhook_service`) — one delivery mechanism, two entry points
 // (record `21_p13_09_webhook_service.md` §7).
 
+use std::sync::LazyLock;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
@@ -113,32 +114,33 @@ impl EventNotificationRule {
 /// conservative default: absence never notifies). The final closed
 /// vocabulary is wave 2's P13.21 registration against this table — this
 /// initial set is the starting DATA, not the final word.
-pub const EVENT_NOTIFICATION_MAP: [EventNotificationRule; 4] = [
+pub static EVENT_NOTIFICATION_MAP: LazyLock<[EventNotificationRule; 4]> =
+    LazyLock::new(|| [
     EventNotificationRule {
-        event_name: "TelemetryQualityChanged",
+        event_name: "TelemetryQualityChanged".to_string(),
         channels: vec!["EMAIL".to_string()],
         severity: "WARNING".to_string(),
         template_id: "alarm.quality_changed".to_string(),
     },
     EventNotificationRule {
-        event_name: "AssetAvailabilityChanged",
+        event_name: "AssetAvailabilityChanged".to_string(),
         channels: vec!["EMAIL".to_string()],
         severity: "WARNING".to_string(),
         template_id: "alarm.availability_changed".to_string(),
     },
     EventNotificationRule {
-        event_name: "PluginFailed",
+        event_name: "PluginFailed".to_string(),
         channels: vec!["EMAIL".to_string()],
         severity: "CRITICAL".to_string(),
         template_id: "alarm.plugin_failed".to_string(),
     },
     EventNotificationRule {
-        event_name: "DispatchFailed",
+        event_name: "DispatchFailed".to_string(),
         channels: vec!["EMAIL".to_string()],
         severity: "CRITICAL".to_string(),
         template_id: "alarm.dispatch_failed".to_string(),
     },
-];
+]);
 
 // --- The template registry ------------------------------------------------------
 
@@ -530,6 +532,17 @@ impl<'a> NotificationRouter<'a> {
             return Ok(Vec::new());
         };
         rule.validate(self.frozen_event_names)?;
+        if !preferences.permits("EMAIL", &rule.severity) {
+            return Ok(Vec::new());
+        }
+        let Some(port) = self.email else {
+            return Ok(Vec::new());
+        };
+        // The template is looked up only once the route will actually
+        // send — after the suppression and no-port gates, but BEFORE the
+        // recipient check: a route that would send with an unregistered
+        // template fails closed on the template (the unregistered-template
+        // test routes with no recipient and pins TemplateNotFound).
         let template = self.registry.get(&rule.template_id)?;
         if template.channel != "EMAIL" {
             // The initial mapping is email-only by the P13-E-2 DEFAULT;
@@ -537,12 +550,6 @@ impl<'a> NotificationRouter<'a> {
             // template — a composition gap, surfaced honestly.
             return Err(NotificationError::InvalidRule { field: "channel" });
         }
-        if !preferences.permits("EMAIL", &rule.severity) {
-            return Ok(Vec::new());
-        }
-        let Some(port) = self.email else {
-            return Ok(Vec::new());
-        };
         let recipient = values
             .get("recipient")
             .map(String::as_str)
@@ -588,7 +595,7 @@ mod tests {
     use super::*;
     use flexcore_contracts::ids::FlexUuid;
     use flexcore_domain::ids::TenantId;
-    use flexcore_events::FROZEN_EVENT_NAMES;
+    use flexcore_events::events::FROZEN_EVENT_NAMES;
 
     fn tenant(seed: u8) -> TenantId {
         let mut bytes = [0u8; 16];
@@ -617,7 +624,7 @@ mod tests {
     fn the_initial_mapping_names_only_frozen_events() {
         // Every registered rule resolves against the FROZEN 26-event
         // vocabulary (one source of truth — the events crate's constant).
-        for rule in &EVENT_NOTIFICATION_MAP {
+        for rule in EVENT_NOTIFICATION_MAP.iter() {
             rule.validate(&FROZEN_EVENT_NAMES)
                 .expect("every initial rule names a frozen event");
         }
@@ -638,7 +645,7 @@ mod tests {
 
     #[test]
     fn the_initial_mapping_is_email_only_and_alarm_audit_driven() {
-        for rule in &EVENT_NOTIFICATION_MAP {
+        for rule in EVENT_NOTIFICATION_MAP.iter() {
             assert_eq!(rule.channels, vec!["EMAIL".to_string()], "P13-E-2 DEFAULT: email-first");
             assert!(
                 rule.event_name.contains("Failed")

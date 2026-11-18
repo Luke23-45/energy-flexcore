@@ -221,8 +221,8 @@ impl fmt::Display for HostError {
                 write!(
                     f,
                     "memory limit exceeded: {requested_pages} pages requested against a {limit_pages}-page limit (instance torn down; host survives)"
-                }
-            )
+                )
+            }
             HostError::DeadlineExceeded { deadline_ms } => {
                 write!(
                     f,

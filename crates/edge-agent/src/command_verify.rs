@@ -601,6 +601,11 @@ impl FileSequenceCheckpoint {
             });
         }
         let magic = Self::magic();
+        // Hoisted out of the match arm: the replay below counts the
+        // truncated corrupt tail, and the struct field below is
+        // initialised from it (a local that dies with the arm would
+        // discard the count -- the dropped-counter bug class).
+        let mut corrupt_tail_truncated: u64 = 0;
         let (file, replayed) = match std::fs::OpenOptions::new().read(true).write(true).open(path) {
             Ok(mut existing) => {
                 // Replay the existing file.
@@ -626,7 +631,6 @@ impl FileSequenceCheckpoint {
                     }
                     let mut state = HashMap::new();
                     let mut offset = magic.len();
-                    let mut corrupt_tail_truncated: u64 = 0;
                     while offset + 8 <= contents.len() {
                         let len = u32::from_le_bytes(
                             contents[offset..offset + 4].try_into().expect("4 bytes"),
@@ -702,7 +706,7 @@ impl FileSequenceCheckpoint {
             path: path.to_path_buf(),
             file: Mutex::new(file),
             state: Mutex::new(replayed),
-            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(0),
+            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(corrupt_tail_truncated),
             records_written: std::sync::atomic::AtomicU64::new(0),
         })
     }
@@ -1115,41 +1119,63 @@ impl CommandVerifier {
                 "command '{command_id}' carries no signature — unsigned commands are refused"
             ));
         }
-        let parts: Vec<&str> = presented.split(':').collect();
-        if parts.len() != 5
-            || parts[0] != COMMAND_SIGNATURE_PREFIX
-            || parts[3] != COMMAND_DIGEST_ALG
-        {
-            return Err(format!(
+        // The reference is `edge-sig:<key_reference>:<command_id>:fnv1a64:<digest>`,
+        // and key references are namespaced (`deployment:lab-command-key-1`) — so
+        // the reference may contain ':' inside the key reference. A naive
+        // `split(':')` cannot parse it (it counts 6 parts, not 5, and every
+        // `sign_command` output is refused as malformed). Parse from the
+        // anchors instead: the fixed prefix, then the digest, the algorithm,
+        // and the command id from the right; whatever remains in the middle
+        // IS the key reference.
+        let malformed = || {
+            format!(
                 "malformed signature reference (expected \
                  {COMMAND_SIGNATURE_PREFIX}:<key_reference>:<command_id>:{COMMAND_DIGEST_ALG}:\
                  <digest>)"
-            ));
+            )
+        };
+        let after_prefix = match presented.strip_prefix(&format!("{COMMAND_SIGNATURE_PREFIX}:")) {
+            Some(rest) => rest,
+            None => return Err(malformed()),
+        };
+        let (before_digest, digest) = match after_prefix.rsplit_once(':') {
+            Some((body, digest)) if !digest.is_empty() => (body, digest),
+            _ => return Err(malformed()),
+        };
+        let (before_alg, alg) = match before_digest.rsplit_once(':') {
+            Some((body, alg)) => (body, alg),
+            None => return Err(malformed()),
+        };
+        if alg != COMMAND_DIGEST_ALG {
+            return Err(malformed());
         }
-        if parts[1] != self.key.reference() {
+        let (key_reference, presented_command_id) = match before_alg.rsplit_once(':') {
+            Some((key_ref, cmd_id)) if !key_ref.is_empty() && !cmd_id.is_empty() => {
+                (key_ref, cmd_id)
+            }
+            _ => return Err(malformed()),
+        };
+        if key_reference != self.key.reference() {
             return Err(format!(
-                "wrong signer: signature key reference '{}' is not this edge's verifying key \
-                 reference '{}'",
-                parts[1],
+                "wrong signer: signature key reference '{key_reference}' is not this edge's \
+                 verifying key reference '{}'",
                 self.key.reference()
             ));
         }
-        if parts[2] != command_id.as_str() {
+        if presented_command_id != command_id.as_str() {
             return Err(format!(
-                "signature is bound to command '{}' but arrived for command '{command_id}' — \
-                 payload binding mismatch",
-                parts[2]
+                "signature is bound to command '{presented_command_id}' but arrived for command \
+                 '{command_id}' — payload binding mismatch"
             ));
         }
         let expected = format!(
             "{:016x}",
             keyed_digest(&self.key, &canonical_command_binding(command))
         );
-        if parts[4] != expected {
+        if digest != expected {
             return Err(format!(
-                "payload integrity check failed (presented digest {}, expected {expected}) — the \
-                 payload does not match what was signed",
-                parts[4]
+                "payload integrity check failed (presented digest {digest}, expected {expected}) — \
+                 the payload does not match what was signed"
             ));
         }
         Ok(())

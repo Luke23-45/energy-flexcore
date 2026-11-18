@@ -214,7 +214,7 @@ fn every_never_granted_permission_is_refused_at_the_broker_check_path_and_audite
         assert_eq!(error.name(), "PERMISSION_NEVER_GRANTABLE", "capability {capability}");
         let denials: Vec<_> = sink
             .events()
-            .iter()
+            .into_iter()
             .filter(|e| e.kind == BrokerAuditKind::CapabilityDenied)
             .collect();
         assert_eq!(denials.len(), 1, "the crafted call is audited for {capability}");
@@ -257,7 +257,7 @@ fn every_never_granted_permission_is_refused_at_the_enforcement_door_for_every_w
     // Every door refusal is audited.
     let refusals: Vec<_> = sink
         .events()
-        .iter()
+        .into_iter()
         .filter(|e| e.kind == EnforcementAuditKind::InstantiationRefused)
         .collect();
     assert_eq!(refusals.len(), 12, "every refusal is audited (zero silent refusals)");
@@ -599,7 +599,11 @@ fn instantiate_requires_a_verdict_and_the_default_build_refuses_at_the_binding_s
     // The ONLY public constructor path to a binding takes a verdict; the
     // default build's binding seam is fail-closed (BINDINGS_NOT_GENERATED):
     // no build exists in which raw manifest data reaches a binding, and the
-    // verdict is required in BOTH builds.
+    // verdict is required in BOTH builds. The refusal surfaces at USE,
+    // not at construction: the default build's `instantiate` returns the
+    // fail-closed `NoBindings` stub (its doc: "every use is
+    // `BINDINGS_NOT_GENERATED`"), and the stub's `verify()` is the call
+    // that refuses.
     let gate = gate();
     let request = request(
         "plugin.alpha",
@@ -611,14 +615,10 @@ fn instantiate_requires_a_verdict_and_the_default_build_refuses_at_the_binding_s
         .evaluate(&InstantiationInput { request: &request, ceiling: &ceiling }, NOW)
         .expect("the door allows");
     let (_dir, artifact) = artifact_file("instantiate");
-    let error = flexcore_plugin_host::enforcement::instantiate(&verdict, &artifact)
-        .expect_err("the default build has no generated bindings");
-    match &error {
-        EnforcementError::HostRefusal { error } => {
-            assert_eq!(error.name(), "BINDINGS_NOT_GENERATED");
-        }
-        other => panic!("expected HostRefusal, got {other:?}"),
-    }
+    let binding = flexcore_plugin_host::enforcement::instantiate(&verdict, &artifact)
+        .expect("the default build hands back the fail-closed stub");
+    let error = binding.verify().expect_err("the stub refuses every use");
+    assert_eq!(error.name(), "BINDINGS_NOT_GENERATED");
 }
 
 #[test]
@@ -642,10 +642,10 @@ fn a_broken_audit_sink_refuses_the_door_decision_in_both_directions() {
     let gate = EnforcementGate::compose(broker(), Box::new(FailingSink));
     // The allow direction: refused with AUDIT_UNAVAILABLE, and the broker
     // holds NOTHING afterwards (the rollback).
-    let request = request("plugin.alpha", &["telemetry.read"], WorldId::TelemetrySourcePlugin);
+    let allow_request = request("plugin.alpha", &["telemetry.read"], WorldId::TelemetrySourcePlugin);
     let ceiling = ProfileCeiling::new(vec![ceiling_entry("telemetry.read", data_scope("tenant-1"))]);
     let error = gate
-        .evaluate(&InstantiationInput { request: &request, ceiling: &ceiling }, NOW)
+        .evaluate(&InstantiationInput { request: &allow_request, ceiling: &ceiling }, NOW)
         .expect_err("an unauditable allow is not authority");
     assert_eq!(error.name(), "AUDIT_UNAVAILABLE");
     let error = gate
@@ -670,14 +670,14 @@ fn an_over_broad_request_is_refused_never_trimmed_to_fit() {
     // REFUSES the whole request (PERMISSION_ABOVE_PROFILE) — the gate never
     // silently drops the over-broad row and grants the rest.
     let (gate, sink) = gate_with_sink();
-    let request = request(
+    let over_broad = request(
         "plugin.alpha",
         &["telemetry.read", "forecast.publish"],
         WorldId::TelemetrySourcePlugin,
     );
     let ceiling = ProfileCeiling::new(vec![ceiling_entry("telemetry.read", data_scope("tenant-1"))]);
     let error = gate
-        .evaluate(&InstantiationInput { request: &request, ceiling: &ceiling }, NOW)
+        .evaluate(&InstantiationInput { request: &over_broad, ceiling: &ceiling }, NOW)
         .expect_err("over-broad requests are refused");
     assert_eq!(error.name(), "PERMISSION_ABOVE_PROFILE");
     assert!(error.to_string().contains("never trimmed"));
@@ -746,7 +746,7 @@ fn no_permission_id_conveys_dispatch_authority_unbuildable_not_discouraged() {
     // — allowed, never-granted, or crafted — can produce a verdict that
     // conveys dispatch authority. The allowed set yields proposals only;
     // everything else refuses.
-    let gate = gate();
+    let allowed_gate = gate();
     let allowed = ENFORCEABLE_PERMISSIONS;
     // dispatch.validate.request cannot carry a send-only candidate target
     // (it must target exactly the protected validator), so the full-ceiling
@@ -754,7 +754,7 @@ fn no_permission_id_conveys_dispatch_authority_unbuildable_not_discouraged() {
     // Evaluate the remaining rows individually with a candidate-queue
     // ceiling (the widest a proposal can get).
     for capability in allowed {
-        if *capability == "dispatch.validate.request" {
+        if capability == "dispatch.validate.request" {
             continue;
         }
         let request = request("plugin.alpha", &[capability], WorldId::OptimizerPlugin);
@@ -762,7 +762,7 @@ fn no_permission_id_conveys_dispatch_authority_unbuildable_not_discouraged() {
             capability,
             CapabilityScope::SendOnlyTarget { target: "candidate-queue".to_string() },
         )]);
-        let verdict = gate
+        let verdict = allowed_gate
             .evaluate(&InstantiationInput { request: &request, ceiling: &single }, NOW)
             .unwrap_or_else(|e| panic!("allowed capability {capability} must evaluate: {e}"));
         // The granted set is a SUBSET of the allowed vocabulary and names
@@ -869,22 +869,22 @@ fn every_declared_bound_is_revalidated_against_the_kernel_closed_ranges() {
         }
     }
     // Timeout outside 1..=3_600_000 (zero = the caller's bug).
-    let bounds = DeclaredBounds { timeout_ms: 0, ..bounds() };
-    let error = ResourceLimits::from_declared_bounds(&bounds, 1_000_000).expect_err("zero timeout");
+    let timeout_bounds = DeclaredBounds { timeout_ms: 0, ..bounds() };
+    let error = ResourceLimits::from_declared_bounds(&timeout_bounds, 1_000_000).expect_err("zero timeout");
     match &error {
         HostError::LimitsInvalid { field, .. } => assert_eq!(field, "timeout-ms"),
         other => panic!("expected LimitsInvalid, got {other:?}"),
     }
     // Output outside 1..=4_096 (when declared).
-    let bounds = DeclaredBounds { max_output_mb: Some(4_097), ..bounds() };
-    let error = ResourceLimits::from_declared_bounds(&bounds, 1_000_000).expect_err("over range");
+    let output_bounds = DeclaredBounds { max_output_mb: Some(4_097), ..bounds() };
+    let error = ResourceLimits::from_declared_bounds(&output_bounds, 1_000_000).expect_err("over range");
     match &error {
         HostError::LimitsInvalid { field, .. } => assert_eq!(field, "max-output-mb"),
         other => panic!("expected LimitsInvalid, got {other:?}"),
     }
     // Call rate outside 1..=1_000_000 (when declared).
-    let bounds = DeclaredBounds { max_calls_per_minute: Some(0), ..bounds() };
-    let error = ResourceLimits::from_declared_bounds(&bounds, 1_000_000).expect_err("zero rate");
+    let rate_bounds = DeclaredBounds { max_calls_per_minute: Some(0), ..bounds() };
+    let error = ResourceLimits::from_declared_bounds(&rate_bounds, 1_000_000).expect_err("zero rate");
     match &error {
         HostError::LimitsInvalid { field, .. } => assert_eq!(field, "max-calls-per-minute"),
         other => panic!("expected LimitsInvalid, got {other:?}"),
@@ -924,18 +924,18 @@ fn the_epoch_deadline_rounds_up_and_never_grants_a_full_extra_tick() {
 fn the_door_refuses_resource_bound_lies_and_vocabulary_drift_before_any_code_runs() {
     let (gate, sink) = gate_with_sink();
     // A declared bound outside the closed range is refused at the door.
-    let request = EnforcementRequest {
+    let bound_lie = EnforcementRequest {
         bounds: DeclaredBounds { max_memory_mb: 0, ..bounds() },
         ..request("plugin.alpha", &["telemetry.read"], WorldId::TelemetrySourcePlugin)
     };
     let ceiling = ProfileCeiling::new(vec![ceiling_entry("telemetry.read", data_scope("tenant-1"))]);
     let error = gate
-        .evaluate(&InstantiationInput { request: &request, ceiling: &ceiling }, NOW)
+        .evaluate(&InstantiationInput { request: &bound_lie, ceiling: &ceiling }, NOW)
         .expect_err("the resource-bound lie is refused at the door");
     assert_eq!(error.name(), "LIMITS_INVALID");
     // Vocabulary drift: the ledger's `timeoutMs` spelling is NOT silently
     // interpreted — PERMISSION_VOCABULARY_DRIFT, never a default.
-    let request = EnforcementRequest {
+    let drift_timeout = EnforcementRequest {
         declared_resource_fields: vec![
             "max-memory-mb".to_string(),
             "timeoutMs".to_string(), // the unalignable spelling
@@ -943,12 +943,12 @@ fn the_door_refuses_resource_bound_lies_and_vocabulary_drift_before_any_code_run
         ..request("plugin.alpha", &["telemetry.read"], WorldId::TelemetrySourcePlugin)
     };
     let error = gate
-        .evaluate(&InstantiationInput { request: &request, ceiling: &ceiling }, NOW)
+        .evaluate(&InstantiationInput { request: &drift_timeout, ceiling: &ceiling }, NOW)
         .expect_err("an unalignable field is refused");
     assert_eq!(error.name(), "PERMISSION_VOCABULARY_DRIFT");
     assert!(error.to_string().contains("never given a default interpretation"));
     // A fuel/concurrency field the kernel schema does not carry: drift too.
-    let request = EnforcementRequest {
+    let drift_fuel = EnforcementRequest {
         declared_resource_fields: vec![
             "max-memory-mb".to_string(),
             "timeout-ms".to_string(),
@@ -957,17 +957,17 @@ fn the_door_refuses_resource_bound_lies_and_vocabulary_drift_before_any_code_run
         ..request("plugin.alpha", &["telemetry.read"], WorldId::TelemetrySourcePlugin)
     };
     let error = gate
-        .evaluate(&InstantiationInput { request: &request, ceiling: &ceiling }, NOW)
+        .evaluate(&InstantiationInput { request: &drift_fuel, ceiling: &ceiling }, NOW)
         .expect_err("a fuel field in the manifest resources object is drift");
     assert_eq!(error.name(), "PERMISSION_VOCABULARY_DRIFT");
     // A missing fuel budget at the door: LIMITS_INVALID (the mandatory
     // deployment-configured budget).
-    let request = EnforcementRequest {
+    let no_fuel = EnforcementRequest {
         fuel_budget: 0,
         ..request("plugin.alpha", &["telemetry.read"], WorldId::TelemetrySourcePlugin)
     };
     let error = gate
-        .evaluate(&InstantiationInput { request: &request, ceiling: &ceiling }, NOW)
+        .evaluate(&InstantiationInput { request: &no_fuel, ceiling: &ceiling }, NOW)
         .expect_err("no default fuel budget at the door");
     assert_eq!(error.name(), "LIMITS_INVALID");
     // Every door refusal audited.

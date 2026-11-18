@@ -1488,7 +1488,7 @@ pub fn envelope_updated_publications(
             .map_err(|_| EnvelopeError::EventEnvelopeRejected)?;
         let destination_subject = subject_for(&envelope.event);
         publications.push(EnvelopePublication {
-            idempotency_key: envelope.idempotency_key.clone(),
+            idempotency_key: envelope.idempotency_key.to_string(),
             destination_subject,
             envelope,
         });

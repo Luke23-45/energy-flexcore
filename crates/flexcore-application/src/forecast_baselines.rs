@@ -53,11 +53,7 @@
 // analytics, never a command. No safety, certification, or skill claim
 // is made.
 
-use serde::Serialize;
-
-use crate::forecast_architecture::{
-    ForecastArtifactKind, ForecastHorizon, ForecastScope,
-};
+use crate::forecast_architecture::{ForecastArtifactKind, ForecastHorizon};
 
 /// The registry version: the version of the FORECAST-BASELINE SET as a
 /// whole (adding a baseline is a registry version bump; editing one is a
@@ -92,8 +88,7 @@ pub const P3_10_SYNTHETIC_BASELINE_DISCLAIMER_MIRROR: &str =
 // --- The frozen baseline registry (P8.06 discipline, mirrored) ------------------------
 
 /// The kind of forecast baseline (the identity of the rule set).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ForecastBaselineKind {
     /// `next(t) = obs(t - 1)`: the last observed value carried forward for
     /// every horizon step (the persistence reference every other model
@@ -111,7 +106,7 @@ pub enum ForecastBaselineKind {
 /// compared against. Fields mirror the P8.06 `BaselineRecord` shape BY
 /// CITATION (version, written assumptions/limits, canonical string,
 /// freeze digest, version bump).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForecastBaselineRecord {
     /// The stable baseline id (e.g. `forecast-baseline/persistence`).
     pub baseline_id: &'static str,
@@ -262,7 +257,7 @@ pub fn forecast_baseline_registry() -> Vec<ForecastBaselineRecord> {
 /// canonical description (FNV-1a 64 — the repo's test-grade checksum,
 /// explicitly NOT a security primitive). Frozen BEFORE any evaluation
 /// result is compared to it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrozenForecastBaseline {
     /// The frozen record.
     pub record: ForecastBaselineRecord,
@@ -329,7 +324,7 @@ impl FrozenForecastBaseline {
         Ok(FrozenForecastBaseline {
             definition_digest: format!("{:016x}", fnv1a64(record.canonical_string().as_bytes())),
             record: record.clone(),
-            registry_version: FORECAST_BASELINE_REGISTRY_VERSION,
+            registry_version: FORECAST_BASELINE_REGISTRY_VERSION.to_string(),
         })
     }
 
@@ -518,7 +513,7 @@ pub struct DegreeDaySample {
 /// `load ≈ intercept + hdd_coef × HDD + cdd_coef × CDD`, plus the
 /// baseline version the fit declares (the frozen-version discipline:
 /// the result names its rule set).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DegreeDayFit {
     /// The intercept, MW (in the training data's sign convention).
     pub intercept_mw: f64,

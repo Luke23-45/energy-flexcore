@@ -87,7 +87,7 @@ pub struct DiagnosticsDeclaration {
 }
 
 /// Tolerances declared by the provider (§7.4 "tolerances").
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TolerancesDeclaration {
     /// Default primal feasibility tolerance.
     pub primal_feasibility_default: f64,
@@ -101,7 +101,7 @@ pub struct TolerancesDeclaration {
 }
 
 /// Scaling declaration (§7.4 "scaling").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScalingDeclaration {
     /// The provider's default scaling approach.
     pub default_approach: ScalingPolicy,
@@ -152,7 +152,7 @@ impl SolverCapabilities {
 /// Errors the port itself reports (as opposed to solver outcomes, which are
 /// mapped onto the six §12.6 statuses and returned in-band as an
 /// [`OptimizationResult`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum OptimizerError {
     /// The formulation is structurally invalid or its class declaration does
     /// not match its body. Never a solver outcome.

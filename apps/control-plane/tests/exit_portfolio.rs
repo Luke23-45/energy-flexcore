@@ -203,7 +203,7 @@ fn the_expected_count_arithmetic_matches_the_cadence_and_horizon() {
                 .find(|(t, _, _)| *t == asset_type)
                 .unwrap_or_else(|| panic!("no recorded quantity set for {asset_type}"));
             assert_eq!(*count, quantities.len());
-            total += count * ticks;
+            total += (*count as u64) * ticks;
         }
     }
     assert_eq!(
@@ -587,6 +587,7 @@ mod db_gated {
     use flexcore_contracts::time_model::{ClockQuality, EventTime, IngestTime};
     use flexcore_contracts::units::ActivePowerMW;
     use flexcore_contracts::time_model::SiteTimezone;
+    use flexcore_ports::clock::Clock;
     use flexcore_domain::entities::{Asset, AssetType, Portfolio, Site, Tenant};
     use flexcore_domain::ids::{AssetId, PortfolioId, SiteId, TenantId};
     use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
@@ -743,25 +744,28 @@ mod db_gated {
         // genuinely absent and NOT in the plan.
         let start = JAN_2030;
         let cadence_s = 60i64;
-        let record = |tick: i64, value: Option<TelemetryValue>| NormalizedTelemetryRecord {
-            tenant_id,
-            asset_id,
-            quantity: Quantity::ActivePower,
-            event_time: EventTime::from_unix_millis((start + tick * cadence_s) * 1000)
-                .expect("valid event time"),
-            ingest_time: IngestTime::from_unix_millis((start + tick * cadence_s) * 1000 + 1_000)
-                .expect("valid ingest time"),
-            value,
-            source_sequence: tick + 1,
-            source_id: "sim://exit-gate".to_string(),
-            quality: if value.is_none() {
+        let record = |tick: i64, value: Option<TelemetryValue>| {
+            let quality = if value.is_none() {
                 TelemetryQuality::Missing
             } else {
                 TelemetryQuality::Good
-            },
-            source_quality_code: None,
-            q_sign_convention: None,
-            clock_quality: ClockQuality::Synchronized,
+            };
+            NormalizedTelemetryRecord {
+                tenant_id,
+                asset_id,
+                quantity: Quantity::ActivePower,
+                event_time: EventTime::from_unix_millis((start + tick * cadence_s) * 1000)
+                    .expect("valid event time"),
+                ingest_time: IngestTime::from_unix_millis((start + tick * cadence_s) * 1000 + 1_000)
+                    .expect("valid ingest time"),
+                value,
+                source_sequence: tick + 1,
+                source_id: "sim://exit-gate".to_string(),
+                quality,
+                source_quality_code: None,
+                q_sign_convention: None,
+                clock_quality: ClockQuality::Synchronized,
+            }
         };
         let records = vec![
             record(0, Some(TelemetryValue::Numeric(1.0))),
@@ -803,7 +807,7 @@ mod db_gated {
         let observed: Vec<ObservedRecord> = stored
             .iter()
             .map(|r| ObservedRecord {
-                event_time_ms: r.event_time.timestamp().unix_millis(),
+                event_time_ms: i64::try_from(r.event_time.unix_millis()).unwrap_or(i64::MAX),
                 has_value: r.value.is_some(),
                 quality: r.quality.name().to_string(),
             })
@@ -837,7 +841,13 @@ mod db_gated {
                 ("flexcore_migrator", "flexcore_migrator_test_only"),
                 ("flexcore_ingest", "flexcore_ingest_test_only"),
             ] {
-                sqlx::query(&format!("ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"))
+                // SAFETY (sqlx 0.9 SqlSafeStr): `role` and `password` are
+                // fixed test-only literals from the list above — no user
+                // input reaches this DDL, and role names/passwords cannot
+                // be bind parameters in ALTER ROLE.
+                sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"
+                )))
                     .execute(pool)
                     .await
                     .expect("test role grant");

@@ -91,7 +91,7 @@ pub const DRIFT_RECORD_IS_NOT_A_COMMAND_STATEMENT: &str = "A drift record is an 
 // --- Errors -------------------------------------------------------------------
 
 /// Why a drift evaluation was refused. Named, never absorbed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DriftError {
     /// A declared bound was non-finite.
     NonFiniteBound { quantity: String, bound: &'static str },
@@ -524,7 +524,7 @@ mod tests {
     fn statements_are_the_recorded_strings() {
         assert!(TWIN_LITE_NOT_STATE_ESTIMATION_STATEMENT.contains("TWIN-LITE"));
         assert!(TWIN_LITE_NOT_STATE_ESTIMATION_STATEMENT.contains("NOT grid state estimation"));
-        assert!(TWIN_LITE_NOT_STATE_ESTIMATION_STATEMENT.contains("[S-168]"));
+        assert!(TWIN_LITE_NOT_STATE_ESTIMATION_STATEMENT.contains("[S-168 names the spectrum"));
         assert!(NO_PARALLEL_INGESTION_STATEMENT.contains("EXISTING Phase-2 TelemetrySource port"));
         assert!(NO_PARALLEL_INGESTION_STATEMENT.contains("No parallel ingestion path"));
         assert!(QUALITY_NON_INTERFERENCE_STATEMENT.contains("NEVER rewrites"));

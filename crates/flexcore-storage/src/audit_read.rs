@@ -317,7 +317,7 @@ pub struct AuditEventFilter {
 ///   decision references (P5.09 consumes them);
 /// - storage failures surface as [`AuditEventReadError::Backend`] with an
 ///   opaque code + message only.
-pub trait AuditEventReader {
+pub trait AuditEventReader: Send + Sync {
     /// Looks up one audit record in the caller's tenant scope. A
     /// foreign-tenant (or platform-level) record reads as `None` — no
     /// existence leak.

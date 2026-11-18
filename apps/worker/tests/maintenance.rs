@@ -17,6 +17,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
+use flexcore_ports::clock::Clock;
 use flexcore_postgres_adapter::partition_maintenance::{
     is_telemetry_partition_name, month_add, parse_partition_bounds, partition_name,
     plan_pre_creation, retention_cutoff, PartitionEntry,
@@ -166,8 +167,15 @@ fn reattach(pool: &PgPool, name: &str, bounds: (i64, i64)) {
         from.date(),
         until.date()
     );
+    // SAFETY (sqlx 0.9 SqlSafeStr): `name` is a partition name read back
+    // from the database's own partition listing (never user input) and the
+    // dates are computed from unix-timestamp bounds; identifiers and
+    // literal bounds cannot be bind parameters in ATTACH PARTITION.
     test_runtime().block_on(async {
-        sqlx::query(&ddl).execute(pool).await.expect("re-attach DDL");
+        sqlx::query(sqlx::AssertSqlSafe(ddl.as_str()))
+            .execute(pool)
+            .await
+            .expect("re-attach DDL");
     });
 }
 
@@ -191,12 +199,18 @@ fn partition_math_and_planning_are_pure_and_total() {
     assert_eq!((from.year(), u8::from(from.month())), (2026, 11));
     assert_eq!((until.year(), u8::from(until.month())), (2026, 12));
     assert!(parse_partition_bounds("FOR VALUES IN ('x')").is_none());
-    // The planner skips existing months and covers exactly N months.
+    // The planner skips existing months and covers exactly N months
+    // starting AT the frontier month (months_ahead counts the in-flight
+    // month itself — a partition for it may legitimately be missing on a
+    // fresh deployment — pinned by the adapter's own
+    // `pre_creation_plan_covers_only_missing_months` test: months_ahead=3
+    // from January with January existing plans February and March). So 3
+    // from November covers Nov–Jan; Nov exists, Dec and Jan are planned.
     let existing = vec![PartitionEntry {
         name: partition_name(2026, 11),
         bounds: None,
     }];
-    let plan = plan_pre_creation(&existing, 2026, 11, 2);
+    let plan = plan_pre_creation(&existing, 2026, 11, 3);
     let names: Vec<&str> = plan.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(names, vec!["telemetry_y2026m12", "telemetry_y2027m01"]);
     // The retention cutoff for a 2-month horizon in November 2026 is
@@ -226,8 +240,8 @@ async fn pre_creation_pass_creates_partitions_ahead_of_the_frontier() {
     let store = maintenance_store(&url);
 
     let now = SystemClock.now_event_time().timestamp();
-    let current = partition_name(now.year(), u8::from(now.month()));
-    let (next_year, next_month) = month_add(now.year(), u8::from(now.month()), 1);
+    let current = partition_name(now.year(), now.month() as u32);
+    let (next_year, next_month) = month_add(now.year(), now.month() as u32, 1);
     let next = partition_name(next_year, next_month);
 
     let created = pre_creation_pass(&store, 2).expect("pre-creation pass");
@@ -337,14 +351,14 @@ async fn approved_pass_detaches_only_out_of_window_partitions_with_audit() {
         let shared = Arc::new(unit);
         flexcore_postgres_adapter::PgUnitOfWork::create_telemetry_partition(&shared, 2019, 5)
             .expect("create 2019-05");
-        Arc::try_unwrap(shared)
+        Arc::into_inner(shared)
             .expect("unique")
             .commit()
             .expect("commit");
     }
 
     let now = SystemClock.now_event_time().timestamp();
-    let cutoff = retention_cutoff(now.year(), u8::from(now.month()), 2).expect("cutoff");
+    let cutoff = retention_cutoff(now.year(), now.month() as u32, 2).expect("cutoff");
     let before = attached_names(&store);
     let before_names: Vec<String> = before.iter().map(|(name, _)| name.clone()).collect();
     assert!(
@@ -374,7 +388,7 @@ async fn approved_pass_detaches_only_out_of_window_partitions_with_audit() {
         );
     }
     // The current month's partition (in-flight) is never detached.
-    let current = partition_name(now.year(), u8::from(now.month()));
+    let current = partition_name(now.year(), now.month() as u32);
     assert!(
         !report.detached.contains(&current),
         "the in-flight partition must never be detached"
@@ -432,7 +446,7 @@ async fn drop_step_refuses_attached_partitions_and_drops_detached_ones() {
         let shared = Arc::new(unit);
         flexcore_postgres_adapter::PgUnitOfWork::create_telemetry_partition(&shared, 2019, 7)
             .expect("create 2019-07");
-        Arc::try_unwrap(shared).expect("unique").commit().expect("commit");
+        Arc::into_inner(shared).expect("unique").commit().expect("commit");
     }
     let before_drop =
         audit_count_for(admin_pool, "telemetry.partition.drop", "telemetry_y2019m07");

@@ -61,6 +61,7 @@ use flexcore_nats_adapter::topology::{
 };
 use flexcore_ports::clock::Clock;
 use flexcore_ports::event_outbox::OutboxWrite;
+use flexcore_ports::event_outbox::EventOutbox;
 use flexcore_ports::fakes::{FakeEventOutbox, FakeWriteJournal, FixedClock};
 use flexcore_ports::state_change::{StateChangeOperation, StateChangeReceipt};
 

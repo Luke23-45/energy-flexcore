@@ -824,7 +824,14 @@ impl FileUpdateLedger {
             });
         }
         let magic = Self::magic();
-        let (file, replayed) = match std::fs::OpenOptions::new()
+        // The replay-computed loss counter, hoisted out of the match: the
+        // struct field below is initialized from it, not from 0 (a counter
+        // computed during replay and then discarded would under-report the
+        // loss — the same dropped-counter defect fixed in the kernel
+        // checkpoint, the revocation register, the research snapshot
+        // register, the command-verify checkpoint, the identity register,
+        // and the anti-rollback counter's already-fixed open).
+        let (file, replayed, replay_corrupt_truncated) = match std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)
@@ -837,7 +844,7 @@ impl FileUpdateLedger {
                         reason: format!("reading the existing update register failed: {e}"),
                     })?;
                 if contents.is_empty() {
-                    (existing, Vec::new())
+                    (existing, Vec::new(), 0u64)
                 } else {
                     if contents.len() < magic.len() || contents[..magic.len()] != magic[..] {
                         return Err(UpdateVerificationError::NotAnUpdateLedger {
@@ -898,7 +905,7 @@ impl FileUpdateLedger {
                                 ),
                             })?;
                     }
-                    (existing, records)
+                    (existing, records, corrupt_tail_truncated)
                 }
             }
             Err(_) => {
@@ -916,14 +923,14 @@ impl FileUpdateLedger {
                     .map_err(|e| UpdateVerificationError::LedgerIo {
                         reason: format!("writing the update register header failed: {e}"),
                     })?;
-                (created, Vec::new())
+                (created, Vec::new(), 0u64)
             }
         };
         Ok(Self {
             path: path.to_path_buf(),
             file: Mutex::new(file),
             records: Mutex::new(replayed),
-            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(0),
+            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(replay_corrupt_truncated),
             records_written: std::sync::atomic::AtomicU64::new(0),
         })
     }

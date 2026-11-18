@@ -166,6 +166,9 @@ fn a_degraded_clock_holds_commands_and_the_hold_is_audited() {
 
 #[test]
 fn an_outage_or_quiet_source_holds_until_a_fresh_in_tolerance_pair_recovers() {
+    // The quiet-source boundary runs on a SEPARATE monitor, built before
+    // the local `monitor` binding shadows the `monitor()` helper below.
+    let quiet_monitor = monitor();
     let monitor = monitor();
     monitor.observe_pair(pair(10, BASE)).expect("in-tolerance pair");
     // Explicit outage: Unsynchronized, held.
@@ -173,14 +176,22 @@ fn an_outage_or_quiet_source_holds_until_a_fresh_in_tolerance_pair_recovers() {
     assert_eq!(monitor.quality_at(BASE + 2_000), ClockQualityState::Unsynchronized);
     assert!(monitor.expiry_check_allowed(BASE + 2_000).is_err());
     // A quiet source ages into Unsynchronized past the configured timeout
-    // (pilot default 30 000 ms): the boundary is hand-computed.
+    // (pilot default 30 000 ms): the boundary is hand-computed. This is a
+    // SEPARATE monitor with no outage note — a noted outage latches
+    // Unsynchronized until a fresh pair arrives (lib:
+    // a_source_outage_is_unsynchronized_and_recovery_restores_trust), so
+    // the quiet boundary cannot be read off the outage monitor above
+    // (its last state is Unsynchronized, and quality_at can only return
+    // the last state or Unsynchronized — never Synchronized — without a
+    // fresh observation).
+    quiet_monitor.observe_pair(pair(10, BASE)).expect("in-tolerance pair");
     assert_eq!(
-        monitor.quality_at(BASE + DEFAULT_PILOT_SYNC_TIMEOUT_MILLIS),
+        quiet_monitor.quality_at(BASE + DEFAULT_PILOT_SYNC_TIMEOUT_MILLIS),
         ClockQualityState::Synchronized,
         "exactly AT the timeout is still the derived state"
     );
     assert_eq!(
-        monitor.quality_at(BASE + DEFAULT_PILOT_SYNC_TIMEOUT_MILLIS + 1),
+        quiet_monitor.quality_at(BASE + DEFAULT_PILOT_SYNC_TIMEOUT_MILLIS + 1),
         ClockQualityState::Unsynchronized,
         "one millis past the timeout, the source is quiet → hold"
     );

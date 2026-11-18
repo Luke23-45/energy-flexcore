@@ -19,9 +19,9 @@
 use std::collections::BTreeMap;
 
 use flexcore_research::admm::{CoupledProblem, Participant};
-use flexcore_research::baselines::PriorityListFallback;
 use flexcore_research::dmpc::{
-    plan_horizon, proposal_for_first_step, DmpcHorizonInput, TerminationCriteria,
+    plan_horizon, proposal_for_first_step, DmpcHorizonInput, PriorityListFallback,
+    TerminationCriteria,
 };
 use flexcore_research::validation::{
     GateSeamError, HarnessClock, IndependentFeasibilityGate, IndependentVerdict, ResearchProvenance,

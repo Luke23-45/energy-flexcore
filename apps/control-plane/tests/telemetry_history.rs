@@ -38,6 +38,7 @@ use flexcore_contracts::units::{ActivePowerMW, EnergyMWh, ReactiveSignConvention
 use flexcore_control_plane::auth::{AuthError, Caller, IdentityResolver, phase2_default_policies};
 use flexcore_control_plane::probes::Readiness;
 use flexcore_control_plane::routes::stage1_router;
+use flexcore_ports::clock::Clock;
 use flexcore_control_plane::routes_phase2::{
     history_bucket_count, validate_history_buckets, validate_history_limit, validate_history_range,
 };
@@ -163,7 +164,13 @@ fn ensure_test_roles(pool: &sqlx::PgPool) {
             ("flexcore_ingest", "flexcore_ingest_test_only"),
             ("flexcore_query", "flexcore_query_test_only"),
         ] {
-            sqlx::query(&format!("ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"))
+            // SAFETY (sqlx 0.9 SqlSafeStr): `role` and `password` are
+            // fixed test-only literals from the list above — no user
+            // input reaches this DDL, and role names/passwords cannot
+            // be bind parameters in ALTER ROLE.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"
+            )))
                 .execute(pool)
                 .await?;
         }
@@ -184,10 +191,14 @@ fn ensure_partitions(url: &str) {
         .expect("connect as flexcore_migrator");
     test_runtime().block_on(async {
         for (name, from, to) in PARTITION_MONTHS {
-            sqlx::query(&format!(
+            // SAFETY (sqlx 0.9 SqlSafeStr): `name`/`from`/`to` are fixed
+            // literals from the PARTITION_MONTHS const above — no user
+            // input reaches this DDL, and partition names/bounds cannot
+            // be bind parameters in CREATE TABLE.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE IF NOT EXISTS {name} PARTITION OF telemetry \
                  FOR VALUES FROM ('{from}') TO ('{to}')"
-            ))
+            )))
             .execute(&migrator_pool)
             .await
             .expect("partition DDL as the table owner");
@@ -1017,16 +1028,24 @@ fn history_range_validation_reuses_the_p2_12_seven_day_rule() {
 fn history_bucket_count_and_validation_match_the_recorded_d_h3_contract() {
     let from = EventTime::from_unix_millis(JAN_2030 * 1000).expect("from");
     let until_1d = EventTime::from_unix_millis((JAN_2030 + DAY) * 1000).expect("until");
-    // A 1-day window is exactly one 1d bucket (the first starts at `from`).
-    assert_eq!(history_bucket_count(from, until_1d, HistoryBucketWidth::OneDay), 1);
+    // A 1-day window touches TWO 1d buckets under the recorded D-H3
+    // formula (`floor(span / width) + 1`): the bucket starting at `from`
+    // and the bucket starting at `until` — the range is closed
+    // (`event_time <= until` in D-H4), so the endpoint itself falls in a
+    // bucket. (The old expectation of 1 miscounted the endpoint bucket.)
+    assert_eq!(history_bucket_count(from, until_1d, HistoryBucketWidth::OneDay), 2);
     // A 1-day window is 25 1h buckets (floor(86400000/3600000) + 1).
     assert_eq!(history_bucket_count(from, until_1d, HistoryBucketWidth::OneHour), 25);
-    // 1000 buckets fit; 1001 do not.
+    // 1000 buckets fit; 1001 do not. A span of 999h is exactly 1000
+    // buckets (`floor(999h / 1h) + 1`); the first span over the limit is
+    // 1000h (1001 buckets) — 999h + 1ms is still 1000 buckets, so it
+    // fits (the old case miscounted the +1).
     let span_999_buckets = 999 * HistoryBucketWidth::OneHour.millis();
     let until_1000 = EventTime::from_unix_millis(JAN_2030 * 1000 + span_999_buckets).expect("until");
     assert_eq!(validate_history_buckets(from, until_1000, HistoryBucketWidth::OneHour), Ok(()));
+    let span_1000_buckets = 1000 * HistoryBucketWidth::OneHour.millis();
     let until_1001 =
-        EventTime::from_unix_millis(JAN_2030 * 1000 + span_999_buckets + 1).expect("until");
+        EventTime::from_unix_millis(JAN_2030 * 1000 + span_1000_buckets).expect("until");
     assert!(validate_history_buckets(from, until_1001, HistoryBucketWidth::OneHour).is_err());
 }
 

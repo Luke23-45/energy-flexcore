@@ -37,11 +37,14 @@
 // (the worker's `fmt` output shape is otherwise unchanged — recorded).
 
 use opentelemetry::global;
-use opentelemetry::propagation::{Injector, TraceContextPropagator};
-use opentelemetry_otlp::SpanExporter;
+use opentelemetry::propagation::Injector;
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 use opentelemetry_sdk::resource::Resource;
-use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider, TraceIdRatioBased};
+use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
 use std::time::Duration;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// The environment keys this module reads (mirrors the P11.04 control
 /// plane keys; worker-default service name).
@@ -219,7 +222,7 @@ pub fn init_from_env(config: &TelemetryConfig, log_level: &str) -> TelemetryGuar
         .build();
     // Parent-based head sampling (the P11.06 sampling policy record;
     // tail sampling deferred with its recorded trigger).
-    let sampler = Sampler::ParentBased(Box::new(TraceIdRatioBased::new(
+    let sampler = Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
         config.trace_sample_ratio,
     )));
     let tracer_provider = SdkTracerProvider::builder()
@@ -249,7 +252,7 @@ pub fn init_from_env(config: &TelemetryConfig, log_level: &str) -> TelemetryGuar
 mod tests {
     use super::*;
 
-    fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + '_ {
+    fn env_of<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |key: &str| {
             pairs
                 .iter()

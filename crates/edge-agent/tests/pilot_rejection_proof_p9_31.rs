@@ -61,10 +61,10 @@ use flexcore_edge_agent::command_path::{
 };
 use flexcore_edge_agent::command_verify::{
     sign_command, AssetCommandScope, CommandAuthorization, CommandSigningKey, CommandVerifier,
-    FileSequenceCheckpoint, IncomingCommand,
+    FileSequenceCheckpoint, IncomingCommand, SequenceCheckpointStore,
 };
 use flexcore_edge_agent::pilot_rejection_proof::{
-    AttackOutcome, FileCommandIdBinding, PilotAttackCase, PilotRejectionProver,
+    AttackOutcome, AttackRecord, FileCommandIdBinding, PilotAttackCase, PilotRejectionProver,
     DEFAULT_ID_BINDING_CAPACITY,
 };
 use flexcore_edge_agent::policy::{AdapterPolicy, OperatingWindow, RateLimit, SitePolicyConfig};
@@ -457,7 +457,7 @@ fn forged_but_otherwise_valid_payloads_reject_with_the_signature_reason() {
     let record = harness.run(&forged_digest, PilotAttackCase::ForgedSignature);
     assert!(matches!(
         record.outcome,
-        AttackOutcome::RejectedAtVerification { rejection_code: "signature", ref detail }
+        AttackOutcome::RejectedAtVerification { rejection_code: "signature", rejection_detail: ref detail }
             if detail.contains("payload integrity")
     ), "the forged-digest attack is refused at the payload check: {record:?}");
     assert_audited_rejection(&harness, "signature");
@@ -490,7 +490,7 @@ fn forged_but_otherwise_valid_payloads_reject_with_the_signature_reason() {
     let record = harness.run(&foreign, PilotAttackCase::ForgedSignature);
     assert!(matches!(
         record.outcome,
-        AttackOutcome::RejectedAtVerification { rejection_code: "signature", ref detail }
+        AttackOutcome::RejectedAtVerification { rejection_code: "signature", rejection_detail: ref detail }
             if detail.contains("wrong signer")
     ), "the wrong-signer attack is refused: {record:?}");
     assert_audited_rejection(&harness, "signature");
@@ -514,7 +514,7 @@ fn exactly_at_expiry_rejects_and_one_millis_before_passes() {
     assert!(
         matches!(
             record.outcome,
-            AttackOutcome::RejectedAtVerification { rejection_code: "expiry", ref detail }
+            AttackOutcome::RejectedAtVerification { rejection_code: "expiry", rejection_detail: ref detail }
                 if detail.contains("expired at")
         ),
         "the exactly-at-expiry attack is refused with the expiry reason: {record:?}"
@@ -660,7 +660,7 @@ fn out_of_sequence_gaps_behind_reject_while_a_head_gap_is_admitted_by_design() {
     let record = harness.run(&behind_one, PilotAttackCase::OutOfSequence);
     assert!(matches!(
         record.outcome,
-        AttackOutcome::RejectedAtVerification { rejection_code: "sequence", ref detail }
+        AttackOutcome::RejectedAtVerification { rejection_code: "sequence", rejection_detail: ref detail }
             if detail.contains("below the last accepted")
     ), "a gap of 1 behind is out of sequence: {record:?}");
     assert_audited_rejection(&harness, "sequence");

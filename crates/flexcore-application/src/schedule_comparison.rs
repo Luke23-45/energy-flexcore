@@ -661,6 +661,21 @@ fn build_tier_side(
     runtime: Duration,
 ) -> Result<CandidateComparisonEntry, ComparisonError> {
     let status_str = side.status.as_str().to_string();
+    // The status gate runs FIRST: a non-solving side is not a produced
+    // schedule, and that fault must not be masked by the metric checks
+    // below (an infeasible side typically carries no objective at all).
+    // This matches Gate 3 of `compare_candidate_schedules` (status
+    // before metrics); the explicit check here gives the named error
+    // before the modeling gate runs.
+    match side.status {
+        SolveStatus::Optimal | SolveStatus::Feasible => {}
+        _ => {
+            return Err(ComparisonError::NotAScheduleCandidate {
+                candidate_id: candidate_id.to_string(),
+                status: status_str,
+            });
+        }
+    }
     let objective_value = side.objective_value.ok_or(ComparisonError::MissingMetric {
         candidate_id: candidate_id.to_string(),
         metric: "objective_value",
@@ -672,18 +687,6 @@ fn build_tier_side(
             candidate_id: candidate_id.to_string(),
             metric: "objective_units",
         })?;
-    // The status gate of `compare_candidate_schedules` would also catch a
-    // non-solving side; the explicit check here gives the named error before
-    // the modeling gate runs.
-    match side.status {
-        SolveStatus::Optimal | SolveStatus::Feasible => {}
-        _ => {
-            return Err(ComparisonError::NotAScheduleCandidate {
-                candidate_id: candidate_id.to_string(),
-                status: status_str,
-            });
-        }
-    }
     Ok(CandidateComparisonEntry {
         candidate_id: candidate_id.to_string(),
         result_input_snapshot_reference: result_input_snapshot_reference.to_string(),

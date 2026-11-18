@@ -24,7 +24,7 @@
 
 use std::sync::Mutex;
 
-use flexcore_domain::ids::FlexUuid;
+use flexcore_contracts::ids::FlexUuid;
 use flexcore_domain::tenant_context::TenantContext;
 use flexcore_storage::audit_read::{
     AuditEventFilter, AuditEventReadError, AuditEventReader, AuditEventRow,
@@ -227,6 +227,21 @@ impl CommandRecordStore for FakeCommandRecordStore {
             .take(limit as usize)
             .map(|stored| stored.record.clone())
             .collect())
+    }
+
+    fn ensure_schedule_revision_usable(
+        &self,
+        _ctx: &TenantContext,
+        schedule_id: &str,
+        revision: u64,
+    ) -> Result<(), CommandStoreError> {
+        // The fake holds no schedule-revision state, so every revision is
+        // UNKNOWN — and unknown is never "usable" (trait doc, P4.12 gate).
+        // Fail-closed, mirroring the real adapter's `Ok(None)` arm.
+        Err(CommandStoreError::ScheduleRevisionUnknown {
+            schedule_id: schedule_id.to_string(),
+            revision,
+        })
     }
 }
 

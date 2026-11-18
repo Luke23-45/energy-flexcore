@@ -455,6 +455,10 @@ impl FileRevocationRegister {
             });
         }
         let magic = Self::magic();
+        // The corrupt tail truncated at open is the audited loss counter —
+        // it must survive into the constructed instance (initializing the
+        // counter to 0 here would silently drop the loss the replay found).
+        let mut corrupt_tail_truncated: u64 = 0;
         let (file, replayed) = match std::fs::OpenOptions::new().read(true).write(true).open(path)
         {
             Ok(mut existing) => {
@@ -479,7 +483,6 @@ impl FileRevocationRegister {
                     }
                     let mut records = Vec::new();
                     let mut offset = magic.len();
-                    let mut corrupt_tail_truncated: u64 = 0;
                     while offset + 8 <= contents.len() {
                         let len_bytes = match contents
                             .get(offset..offset + 4)
@@ -589,13 +592,14 @@ impl FileRevocationRegister {
         for record in &replayed {
             by_key.insert(record.key.register_key(), record.clone());
         }
+        let records_replayed = replayed.len() as u64;
         Ok(Self {
             path: path.to_path_buf(),
             file: Mutex::new(file),
             append_order: Mutex::new(replayed),
             by_key: Mutex::new(by_key),
-            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(0),
-            records_written: std::sync::atomic::AtomicU64::new(0),
+            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(corrupt_tail_truncated),
+            records_written: std::sync::atomic::AtomicU64::new(records_replayed),
         })
     }
 
@@ -612,7 +616,9 @@ impl FileRevocationRegister {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// How many records this instance has written (diagnostics).
+    /// How many records this instance knows: replayed at open plus
+    /// written since (diagnostics — a reopened instance reports what the
+    /// file holds, so the durable advance is countable after a restart).
     pub fn records_written(&self) -> u64 {
         self.records_written
             .load(std::sync::atomic::Ordering::SeqCst)
@@ -822,7 +828,7 @@ impl MemoryRevocationAuditSink {
 
     /// The records in emission order (append-only; the borrow is brief and
     /// single-threaded).
-    pub fn records(&self) -> std::cell::Ref<Vec<RevocationAuditRecord>> {
+    pub fn records(&self) -> std::cell::Ref<'_, Vec<RevocationAuditRecord>> {
         self.records.borrow()
     }
 }

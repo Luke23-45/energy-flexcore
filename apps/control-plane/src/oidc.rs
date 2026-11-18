@@ -144,6 +144,14 @@ pub enum AudienceClaim {
     Many(Vec<String>),
 }
 
+impl Default for AudienceClaim {
+    /// No audience asserted (an absent `aud` claim). The crate's
+    /// `Validation` enforces membership, so the empty list fails closed.
+    fn default() -> Self {
+        AudienceClaim::Many(Vec::new())
+    }
+}
+
 impl AudienceClaim {
     /// Whether the named audience is present.
     pub fn contains(&self, audience: &str) -> bool {
@@ -268,7 +276,7 @@ impl JwksCache {
                     .source
                     .fetch(issuer)
                     .map_err(|e| KeyLookupError::Source(e.to_string()))?;
-                let key = lookup_in(&document, kid).map_err(|e| e.into_owned())?;
+                let key = lookup_in(&document, kid).map_err(KeyLookupError::from)?;
                 let mut entries = self
                     .entries
                     .lock()
@@ -396,12 +404,21 @@ impl TenantClaimMapper for StaticTenantMapper {
         verified_issuer: &str,
         claims: &OidcTokenClaims,
     ) -> Option<TenantId> {
+        // The token's own issuer claim must match the verified issuer
+        // before EITHER path is consulted: a token whose iss disagrees
+        // with the verified issuer is inconsistent, and neither the direct
+        // claim nor the connection binding may ride on it (a token cannot
+        // name its own tenant — and cannot borrow another issuer's
+        // binding either). The production path validates iss exactly
+        // before this mapper is reached; this is the defence-in-depth
+        // check at the mapper layer itself.
+        if claims.iss.as_deref() != Some(verified_issuer) {
+            return None;
+        }
         // The direct claim is honored only for the verified issuer.
         if let Some(tid) = &claims.flexcore_tenant_id {
-            if claims.iss.as_deref() == Some(verified_issuer) {
-                if let Ok(uuid) = flexcore_contracts::ids::FlexUuid::parse(tid) {
-                    return Some(TenantId::new(uuid));
-                }
+            if let Ok(uuid) = flexcore_contracts::ids::FlexUuid::parse(tid) {
+                return Some(TenantId::new(uuid));
             }
         }
         // The connection binding: the verified issuer maps to the bound
@@ -570,6 +587,7 @@ impl IdentityResolver for OidcResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicI64, Ordering};
 
     // A syntactically valid JWKS document with one RSA JWK (`kid = "k1"`).
@@ -585,7 +603,7 @@ mod tests {
             "n": "sXgdKaG-u8FJh9T3sJ-HkquoFfMTOMX3CLmJUvNhcWJmVhVOczvWTs0Y",
             "e": "AQAB"
         }]
-    }";
+    }"#;
 
     struct StaticSource(JwkSet);
 
@@ -597,7 +615,7 @@ mod tests {
 
     struct CountingSource {
         document: JwkSet,
-        fetches: AtomicI64,
+        fetches: Arc<AtomicI64>,
     }
 
     impl JwksSource for CountingSource {
@@ -734,38 +752,44 @@ mod tests {
     fn jwks_cache_finds_the_kid_and_counts_one_fetch() {
         let source = CountingSource {
             document: jwks(),
-            fetches: AtomicI64::new(0),
+            fetches: Arc::new(AtomicI64::new(0)),
         };
+        let fetches = Arc::clone(&source.fetches);
         let cache = JwksCache::new(Box::new(source), config().jwks_cache_ttl);
         let key = cache
             .decoding_key("https://idp.example/realms/flexcore", "k1", 1_000)
             .expect("kid k1 is in the document");
         let _ = key.into_inner();
-        assert_eq!(source.fetches.load(Ordering::SeqCst), 1);
+        assert_eq!(fetches.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn jwks_cache_unknown_kid_fails_closed_after_refresh_attempt() {
         let source = CountingSource {
             document: jwks(),
-            fetches: AtomicI64::new(0),
+            fetches: Arc::new(AtomicI64::new(0)),
         };
+        let fetches = Arc::clone(&source.fetches);
         let cache = JwksCache::new(Box::new(source), config().jwks_cache_ttl);
-        let err = cache
-            .decoding_key("https://idp.example/realms/flexcore", "no-such-kid", 1_000)
-            .expect_err("an unknown kid never resolves");
-        assert!(matches!(err, KeyLookupError::KeyNotFound { .. }));
+        assert!(
+            matches!(
+                cache.decoding_key("https://idp.example/realms/flexcore", "no-such-kid", 1_000),
+                Err(KeyLookupError::KeyNotFound { .. })
+            ),
+            "an unknown kid never resolves"
+        );
         // Exactly ONE refresh attempt for the miss (the recorded bounded
         // anti-stampede posture).
-        assert_eq!(source.fetches.load(Ordering::SeqCst), 1);
+        assert_eq!(fetches.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn jwks_cache_fresh_entry_is_reused_without_a_second_fetch() {
         let source = CountingSource {
             document: jwks(),
-            fetches: AtomicI64::new(0),
+            fetches: Arc::new(AtomicI64::new(0)),
         };
+        let fetches = Arc::clone(&source.fetches);
         let cache = JwksCache::new(Box::new(source), config().jwks_cache_ttl);
         cache
             .decoding_key("https://idp.example/realms/flexcore", "k1", 1_000)
@@ -773,16 +797,17 @@ mod tests {
         cache
             .decoding_key("https://idp.example/realms/flexcore", "k1", 1_000 + 60_000)
             .expect("second lookup reuses the fresh entry");
-        assert_eq!(source.fetches.load(Ordering::SeqCst), 1);
+        assert_eq!(fetches.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn jwks_cache_expired_entry_triggers_refresh() {
         let source = CountingSource {
             document: jwks(),
-            fetches: AtomicI64::new(0),
+            fetches: Arc::new(AtomicI64::new(0)),
         };
         let ttl = config().jwks_cache_ttl;
+        let fetches = Arc::clone(&source.fetches);
         let cache = JwksCache::new(Box::new(source), ttl);
         cache
             .decoding_key("https://idp.example/realms/flexcore", "k1", 1_000)
@@ -795,7 +820,7 @@ mod tests {
                 1_000 + ttl.as_millis() as i64 + 1,
             )
             .expect("second lookup refreshes past expiry");
-        assert_eq!(source.fetches.load(Ordering::SeqCst), 2);
+        assert_eq!(fetches.load(Ordering::SeqCst), 2);
     }
 
     #[test]
@@ -806,19 +831,19 @@ mod tests {
             Box::new(FixedTenant(TenantId::new(tenant_uuid()))),
             clock(1_000),
         );
-        assert_eq!(resolver.resolve(None), Err(AuthError::MissingCredentials));
-        assert_eq!(resolver.resolve(Some("")), Err(AuthError::InvalidCredentials));
+        assert_eq!(resolver.resolve(None).expect_err("the resolver must deny this request"), AuthError::MissingCredentials);
+        assert_eq!(resolver.resolve(Some("")).expect_err("the resolver must deny this request"), AuthError::InvalidCredentials);
         assert_eq!(
-            resolver.resolve(Some("not-a-bearer")),
-            Err(AuthError::InvalidCredentials)
+            resolver.resolve(Some("not-a-bearer")).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials
         );
         assert_eq!(
-            resolver.resolve(Some("Bearer ")),
-            Err(AuthError::InvalidCredentials)
+            resolver.resolve(Some("Bearer ")).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials
         );
         assert_eq!(
-            resolver.resolve(Some("Bearer not-a-jwt")),
-            Err(AuthError::InvalidCredentials)
+            resolver.resolve(Some("Bearer not-a-jwt")).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials
         );
     }
 
@@ -841,8 +866,8 @@ mod tests {
         // even with a working source).
         let alg_none = "eyJhbGciOiJub25lIiwia2lkIjoiazEifQ.e30.";
         assert_eq!(
-            resolver.resolve(Some(&format!("Bearer {alg_none}"))),
-            Err(AuthError::InvalidCredentials)
+            resolver.resolve(Some(&format!("Bearer {alg_none}"))).expect_err("the resolver must deny this request"),
+            AuthError::InvalidCredentials
         );
     }
 

@@ -123,7 +123,7 @@ pub const RESPONSE_CROSS_REFERENCED: &str = "cross_referenced_to_phase_4_suite";
 /// faults the scenario configuration already carries (so one vocabulary
 /// covers both; the mapping table is in the decision record
 /// `21_24_faults_visibility.md` §2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ScenarioFaultKind {
     /// §19.2 layer 6 "dropped messages" (declared via the v3 slot; the
     /// P2.15 `drop` window realizes the same effect — see the mapping).
@@ -872,8 +872,9 @@ pub fn build_fault_journal(
                      composition-level injection surface exists for '{}' in 0.3.0; \
                      the pre-registered platform outcomes live in the P4.31 suite \
                      (the P5.21 ledger step-4 rule: cross-reference, do not \
-                     duplicate)",
-                    spec.kind.name()
+                     duplicate). {}",
+                    spec.kind.name(),
+                    expected_detail(spec.kind, spec.from_ms, spec.until_ms)
                 ),
                 platform_response: RESPONSE_CROSS_REFERENCED.to_string(),
                 evidence_reference: spec.pre_registered_reference.clone(),
@@ -1209,7 +1210,7 @@ pub fn run_fault_probes(
 
     // The clock-skew probes (slot-declared specs).
     for spec in plan.clock_skew_specs() {
-        let command_id = CommandId::new(flexcore_sim_runner::scenario_run::deterministic_uuid(
+        let command_id = CommandId::new(deterministic_uuid(
             &format!("flexcore-sim-runner/probe/clock-skew/{}", spec.fault_id),
         ));
         // Issue one instant past the command's validity window (the window
@@ -1281,7 +1282,7 @@ pub fn run_fault_probes(
                 ..base_config.clone()
             };
             let command_id = CommandId::new(
-                flexcore_sim_runner::scenario_run::deterministic_uuid(&format!(
+                deterministic_uuid(&format!(
                     "flexcore-sim-runner/probe/fleet/{}/{}",
                     spec.fault_id, asset_key
                 )),

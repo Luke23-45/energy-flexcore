@@ -398,6 +398,16 @@ pub enum EdgeAuditKind {
     /// interlock, drain, or conformance re-check (the dedicated
     /// `EDGE_UPDATE_*` event name still leads the detail text).
     UpdateLifecycle,
+    // P6.14 — the command-path rejection (additive, the P6.06 additive-kind
+    // pattern): a refused command is audited as its own kind, not as
+    // Startup. The receiver previously rode `Startup` with only the
+    // dedicated event name in the detail text, so the durable buffer filed
+    // rejections as SupervisionStartup and the CommandRejected vocabulary
+    // (code 8) was unreachable.
+    /// A command was REFUSED by the command path (gate, policy, or
+    /// shape/lifecycle check); the dedicated `EDGE_COMMAND_REJECTED` name
+    /// still leads the detail text.
+    CommandRejected,
 }
 
 impl EdgeAuditKind {
@@ -416,6 +426,7 @@ impl EdgeAuditKind {
             EdgeAuditKind::CredentialExpired => "EDGE_CREDENTIAL_EXPIRED",
             EdgeAuditKind::RevocationUnchecked => "EDGE_REVOCATION_UNCHECKED",
             EdgeAuditKind::UpdateLifecycle => "EDGE_UPDATE_LIFECYCLE",
+            EdgeAuditKind::CommandRejected => "EDGE_COMMAND_REJECTED",
         }
     }
 }

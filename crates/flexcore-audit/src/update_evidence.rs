@@ -133,6 +133,9 @@ impl UpdateEvidenceKind {
         }
     }
 
+    // Test-only: the round-trip inverse of `code`, kept for the
+    // code-table test below; no production path parses a stored code.
+    #[cfg(test)]
     fn from_code(code: u8) -> Option<Self> {
         match code {
             1 => Some(UpdateEvidenceKind::Attempt),

@@ -128,7 +128,7 @@ pub fn problem_ir_digest(problem: &OptimizationProblem) -> String {
 /// identical (at the stated tolerance) and, when not, exactly which fields
 /// differ. `identical == false` is a determinism FINDING, never smoothed
 /// over — the differences are the diagnostic.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReplayComparison {
     /// `true` when the two records are identical at the stated tolerance.
     pub identical: bool,
@@ -181,8 +181,12 @@ pub fn compare_replay_records(
     }
     // Compared as Option<&str> so required and optional identification
     // fields share one comparison (None on one side and Some on the other
-    // is a difference).
-    let text_of = |value: &String| Some(value.as_str());
+    // is a difference). A plain fn (not a closure): each call site borrows
+    // a different String, and a closure's inferred return lifetime would
+    // unify them into one lifetime, which the borrow checker rejects.
+    fn text_of(value: &String) -> Option<&str> {
+        Some(value.as_str())
+    }
     for (field, a, b) in [
         ("solver_name", text_of(&baseline.solver_name), text_of(&replay.solver_name)),
         (
@@ -402,7 +406,7 @@ fn compare_residuals(
     tolerance: f64,
     differences: &mut Vec<String>,
 ) {
-    let compare_option = |field: &str, a: Option<f64>, b: Option<f64>| {
+    let mut compare_option = |field: &str, a: Option<f64>, b: Option<f64>| {
         match (a, b) {
             (Some(va), Some(vb)) => {
                 if !within_tolerance(va, vb, tolerance) {

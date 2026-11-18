@@ -54,7 +54,7 @@
 // issues, or dispatches anything; a PV forecast is an input to scheduling
 // analytics, never a command.
 
-use crate::forecast_architecture::{ForecastArtifactKind, ForecastHorizon, ForecastScope};
+use crate::forecast_architecture::ForecastHorizon;
 
 /// The PV forecasting design statement (pinned by tests).
 pub const PV_FORECAST_DESIGN_STATEMENT: &str = "PV generation forecasting in FlexCore is a \
@@ -369,6 +369,8 @@ pub fn pv_model_design_registry() -> Vec<PvForecastModelDeclaration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ForecastArtifactKind;
+    use crate::ForecastScope;
 
     #[test]
     fn the_design_statement_carries_the_honesty_lines() {

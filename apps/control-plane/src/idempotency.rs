@@ -61,7 +61,7 @@ use std::sync::Mutex;
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::header::HeaderName;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use flexcore_events::envelope::IdempotencyKey;
 
 use crate::error::ApiError;
@@ -256,7 +256,7 @@ pub async fn idempotency_middleware(
         None => {
             return ApiError::validation(
                 "the Idempotency-Key header is mandatory on command-submission POSTs \
-                 (a retry of the same submission must carry the SAME key)"
+                 (a retry of the same submission must carry the SAME key)".to_string()
             )
             .into_response()
         }
@@ -270,7 +270,7 @@ pub async fn idempotency_middleware(
             Ok(key) => key,
             Err(_) => {
                 return ApiError::validation(
-                    "the Idempotency-Key header must be non-empty and whitespace-free",
+                    "the Idempotency-Key header must be non-empty and whitespace-free".to_string(),
                 )
                 .into_response()
             }

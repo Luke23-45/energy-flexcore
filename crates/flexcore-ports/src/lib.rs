@@ -21,8 +21,9 @@
 //! | [`telemetry_source`] | P2.11; report §9.1 | The `TelemetrySource` port: tenant-scoped `TelemetryQuery` (constructor requires the domain `TenantContext`), the P2.04 canonical `NormalizedTelemetry` record (Result-constructed — no partial records), subscribe/decode/source_id/health, and the structural provider rule (`ProviderDeclaration`: cadence, quality mapping, clock behaviour). Phase 2 provider set: exactly one — the simulator (P2.14) |
 //! | [`telemetry_source_contract`] | P2.27; report §19.2 layer 3 | The reusable `TelemetrySource` provider contract suite: generic over the port, so every provider (the simulator now, future adapters later) passes the same checks — declaration, canonical schema, six-state quality closure, per-asset sequence monotonicity, event-time-on-clock, ingest-time-at-emission, and deterministic same-seed reproduction. No implementation ships here; the CI instantiation drives it against a documented in-memory stand-in (the ports crate cannot depend on the simulator) |
 //! | [`telemetry_ingest`] | P2.09/P2.10 | The ingest-side write port: `TelemetryIngestStore` (batch insert with the P2.09 exact-vs-conflicting duplicate classification, quarantine evidence writes, latest-by-`event_time` current-state snapshot) and `IngestionInbox` (the P1.16 inbox pattern split into check/record halves for consumer-side idempotency). ADAPTER STATUS (FRV1-R1-003): unwired in the shipped baseline — the persistence adapter's inherent unit-of-work methods implement the equivalent surface (the recorded P2.06-adjacent gap; see the module header), so the only trait implementation is the test fake |
-//! | [`telemetry_read`] | P2.12/P2.17/P2.18 | The `TelemetryReader` port — the read side of the canonical telemetry store: keyset-paginated time-range query (cursor decided once: the `(event_time, asset_id, quantity)` sort key), the P2.18 latest-by-`event_time` current state, and the P2.07 quarantine read. Tenant-scoped by construction. ADAPTER STATUS (FRV1-R1-003): the unit-of-work trait mapping on the persistence adapter is the recorded P2.06-adjacent gap — until it lands the only implementation is the test fake and the telemetry read routes fail closed (see the module header) |
+//! | [`telemetry_read`] | P2.12/P2.17/P2.18 | The `TelemetryReader` port — the read side of the canonical telemetry store: keyset-paginated time-range query (cursor decided once: the `(event_time, asset_id, quantity)` sort key), the P2.18 latest-by-`event_time` current state, and the P2.07 quarantine read. Tenant-scoped by construction. ADAPTER STATUS (FRV1-R1-003, LANDED in Patch A): implemented by `PgTelemetryReader` in the adapter crate (pool-held; each call opens its own tenant-scoped unit of work) and wired in the control-plane composition root; the test fake remains for tests (see the module header) |
 //! | [`tenant_context_source`] | P0.16 rule 5 | The `TenantContextSource` port — the documented integration point for the P1.06 claims boundary (no implementation can exist until the domain exposes a claims constructor) |
+//! | [`source_auth`] | P2.07 (Patch B) | The signed-envelope source-authentication port: the envelope shape, the canonical signing bytes, the rejection vocabulary, and the `SourceAuthenticator` trait. No cryptography and no I/O live here; the wire codec is implemented once per side (simulator producer, database-adapter consumer) because this crate cannot depend on a serialization library or a base64 codec |
 //! | [`weather_data`] | P15.03; §6.3 (ADR-010 extension) | The `WeatherDataProvider` port — site-scoped weather/irradiance observations and forecast series ingested as DATA with a closed quantity vocabulary (declared units), closed provenance classes, and the six-state quality vocabulary; vendor-neutral by construction (P15-E-1 names the vendor in deployment configuration, never in this port). The shipped default is the fail-closed `UnwiredWeatherDataProvider` (FRV1-R1-003 recorded deferral): it refuses every read by name — no provider integration exists in 0.x |
 //! | [`price_signal`] | P15.04; §6.3 (ADR-010 extension) | The `PriceSignalSource` port — day-ahead/intra-day price series ingested as DATA with declared currency and full provenance; actual vs vendor-forecast kinds never conflated; READ-ONLY ingestion surface (no bid/offer/order or dispatch vocabulary anywhere — prices are inputs for later phases, never commands or bid inputs). The shipped default is the fail-closed `UnwiredPriceSignalSource` (FRV1-R1-003 recorded deferral): it refuses every operation by name — no source integration exists in 0.x |
 //! | [`fakes`] | P1.07 step 5 | In-memory test fakes: tenant-scoped repositories, outbox, fixed clock, counting ID generator, and the shared write journal used to evidence §6.3 ordering |
@@ -67,6 +68,7 @@ pub mod fakes;
 pub mod id_generator;
 pub mod price_signal;
 pub mod repository;
+pub mod source_auth;
 pub mod state_change;
 pub mod telemetry_ingest;
 pub mod telemetry_read;
@@ -95,8 +97,9 @@ mod tests {
     // array length was 11 while twelve files were listed (a pre-existing
     // compile-blocking mismatch found while wiring telemetry_source_contract);
     // the length is now 13 with the new module added, and 15 with the two
-    // Phase 15 ports (P15.03/P15.04).
-    const SOURCES: [(&str, &str); 15] = [
+    // Phase 15 ports (P15.03/P15.04), and 16 with the Patch B source_auth
+    // port.
+    const SOURCES: [(&str, &str); 16] = [
         ("lib.rs", include_str!("lib.rs")),
         ("backend_error.rs", include_str!("backend_error.rs")),
         ("clock.rs", include_str!("clock.rs")),
@@ -105,6 +108,7 @@ mod tests {
         ("id_generator.rs", include_str!("id_generator.rs")),
         ("price_signal.rs", include_str!("price_signal.rs")),
         ("repository.rs", include_str!("repository.rs")),
+        ("source_auth.rs", include_str!("source_auth.rs")),
         ("state_change.rs", include_str!("state_change.rs")),
         ("telemetry_ingest.rs", include_str!("telemetry_ingest.rs")),
         ("telemetry_source.rs", include_str!("telemetry_source.rs")),
@@ -141,6 +145,7 @@ mod tests {
         use crate::event_outbox::EventOutbox;
         use crate::id_generator::IdGenerator;
         use crate::repository::{AssetRepository, PortfolioRepository, SiteRepository, TenantRepository};
+        use crate::source_auth::SourceAuthenticator;
         use crate::telemetry_source::TelemetrySource;
         use crate::telemetry_read::TelemetryReader;
         use crate::telemetry_ingest::{IngestionInbox, TelemetryIngestStore};
@@ -158,6 +163,7 @@ mod tests {
         fn takes_dyn_sites(_: &dyn SiteRepository) {}
         fn takes_dyn_assets(_: &dyn AssetRepository) {}
         fn takes_dyn_telemetry(_: &dyn TelemetrySource) {}
+        fn takes_dyn_source_auth(_: &dyn SourceAuthenticator) {}
         fn takes_dyn_telemetry_read(_: &dyn TelemetryReader) {}
         fn takes_dyn_telemetry_ingest(_: &dyn TelemetryIngestStore) {}
         fn takes_dyn_ingest_inbox(_: &dyn IngestionInbox) {}
@@ -176,6 +182,7 @@ mod tests {
         let _ = takes_dyn_sites;
         let _ = takes_dyn_assets;
         let _ = takes_dyn_telemetry;
+        let _ = takes_dyn_source_auth;
         let _ = takes_dyn_telemetry_ingest;
         let _ = takes_dyn_ingest_inbox;
         let _ = takes_dyn_context;

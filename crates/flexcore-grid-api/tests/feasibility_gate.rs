@@ -47,7 +47,13 @@ use flexcore_grid_api::scope::NotModelled;
 use flexcore_grid_api::tests_support::{converged_outcome, three_bus_model};
 use std::sync::Arc;
 
-const NOW: i64 = 10_000;
+// A realistic epoch-millis "now": the expired-timestamp test ages the
+// candidate 400_000 ms (beyond the 300_000 ms tolerance) and the
+// timestamp must stay a positive UTC millis instant, which is
+// impossible with a small NOW (10_000 - 400_000 < 0 hits
+// TIMESTAMP_MALFORMED instead of TIMESTAMP_EXPIRED). All uses of NOW
+// are relative, so no other test pins its magnitude.
+const NOW: i64 = 1_700_000_000_000;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -142,8 +148,13 @@ fn candidate() -> FeasibilityCandidate {
         result_record_snapshot_ref: "schedule_input_snapshot:env-v1:...".to_string(),
         created_at_millis: NOW - 100,
         valid_from_millis: NOW,
-        valid_until_millis: NOW + 3_000,
-        stated_duration_millis: 3_000,
+        // A 3-minute candidate (180_000 ms): the ramp tests pin
+        // "1.0 MW/min x 3 min = 3.0 MW" and "0.1 MW/min x 3 min =
+        // 0.3 MW", and step 1 requires the window to equal the stated
+        // duration. 3_000 ms is 3 seconds (0.05 min), which made every
+        // happy-path test die at RAMP_EXCEEDED in step 2.
+        valid_until_millis: NOW + 180_000,
+        stated_duration_millis: 180_000,
         setpoints: vec![setpoint()],
     }
 }
@@ -294,7 +305,7 @@ fn a_stale_envelope_is_rejected_via_the_p3_13_gate() {
         })
     });
     match run_gate(&candidate, &custom, &v, &registry, &provider) {
-        GatePipelineOutcome::Rejected { rejection, evidence } => {
+        GatePipelineOutcome::Rejected { rejection, evidence, .. } => {
             assert_eq!(rejection.rule_code, "ENVELOPE_STALE");
             assert!(rejection.detail.contains("stale"));
             // The evidence records the failing check, in step 1.

@@ -73,6 +73,12 @@ impl AdapterStatus {
     }
 }
 
+impl std::fmt::Display for AdapterStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.describe())
+    }
+}
+
 /// Registry errors. Both are named and both refuse — nothing about an
 /// unknown or not-yet-implemented adapter id passes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -380,18 +386,30 @@ mod tests {
             panic!("the factory must never be called for a refused id")
         };
         // A PLANNED id: allowlisted → named refusal, factory NOT called.
-        let error = registry.construct("legacy-planned", &factory).unwrap_err();
+        let error = match registry.construct("legacy-planned", &factory) {
+            Ok(_) => panic!("a planned id must never construct"),
+            Err(error) => error,
+        };
         assert!(error.to_string().contains("P6.10/P6.13"));
         // The DEFAULT table's own PLANNED ids refuse the same way (P14.18:
         // the six Phase 14 protocol ids are registered but unlanded).
         let registry_default = AdapterRegistry::with_default_allowlist();
-        let error = registry_default.construct("ieee-2030.5", &factory).unwrap_err();
+        let error = match registry_default.construct("ieee-2030.5", &factory) {
+            Ok(_) => panic!("a planned id must never construct"),
+            Err(error) => error,
+        };
         assert!(error.to_string().contains("P14"), "the refusal names the wave");
         // The REMOVED `generic-rest` id is not allowlisted at all.
-        let error = registry_default.construct("generic-rest", &factory).unwrap_err();
+        let error = match registry_default.construct("generic-rest", &factory) {
+            Ok(_) => panic!("a removed id must never construct"),
+            Err(error) => error,
+        };
         assert!(error.to_string().contains("not in the allowlist"));
         // An unknown id: named refusal before any factory would run.
-        let error = registry.construct("modbus-tcp", &factory).unwrap_err();
+        let error = match registry.construct("modbus-tcp", &factory) {
+            Ok(_) => panic!("an unknown id must never construct"),
+            Err(error) => error,
+        };
         assert!(error.to_string().contains("not in the allowlist"));
     }
 

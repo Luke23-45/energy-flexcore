@@ -606,7 +606,7 @@ fn a_validation_forward_without_the_grant_is_denied_and_audited() {
     assert_eq!(error.name(), "CAPABILITY_NOT_GRANTED");
     let denied = sink
         .events()
-        .iter()
+        .into_iter()
         .find(|e| e.kind == BrokerAuditKind::CapabilityDenied)
         .expect("the denial was audited");
     assert_eq!(denied.capability, "dispatch.validate.request");

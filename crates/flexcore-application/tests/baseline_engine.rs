@@ -213,7 +213,9 @@ fn day_matching_filters_by_day_type_and_weather_index() {
     });
     config.selection = Some(BaselineSelectionRule::All);
     let mut days = BTreeMap::new();
-    days.insert("cool-weekday".to_string(), flat_day("cool-weekday", Some("weekday"), 2.0, 4));
+    let mut cool_weekday = flat_day("cool-weekday", Some("weekday"), 2.0, 4);
+    cool_weekday.weather_index = Some(30.0); // the event-day index: in tolerance
+    days.insert("cool-weekday".to_string(), cool_weekday);
     let mut hot_weekday = flat_day("hot-weekday", Some("weekday"), 50.0, 4);
     hot_weekday.weather_index = Some(45.0); // outside tolerance ⇒ filtered out
     days.insert("hot-weekday".to_string(), hot_weekday);

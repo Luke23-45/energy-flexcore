@@ -213,7 +213,7 @@ fn a_never_granted_permission_is_refused_before_instantiation() {
     // The refusal is audited.
     let refusals = sink
         .events()
-        .iter()
+        .into_iter()
         .filter(|e| e.kind == EnforcementAuditKind::InstantiationRefused)
         .count();
     assert_eq!(refusals, 4, "every refusal is audited");
@@ -245,7 +245,7 @@ fn an_over_broad_manifest_is_refused_never_trimmed_to_fit() {
     assert_eq!(error.name(), "PERMISSION_ABOVE_PROFILE");
     let refusals = sink
         .events()
-        .iter()
+        .into_iter()
         .filter(|e| e.kind == EnforcementAuditKind::InstantiationRefused)
         .count();
     assert_eq!(refusals, 1);
@@ -333,7 +333,7 @@ fn vocabulary_drift_is_a_named_refusal_never_a_default_interpretation() {
     // The refusal is audited with its named reason.
     let refusals = sink
         .events()
-        .iter()
+        .into_iter()
         .filter(|e| e.kind == EnforcementAuditKind::InstantiationRefused)
         .count();
     assert_eq!(refusals, cases.len());
@@ -358,9 +358,9 @@ fn a_duplicate_declared_resource_field_is_drift_too() {
 #[test]
 fn the_capability_set_is_frozen_at_instantiation() {
     let (gate, _sink) = gate_with_audit();
-    let request = request("plugin.telemetry", &["telemetry.read"]);
+    let base = request("plugin.telemetry", &["telemetry.read"]);
     let ceiling = ProfileCeiling::new(vec![ceiling_entry("telemetry.read", data_scope("tenant-1"))]);
-    let verdict = evaluate(&gate, &request, &ceiling).expect("verdict constructs");
+    let verdict = evaluate(&gate, &base, &ceiling).expect("verdict constructs");
     let frozen = verdict.clone();
 
     // A "later manifest change": the SAME manifest object mutated to
@@ -420,9 +420,9 @@ fn broker_revocation_tightens_per_call_authority_but_the_frozen_set_stands() {
 #[test]
 fn allow_and_refuse_decisions_are_audited_with_scope_and_reason() {
     let (gate, sink) = gate_with_audit();
-    let request = request("plugin.telemetry", &["telemetry.read"]);
+    let base = request("plugin.telemetry", &["telemetry.read"]);
     let ceiling = ProfileCeiling::new(vec![ceiling_entry("telemetry.read", data_scope("tenant-1"))]);
-    let _verdict = evaluate(&gate, &request, &ceiling).expect("allow");
+    let _verdict = evaluate(&gate, &base, &ceiling).expect("allow");
 
     let events = sink.events();
     let allowed = events
@@ -445,9 +445,12 @@ fn allow_and_refuse_decisions_are_audited_with_scope_and_reason() {
         frozen.detail
     );
 
-    // A refusal is audited with its named reason.
+    // A refusal is audited with its named reason. (`events()` returns a
+    // cloned snapshot — re-fetch AFTER the refusal, or the count reads
+    // the pre-refusal snapshot and stays 0.)
     let bad = request("plugin.a", &["dispatch.authorize"]);
     let _ = evaluate(&gate, &bad, &ProfileCeiling::empty()).expect_err("refuse");
+    let events = sink.events();
     let refused = events
         .iter()
         .filter(|e| e.kind == EnforcementAuditKind::InstantiationRefused)
@@ -464,9 +467,9 @@ fn a_broken_audit_sink_refuses_the_decision_in_both_directions() {
         )),
         Box::new(FailingEnforcementAuditSink),
     );
-    let request = request("plugin.a", &["telemetry.read"]);
+    let base = request("plugin.a", &["telemetry.read"]);
     let ceiling = ProfileCeiling::new(vec![ceiling_entry("telemetry.read", data_scope("tenant-1"))]);
-    let error = evaluate(&gate, &request, &ceiling).expect_err("unaudited allow is no allow");
+    let error = evaluate(&gate, &base, &ceiling).expect_err("unaudited allow is no allow");
     assert_eq!(error.name(), "AUDIT_UNAVAILABLE");
 
     // Refuse direction: the refusal surfaces as the audit failure too (the
@@ -559,10 +562,16 @@ fn no_raw_instantiation_path_exists() {
     // The verdict is unforgeable: private fields, no public constructor
     // inside its impl block (the only way to obtain one is
     // `EnforcementGate::evaluate` — a struct literal over private fields is
-    // a compile error in any external caller, including this test).
+    // a compile error in any external caller, including this test). The
+    // check skips the declaration line itself: it reads
+    // "pub struct EnforcementVerdict {" and would self-match any "pub"
+    // search — only FIELD lines count.
     let verdict_struct = item_source(enforcement_source, "pub struct EnforcementVerdict {");
     assert!(
-        !verdict_struct.contains("pub "),
+        !verdict_struct
+            .lines()
+            .skip(1)
+            .any(|line| line.trim_start().starts_with("pub")),
         "every EnforcementVerdict field is private (forgery is a compile error)"
     );
     let verdict_impl = item_source(enforcement_source, "impl EnforcementVerdict {");

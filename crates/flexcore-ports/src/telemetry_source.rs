@@ -85,7 +85,7 @@ const DERIVED_SOURCE_NAMESPACE: &str = "flexcore:derived:";
 /// The frozen Phase 2 quantity vocabulary (P2.04 §4; extension is an
 /// explicit migration, never a silent widening). Every variant documents its
 /// canonical unit (P0.07 §1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TelemetryQuantity {
     /// Active power — canonical unit **MW**; P > 0 = export at the point of
     /// connection, P < 0 = import (P0.07 §2).
@@ -831,7 +831,7 @@ impl std::error::Error for TelemetrySourceError {
 /// Sync by house rule (see the module header and the crate README): no
 /// future in, no future out. `subscribe` returns an opaque handle, not a
 /// stream; delivery, buffering, and ordering are the adapter's concern.
-pub trait TelemetrySource {
+pub trait TelemetrySource: Send + Sync {
     /// The provider declaration (P2.11 step 4): cadence, quality mapping,
     /// clock-quality behaviour, and source identity. Structural so a
     /// provider cannot exist without declaring them.

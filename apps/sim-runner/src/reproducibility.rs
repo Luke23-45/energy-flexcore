@@ -83,7 +83,7 @@ pub const VERDICT_MISMATCH: &str = "mismatch";
 
 /// One entry of the pre-registered tolerance table: HOW each output type
 /// is compared, and at what tolerance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct ToleranceEntry {
     /// The output type (the leg / record class the rule applies to).
     pub output_type: &'static str,
@@ -97,7 +97,7 @@ pub struct ToleranceEntry {
 
 /// The pre-registered tolerance table (the P5.19 step-1 requirement:
 /// "tolerance stated per output type BEFORE the runs").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct ToleranceTable {
     pub entries: &'static [ToleranceEntry],
 }
@@ -281,14 +281,20 @@ pub struct ToleranceComparison {
     /// Records matched within the tolerance (numeric deviations inside the
     /// pre-registered bound — recorded, never silent).
     pub within_tolerance_matches: usize,
-    /// Deviations outside the tolerance.
+    /// Every deviation found: within-tolerance deviations are recorded
+    /// here with `outside_tolerance: false` (recorded, never silent) and
+    /// do NOT fail the comparison; only `outside_tolerance: true` entries
+    /// fail it (see [`ToleranceComparison::is_pass`]).
     pub mismatches: Vec<ToleranceDiff>,
 }
 
 impl ToleranceComparison {
-    /// Whether the comparison passes at the stated tolerance.
+    /// Whether the comparison passes at the stated tolerance: it passes
+    /// when no deviation is OUTSIDE the tolerance. Within-tolerance
+    /// deviations are recorded in `mismatches` (never silent) but do not
+    /// fail the comparison.
     pub fn is_pass(&self) -> bool {
-        self.mismatches.is_empty()
+        !self.mismatches.iter().any(|diff| diff.outside_tolerance)
     }
 }
 
@@ -537,8 +543,12 @@ pub fn structural_diff(
                         out.push(StructuralDiff {
                             kind: "mismatch",
                             path: path.to_string(),
-                            reference: reference.to_string(),
-                            candidate: candidate.to_string(),
+                            reference: reference
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "none".to_string()),
+                            candidate: candidate
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "none".to_string()),
                         });
                     }
                 }

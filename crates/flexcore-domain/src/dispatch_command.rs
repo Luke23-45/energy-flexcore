@@ -286,7 +286,9 @@ impl ControlTarget {
                 Ok(())
             }
             ControlTarget::SupportedParameter { name, .. } => {
-                require_non_empty(name, "parameter_name")?;
+                if name.trim().is_empty() {
+                    return Err(DispatchCommandError::InvalidTargetParameter);
+                }
                 Ok(())
             }
         }
@@ -758,7 +760,39 @@ mod tests {
 
     #[test]
     fn a_fully_valid_command_constructs() {
-        let cmd = build(valid_args()).unwrap();
+        let (
+            command_id,
+            scope,
+            source,
+            schedule,
+            intent,
+            target,
+            validity,
+            execution,
+            sequence,
+            idempotency_key,
+            evidence,
+            authorization,
+            authenticity,
+            supersedes,
+        ) = valid_args();
+        let cmd = build(
+            command_id,
+            scope,
+            source,
+            schedule,
+            intent,
+            target,
+            validity,
+            execution,
+            sequence,
+            idempotency_key,
+            evidence,
+            authorization,
+            authenticity,
+            supersedes,
+        )
+        .unwrap();
         assert_eq!(cmd.command_id().uuid(), uuid(UUID_COMMAND));
         assert_eq!(cmd.scope().tenant_id.uuid(), uuid(UUID_TENANT));
         assert_eq!(cmd.scope().asset_id.uuid(), uuid(UUID_ASSET));

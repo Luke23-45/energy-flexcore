@@ -451,7 +451,7 @@ fn an_incomplete_result_record_is_named_and_refused() {
     ))]);
     let config = SolverConfig::default();
     let mut problem = reference_lp();
-    problem.provenance.candidate_id = Some(flexcore_contracts::ids::FlexUuid::NIL);
+    problem.provenance.candidate_id = flexcore_contracts::ids::FlexUuid::NIL;
     let outcome_err = provider.solve(&problem, &config)
         .expect_err("a NIL candidate id is a provider bug (IncompleteResult), not a status");
     assert!(

@@ -292,8 +292,6 @@ impl std::fmt::Display for RolloutConfigError {
 
 impl std::error::Error for RolloutConfigError {}
 
-impl std::error::Error for RolloutConfigError {}
-
 // --- Configuration (the pre-registered parameters) -----------------------------------
 
 /// The pre-registered abort thresholds (X-8: registered BEFORE any run
@@ -675,7 +673,12 @@ impl RolloutOrchestrator {
             plan.cohorts.len(),
             plan.canary_basis_points,
         );
-        let mut orchestrator = Self {
+        // Threshold scalars are read before `plan` moves into the struct
+        // (the audit emit below runs after the move).
+        let max_failure_rate_permille = plan.thresholds.max_failure_rate_permille;
+        let min_observations = plan.thresholds.min_observations;
+        let orchestrator = Self {
+            plan,
             phase: RolloutPhase::NotStarted,
             active_index: None,
             progress: Vec::new(),
@@ -689,8 +692,8 @@ impl RolloutOrchestrator {
             format!(
                 "thresholds: max_failure_rate_permille={} min_observations={} — \
                  pre-registered BEFORE any run (X-8); {}",
-                plan.thresholds.max_failure_rate_permille,
-                plan.thresholds.min_observations,
+                max_failure_rate_permille,
+                min_observations,
                 DEVICE_FLEET_ROLLOUT_SCOPE_STATEMENT,
             ),
         );
@@ -1475,8 +1478,17 @@ mod tests {
     #[test]
     fn an_equal_rate_does_not_abort_and_healthy_outcomes_continue() {
         let (cohorts, thresholds, canary_bp) = plan_params();
-        // max 200 permille = 2 failures per 10 observed abort; 1 in 10
-        // (100 permille) continues.
+        // max 200 permille: the rate EQUALS the threshold twice and must
+        // not abort either time (ABORT_SEMANTICS_STATEMENT: exceeded =
+        // abort, equal does not). The threshold is evaluated after EVERY
+        // outcome once min_observations=3 is reached, so the failures
+        // must be placed where no INTERMEDIATE rate exceeds the max
+        // either: failure at outcome 5 gives 1/5 = 200 permille exactly,
+        // failure at outcome 10 gives 2/10 = 200 permille exactly, and
+        // every earlier evaluation is 0 permille (outcomes 1-4 are
+        // successes). A single early failure would read 1/3 = 333
+        // permille at the third outcome and correctly abort — that is
+        // the exceeded case, not the equal case.
         let plan = RolloutPlan::plan("2.0.0", cohorts, thresholds, canary_bp)
             .expect("plan validates");
         let sink = std::sync::Arc::new(MemoryRolloutAuditSink::new());
@@ -1495,18 +1507,19 @@ mod tests {
             orchestrator
                 .authorize_device(&dir, &device, &passed_attestation(&device))
                 .expect("authorized");
-            let outcome = if i == 1 {
+            let outcome = if i == 5 || i == 10 {
                 DeviceUpdateOutcome::Failed { failure_state: "x".to_string() }
             } else {
                 DeviceUpdateOutcome::Success
             };
             orchestrator.record_outcome(&device, outcome).expect("recorded");
         }
-        // 100 permille < 200 permille: the rollout continues.
+        // 200 permille == 200 permille at both evaluations: the rollout
+        // continues.
         assert_eq!(orchestrator.phase(), RolloutPhase::InProgress);
         let snapshot = orchestrator.fleet_snapshot();
-        assert_eq!(snapshot.cohorts[0].succeeded, 9);
-        assert_eq!(snapshot.cohorts[0].failed, 1);
+        assert_eq!(snapshot.cohorts[0].succeeded, 8);
+        assert_eq!(snapshot.cohorts[0].failed, 2);
     }
 
     #[test]
@@ -1522,7 +1535,16 @@ mod tests {
             orchestrator.advance_cohort(&dir, "operator", "advance"),
             Err(RolloutConfigError::CohortIncomplete { pending: 3 })
         ));
-        // Judge every canary device.
+        // Judge every canary device: authorization precedes any outcome
+        // (`record_outcome` refuses an unauthorized device), so the two
+        // devices not yet authorized are authorized first — device-1 was
+        // already authorized by the half-judged advance check above, and
+        // a duplicate authorization is refused.
+        for device in ["device-2", "device-3"] {
+            orchestrator
+                .authorize_device(&dir, device, &passed_attestation(device))
+                .expect("authorized");
+        }
         for device in ["device-1", "device-2", "device-3"] {
             orchestrator
                 .record_outcome(device, DeviceUpdateOutcome::Success)

@@ -149,7 +149,7 @@ fn parse_command_cursor(raw: &str) -> Result<String, ApiError> {
         (status = 422, description = "Malformed filter/cursor or out-of-range limit", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn list_dispatch_commands(
+pub(crate) async fn list_dispatch_commands(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Query(params): Query<Phase4ListParams>,
@@ -181,12 +181,18 @@ async fn list_dispatch_commands(
                         state: state_filter,
                         after_command_id,
                     },
-                    limit as u32,
+                    (limit + 1) as u32,
                 )
                 .map_err(map_command_store_error)
         })
         .await?;
-    let next_cursor = if page.len() == limit {
+    // Keyset probe: fetch one row past the page — a full page does NOT
+    // prove another page exists (the old `len == limit` check emitted a
+    // cursor on the last page whenever it happened to be exactly full).
+    let mut page = page;
+    let has_more = page.len() > limit;
+    page.truncate(limit);
+    let next_cursor = if has_more {
         page.last().map(|record| record.row.command_id.clone())
     } else {
         None
@@ -210,7 +216,7 @@ async fn list_dispatch_commands(
         (status = 422, description = "Malformed command id", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn get_dispatch_command(
+pub(crate) async fn get_dispatch_command(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Path(command_id): Path<String>,
@@ -259,7 +265,7 @@ async fn get_dispatch_command(
         (status = 422, description = "Malformed filter/cursor or out-of-range limit", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn list_feasibility_checks(
+pub(crate) async fn list_feasibility_checks(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Query(params): Query<Phase4ListParams>,
@@ -286,12 +292,16 @@ async fn list_feasibility_checks(
                         schedule_id,
                         after_check_id,
                     },
-                    limit as u32,
+                    (limit + 1) as u32,
                 )
                 .map_err(map_feasibility_check_error)
         })
         .await?;
-    let next_cursor = if page.len() == limit {
+    // Keyset probe (see list_dispatch_commands).
+    let mut page = page;
+    let has_more = page.len() > limit;
+    page.truncate(limit);
+    let next_cursor = if has_more {
         page.last().map(|row| row.check_id.clone())
     } else {
         None
@@ -314,7 +324,7 @@ async fn list_feasibility_checks(
         (status = 404, description = "Unknown or cross-tenant check (no existence leak)", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn get_feasibility_check(
+pub(crate) async fn get_feasibility_check(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Path(check_id): Path<String>,
@@ -369,7 +379,7 @@ fn require_nonempty_filter(raw: &str, field: &str) -> Result<String, ApiError> {
         (status = 422, description = "Malformed filter/cursor or out-of-range limit", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn list_audit_events(
+pub(crate) async fn list_audit_events(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Query(params): Query<AuditEventListParams>,
@@ -427,12 +437,16 @@ async fn list_audit_events(
                         to_event_unix_millis: params.to_event_unix_millis,
                         after_audit_id,
                     },
-                    limit as u32,
+                    (limit + 1) as u32,
                 )
                 .map_err(map_audit_read_error)
         })
         .await?;
-    let next_cursor = if page.len() == limit {
+    // Keyset probe (see list_dispatch_commands).
+    let mut page = page;
+    let has_more = page.len() > limit;
+    page.truncate(limit);
+    let next_cursor = if has_more {
         page.last().map(|row| row.audit_id.clone())
     } else {
         None
@@ -457,7 +471,7 @@ async fn list_audit_events(
         (status = 422, description = "Malformed record id", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn get_audit_event(
+pub(crate) async fn get_audit_event(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Path(event_id): Path<String>,

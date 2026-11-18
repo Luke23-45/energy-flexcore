@@ -66,7 +66,7 @@
 // physical delivery (§14.1).
 
 use flexcore_domain::command_lifecycle::{CommandTransition, Gate};
-use flexcore_domain::command_state::{CommandState, try_transition};
+use flexcore_domain::command_state::try_transition;
 use flexcore_domain::ids::TenantId;
 
 /// The closed command-state vocabulary, as stored text — the canonical
@@ -589,7 +589,7 @@ pub struct CommandListFilter {
 ///   leaks (P0.16 rule 5);
 /// - storage failures surface as [`CommandStoreError::Backend`] with an
 ///   opaque code + message only.
-pub trait CommandRecordStore {
+pub trait CommandRecordStore: Send + Sync {
     /// Inserts one NEW command record (always `PROPOSED`; the database
     /// rejects any other initial state — the freeze's initial marker). A
     /// (command_id, tenant_id) collision is [`CommandStoreError::Conflict`]
@@ -664,6 +664,7 @@ mod tests {
     use super::*;
     use flexcore_contracts::ids::FlexUuid;
     use flexcore_domain::command_lifecycle::{Actor, EvidenceReference};
+    use flexcore_domain::command_state::CommandState;
     use flexcore_domain::ids::CommandId;
 
     fn tenant() -> TenantId {

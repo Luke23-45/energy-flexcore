@@ -604,7 +604,7 @@ mod tests {
             vec![EquipmentKind::Line],
             vec![
                 crate::scope::NotModelled::new(
-                    "balanced",
+                    "balanced".to_string(),
                     "this future adapter declares only the unbalanced path"
                         .to_string(),
                 )
@@ -616,9 +616,12 @@ mod tests {
             Vec::new(),
         )
         .expect("valid scope");
-        let error =
-            PandapowerGridProvider::new(Arc::new(NeverBackend), unbalanced)
-                .expect_err("an unbalanced scope must be refused");
+        // PandapowerGridProvider carries no Debug, so the refusal is
+        // extracted with a match, not expect_err.
+        let error = match PandapowerGridProvider::new(Arc::new(NeverBackend), unbalanced) {
+            Ok(_) => panic!("an unbalanced scope must be refused"),
+            Err(error) => error,
+        };
         assert!(matches!(error, GridPortError::ScopeExceeded(_)));
     }
 
@@ -639,7 +642,11 @@ mod tests {
     #[test]
     fn provider_records_the_pin_on_every_result() {
         let model = crate::tests_support::three_bus_model(model_ref());
-        let result = provider(outcome(true))
+        // A converged run must carry one result row per model element
+        // (the worker contract `map_outcome` enforces); the local
+        // `outcome(true)` helper builds empty rows, so the shared
+        // converged fixture is the honest input here.
+        let result = provider(crate::tests_support::converged_outcome(PROVIDER_PINNED_VERSION))
             .run_power_flow(&model, &[injection("i1", "bus_1", 1.0, 0.0)])
             .expect("converged run maps");
         assert_eq!(result.provider_id, PROVIDER_ID);

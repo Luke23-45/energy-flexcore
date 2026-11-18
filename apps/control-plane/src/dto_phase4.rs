@@ -197,7 +197,7 @@ pub struct FeasibilityCheckPageEnvelope {
 /// The shared per-tenant listing parameters (the recorded P2.12/P3.28
 /// limits apply: default page 200, maximum 1000; the cursor is the opaque
 /// keyset value of the previous page — malformed = 422).
-#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct Phase4ListParams {
     /// Dispatch-command listing only: restrict to one stored state (a
     /// value outside the closed 14-state vocabulary is 422).
@@ -383,7 +383,7 @@ pub struct AuditEventPageEnvelope {
 /// cursor is the opaque keyset value of the previous page — malformed =
 /// 422). The time bounds are INCLUSIVE on both ends (the recorded P4.36
 /// DEFAULT decision).
-#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct AuditEventListParams {
     /// Restrict to one exact audited action (the event class, e.g.
     /// `command.approve`); empty is 422.

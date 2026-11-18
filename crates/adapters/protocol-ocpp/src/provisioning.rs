@@ -401,7 +401,7 @@ mod tests {
 
         let request = StatusNotificationRequest {
             timestamp_millis: 500,
-            evse_id: 2,
+            evse_id: 0,
             connector_status: StationStatus::Occupied,
         };
         let state = apply_status_notification(&mut registry, &cp("depot-cp-001"), &request)
@@ -415,10 +415,8 @@ mod tests {
                 .expect("mapped")
         );
         // A status for an unregistered EVSE id is refused (no
-        // auto-create): evse 9 was never reported by a boot... the
-        // registry entry is per-EVSE and only evse 0 exists here, so the
-        // status for evse 2 was itself refused? No: apply_reported_status
-        // refuses unknown identities — verify the honest behavior.
+        // auto-create): only evse 0 exists here (the boot addresses the
+        // station), so evse 7 is refused rather than auto-created.
         let request = StatusNotificationRequest {
             timestamp_millis: 600,
             evse_id: 7,

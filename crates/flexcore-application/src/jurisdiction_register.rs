@@ -76,7 +76,7 @@ pub const JURISDICTION_SPECIFIC_STATEMENT: &str = "The register NAMES jurisdicti
 // --- Errors ---------------------------------------------------------------------
 
 /// Why a register operation was refused. Named, never absorbed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RegisterError {
     /// A required text field was empty (`field` names it).
     EmptyField {
@@ -311,7 +311,7 @@ impl TimelineEntry {
 /// participation-model posture (recorded data), its sourced timeline, and
 /// its RECORDED symmetric-SDA bound if one exists. The row is DATA — it
 /// enables nothing by itself.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JurisdictionEntry {
     jurisdiction_id: String,
     display_name: String,
@@ -736,6 +736,7 @@ mod tests {
                 "z".to_string(),
                 MarketPosture::Ferc2222,
                 Vec::new(),
+                None,
             )
             .expect_err("timeline mandatory")
             .name(),

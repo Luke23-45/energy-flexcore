@@ -295,12 +295,22 @@ fn the_projection_pastes_frozen_and_future_continuously_with_the_optout_enforced
     assert_eq!(projection.revision, plan.new_revision);
 
     // The past is unchanged: the frozen half equals the realised inputs
-    // verbatim; the future half is the re-solve.
+    // verbatim; the future half is the re-solve. Before the opt-out
+    // (hours 0-1) the realised intervals carry both assets; after it
+    // (hours 2-3) only the BESS.
     for index in 0..4 {
         let interval = &projection.intervals[index];
         assert_eq!(interval.interval_start_millis, T0 + (index as i64) * HOUR);
-        assert_eq!(interval.setpoints.len(), 1);
-        assert_eq!(interval.setpoints[0].p_mw, 0.8, "frozen realised value");
+        if index < 2 {
+            assert_eq!(interval.setpoints.len(), 2);
+            assert_eq!(interval.setpoints[0].asset_key, "bess");
+            assert_eq!(interval.setpoints[0].p_mw, 0.8, "frozen realised value");
+            assert_eq!(interval.setpoints[1].asset_key, "ev-fleet");
+            assert_eq!(interval.setpoints[1].p_mw, 0.4, "frozen realised value");
+        } else {
+            assert_eq!(interval.setpoints.len(), 1);
+            assert_eq!(interval.setpoints[0].p_mw, 0.8, "frozen realised value");
+        }
     }
     for index in 4..8 {
         let interval = &projection.intervals[index];
@@ -655,7 +665,7 @@ fn schedule_proposed_is_emitted_per_new_revision_and_the_trigger_gap_is_recorded
     );
 
     // A publication for a foreign candidate is rejected by name.
-    let error = rolling_horizon_schedule_proposed_publication(
+    let error = match rolling_horizon_schedule_proposed_publication(
         flexcore_application::rolling_horizon::RollingHorizonPublicationInput {
             record: &record,
             persisted: &persisted,
@@ -664,8 +674,10 @@ fn schedule_proposed_is_emitted_per_new_revision_and_the_trigger_gap_is_recorded
             correlation_id: FlexUuid::nil(),
             event_time: EventTime::from_unix_millis(T0 + 4 * HOUR).expect("valid"),
         },
-    )
-    .expect_err("a foreign candidate is rejected");
+    ) {
+        Ok(_) => panic!("a foreign candidate is rejected"),
+        Err(error) => error,
+    };
     assert!(matches!(
         error,
         flexcore_application::rolling_horizon::RollingHorizonError::PublicationMismatch { .. }

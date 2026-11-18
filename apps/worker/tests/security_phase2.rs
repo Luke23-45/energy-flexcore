@@ -1,10 +1,11 @@
 // P2.22 — Phase 2 security test slice, worker side: the telemetry source
-// authentication boundary (recorded Phase 2 STUB status, ledger P2.10
-// step 6), the tenant-scoped ingestion boundary (a source cannot ingest
-// for another tenant's asset), and the P2.21 no-secrets rule for telemetry
-// log lines.
+// authentication boundary (Ed25519 signed-envelope authentication, Patch B;
+// the health + trusted-source-id check is defence in depth only, ledger
+// P2.10 step 6), the tenant-scoped ingestion boundary (a source cannot
+// ingest for another tenant's asset), and the P2.21 no-secrets rule for
+// telemetry log lines.
 //
-// Pure tests (no infrastructure): the source-auth stub boundary, the
+// Pure tests (no infrastructure): the source-auth envelope status, the
 // cross-tenant source identity rejection, the no-secrets log assertion,
 // and the P2.21 metric inventory.
 //
@@ -18,7 +19,7 @@
 // supervisory orchestration layer; the entire 0.x line is simulation-only
 // — nothing here is a safety, certification, or protection claim.
 
-use std::io::Write as _;
+use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -30,7 +31,9 @@ use flexcore_contracts::units::ActivePowerMW;
 use flexcore_domain::entities::{Asset, AssetType, Portfolio, Site, Tenant};
 use flexcore_domain::ids::{AssetId, TenantId};
 use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
+use flexcore_ports::clock::Clock;
 use flexcore_ports::repository::{AssetRepository, PortfolioRepository, SiteRepository, TenantRepository};
+use flexcore_ports::source_auth::{SourceAuthError, SourceAuthenticator, VerifiedEnvelope};
 use flexcore_ports::telemetry_ingest::TelemetryIngestError;
 use flexcore_ports::telemetry_source::{
     NormalizedTelemetry, NormalizedTelemetryParts, ProviderDeclaration, QualityMappingDeclaration,
@@ -46,7 +49,7 @@ use flexcore_worker::ingestion::{
 use sqlx::PgPool;
 
 // ---------------------------------------------------------------------------
-// Pure tests: the recorded Phase 2 source-auth stub boundary (P2.22 step 4)
+// Pure tests: the recorded source-auth envelope status (P2.22 step 4, Patch B)
 // ---------------------------------------------------------------------------
 
 const SOURCE_A: &str = "sim://tenant-a-gateway";
@@ -66,19 +69,23 @@ fn declaration(source_id: &str) -> ProviderDeclaration {
     .expect("valid provider declaration")
 }
 
-/// The recorded stub status is stated honestly and is what the tests below
-/// pin: provider declaration + optional trusted-source-id check only —
-/// no cryptographic source authentication exists in Phase 2.
+/// The recorded envelope status is stated honestly and is what the tests below
+/// pin: Ed25519 signed envelopes (flexcore-telemetry-v1) are the real
+/// authentication; the health + trusted-source-id check is defence in depth
+/// only and never authenticates on its own.
 #[test]
-fn source_authentication_matches_the_recorded_phase2_stub_status() {
-    assert!(SOURCE_AUTH_STATUS.contains("STUB"), "the stub status is recorded");
+fn source_authentication_matches_the_recorded_envelope_status() {
     assert!(
-        SOURCE_AUTH_STATUS.contains("no cryptographic source authentication"),
-        "the stub honestly names its limitation"
+        SOURCE_AUTH_STATUS.contains("Ed25519 signed envelopes (flexcore-telemetry-v1)"),
+        "the envelope status is recorded"
     );
     assert!(
-        SOURCE_AUTH_STATUS.contains("later phase"),
-        "the owning phase is named"
+        SOURCE_AUTH_STATUS.contains("enforced by default"),
+        "the envelope status names the default mode"
+    );
+    assert!(
+        SOURCE_AUTH_STATUS.contains("dev-key mode is local development only"),
+        "the envelope status names the dev-key limitation"
     );
 
     // Per THAT recorded status: a healthy source declaring the expected
@@ -91,7 +98,7 @@ fn source_authentication_matches_the_recorded_phase2_stub_status() {
 /// An unauthenticated (undeclared/unavailable) source is rejected, and a
 /// source presenting another tenant's identity is rejected: the source
 /// identity is the Phase 2 tenant-scoping input, checked exactly as the
-/// recorded stub defines.
+/// recorded envelope status defines.
 #[test]
 fn a_foreign_or_unavailable_source_identity_is_rejected() {
     let source_a = flexcore_ports::fakes::FakeTelemetrySource::new(declaration(SOURCE_A), vec![]);
@@ -110,7 +117,8 @@ fn a_foreign_or_unavailable_source_identity_is_rejected() {
     assert!(authenticate_source(&source_a, Some(SOURCE_B)).is_err());
 
     // An unavailable provider is rejected before any decode: the health
-    // check is the "unauthenticated source" path of the recorded stub.
+    // check is the "unauthenticated source" path of the recorded health +
+    // allowlist check.
     struct UnavailableSource;
     impl TelemetrySource for UnavailableSource {
         fn provider_declaration(&self) -> &ProviderDeclaration {
@@ -164,7 +172,7 @@ impl Write for SharedLogBuffer {
     }
 }
 
-impl tracing_subscriber::fmt::MakeWriter for SharedLogBuffer {
+impl tracing_subscriber::fmt::MakeWriter<'_> for SharedLogBuffer {
     type Writer = SharedLogBuffer;
     fn make_writer(&self) -> Self::Writer {
         self.clone()
@@ -274,7 +282,7 @@ fn telemetry_log_lines_never_contain_credentials() {
     assert!(!rendered.contains(FAKE_API_KEY), "no api key in telemetry logs");
     // Not even the raw payload string itself.
     assert!(!rendered.contains(&raw_payload), "the raw rejected payload is never logged");
-    // The recorded stub status (which IS logged) carries no credential.
+    // The recorded envelope status (which IS logged) carries no credential.
     assert!(!rendered.contains("postgres://"), "no connection string in telemetry logs");
 }
 
@@ -404,9 +412,13 @@ fn ensure_test_roles(pool: &PgPool) {
                 ("flexcore_app", "flexcore_app_test_only"),
                 ("flexcore_migrator", "flexcore_migrator_test_only"),
             ] {
-                sqlx::query(&format!(
+                // SAFETY (sqlx 0.9 SqlSafeStr): `role` and `password` are
+                // fixed test-only literals from the list above — no user
+                // input reaches this DDL, and role names/passwords cannot
+                // be bind parameters in ALTER ROLE.
+                sqlx::query(sqlx::AssertSqlSafe(format!(
                     "ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"
-                ))
+                )))
                 .execute(pool)
                 .await?;
             }
@@ -435,10 +447,14 @@ fn ensure_partitions(url: &str) {
         .expect("connect as flexcore_migrator");
     blocking_runtime().block_on(async {
         for (name, from, to) in PARTITION_MONTHS {
-            sqlx::query(&format!(
+            // SAFETY (sqlx 0.9 SqlSafeStr): `name`/`from`/`to` are fixed
+            // literals from the PARTITION_MONTHS const above — no user
+            // input reaches this DDL, and partition names/bounds cannot
+            // be bind parameters in CREATE TABLE.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE IF NOT EXISTS {name} PARTITION OF telemetry \
                  FOR VALUES FROM ('{from}') TO ('{to}')"
-            ))
+            )))
             .execute(&migrator_pool)
             .await
             .expect("partition DDL as the table owner");
@@ -487,6 +503,30 @@ fn count_telemetry(store: &FlexCoreStore, ctx: &TenantContext) -> i64 {
 }
 
 /// The ingestion task over the real store (the pipeline consumes ONLY the
+/// Permissive source-auth double (Patch B): passes raw frames through
+/// unenveloped (`was_enveloped: false`, payload = the raw bytes) so the
+/// downstream-stage tests keep working with raw frames. The batch path
+/// skips the sequence-watermark advance entirely for unenveloped input.
+struct PassThroughAuthenticator;
+
+impl SourceAuthenticator for PassThroughAuthenticator {
+    fn authenticate(
+        &self,
+        ctx: &TenantContext,
+        payload: &[u8],
+    ) -> Result<VerifiedEnvelope, SourceAuthError> {
+        Ok(VerifiedEnvelope {
+            key_id: "test-double".to_string(),
+            source_id: "test-double".to_string(),
+            tenant_id: ctx.tenant_id(),
+            sequence: 0,
+            event_time_unix_millis: 0,
+            was_enveloped: false,
+            payload: payload.to_vec(),
+        })
+    }
+}
+
 /// `TelemetrySource` port; the fake source never decodes anything here —
 /// the batch is driven directly, the same entry point the run loop uses).
 fn build_task(
@@ -510,6 +550,7 @@ fn build_task(
         generator,
         IngestionConfig::default(),
         Arc::clone(&metrics),
+        Arc::new(PassThroughAuthenticator),
     ));
     (task, metrics)
 }
@@ -634,7 +675,7 @@ async fn ingestion_for_another_tenants_asset_is_rejected_by_the_tenant_scoped_st
         record(tenant_a, asset_a, 1_893_456_000_000, 2),
     ];
     let error = task
-        .process_batch(&ctx_a, &foreign_batch)
+        .process_batch(&ctx_a, &foreign_batch, None)
         .expect_err("the foreign-tenant batch is rejected");
     match error {
         flexcore_worker::ingestion::IngestPipelineError::Store(TelemetryIngestError::TenantMismatch) => {}
@@ -653,7 +694,7 @@ async fn ingestion_for_another_tenants_asset_is_rejected_by_the_tenant_scoped_st
     // rejection is about the tenant scope, not the pipeline.
     let own_batch = vec![record(tenant_a, asset_a, 1_893_456_000_000, 3)];
     let report = task
-        .process_batch(&ctx_a, &own_batch)
+        .process_batch(&ctx_a, &own_batch, None)
         .expect("the own-tenant batch stores");
     assert_eq!(report.stored, 1);
     assert_eq!(count_telemetry(&store, &ctx_a), 1);

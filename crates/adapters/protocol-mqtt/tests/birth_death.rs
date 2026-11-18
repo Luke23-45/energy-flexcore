@@ -96,7 +96,7 @@ fn every_refusal_is_named_and_leaves_the_state_unchanged() {
     let refused = tracker.observe(&payload(SparkplugMessageKind::NodeData, Some(7), 3));
     match &refused {
         Observation::Refused { reason, .. } => {
-            assert_eq!(reason.name(), "sequence_mismatch");
+            assert_eq!(reason.clone().name(), "sequence_mismatch");
         }
         other => panic!("expected refusal, got {other:?}"),
     }
@@ -106,7 +106,7 @@ fn every_refusal_is_named_and_leaves_the_state_unchanged() {
     let refused = tracker.observe(&payload(SparkplugMessageKind::NodeData, Some(1), 2));
     match &refused {
         Observation::Refused { reason, .. } => {
-            assert_eq!(reason.name(), "generation_mismatch");
+            assert_eq!(reason.clone().name(), "generation_mismatch");
         }
         other => panic!("expected refusal, got {other:?}"),
     }
@@ -115,7 +115,7 @@ fn every_refusal_is_named_and_leaves_the_state_unchanged() {
     let refused = tracker.observe(&payload(SparkplugMessageKind::NodeBirth, Some(0), 3));
     match &refused {
         Observation::Refused { reason, .. } => {
-            assert_eq!(reason.name(), "stale_rebirth");
+            assert_eq!(reason.clone().name(), "stale_rebirth");
         }
         other => panic!("expected refusal, got {other:?}"),
     }

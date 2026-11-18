@@ -71,6 +71,7 @@ pub use crate::audit::{AuditChainVerificationOutcome, TenantChainVerification};
 use crate::error::{codes, map_audit_rejection, map_backend};
 use crate::id_generator::PostgresIdGenerator;
 use crate::outbox;
+use crate::telemetry_reader::PgTelemetryReader;
 use crate::unit_of_work::PgUnitOfWork;
 use crate::uuid_map::uuid_text;
 use flexcore_audit::chain::ChainKey;
@@ -158,7 +159,7 @@ impl FlexCoreStore {
     /// Down migrations are a dev/CI rollback concern (P1.12 §7) and are
     /// exercised by the integration tests, not by this runner.
     pub fn run_migrations(&self) -> Result<(), BackendError> {
-        static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("migrations/");
+        static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
         let pool = self.pool.clone();
         self.runtime.block_on(async move {
             MIGRATOR.run(&pool).await.map_err(migration_failure)
@@ -242,13 +243,29 @@ impl FlexCoreStore {
     pub fn id_generator(&self) -> PostgresIdGenerator {
         PostgresIdGenerator::new(self.pool.clone(), Arc::clone(&self.runtime))
     }
+
+    /// The telemetry READ port (P2.12) over this store's pool: a
+    /// pool-held [`PgTelemetryReader`] — each trait call opens its own
+    /// tenant-scoped unit of work via [`FlexCoreStore::begin`] (see that
+    /// module for why the reader is pool-held rather than bound to a
+    /// request's unit of work).
+    pub fn telemetry_reader(&self) -> PgTelemetryReader {
+        PgTelemetryReader::new(self.clone())
+    }
 }
 
 /// Maps a migration failure to an opaque backend error. The message
 /// describes the failure class only; migration SQL never travels into a
 /// port error.
 fn migration_failure(err: sqlx::migrate::MigrateError) -> BackendError {
-    let message = match &err {
+    // Matched by value so the `Execute` arm hands over the owned
+    // `sqlx::Error` to `map_backend` (it takes the error by value).
+    // Two arms from the pre-0.9 mapping are gone: `InvalidMigrationVersion`
+    // and `NotInTransaction` do not exist in sqlx 0.9's `MigrateError`
+    // (a bad version file fails resolution and surfaces as `Source`;
+    // migrations always run inside a transaction, so there is no
+    // not-in-transaction variant).
+    let message = match err {
         sqlx::migrate::MigrateError::Source(_) => {
             "the embedded migrations could not be read".to_string()
         }
@@ -257,12 +274,6 @@ fn migration_failure(err: sqlx::migrate::MigrateError) -> BackendError {
         }
         sqlx::migrate::MigrateError::VersionMismatch(_) => {
             "an applied migration no longer matches the deployed binary".to_string()
-        }
-        sqlx::migrate::MigrateError::InvalidMigrationVersion(_) => {
-            "a migration file carries an unusable version number".to_string()
-        }
-        sqlx::migrate::MigrateError::NotInTransaction => {
-            "a migration required a transaction but none was open".to_string()
         }
         sqlx::migrate::MigrateError::Execute(inner) => map_backend(inner).message().to_string(),
         _ => "migration execution failed on the storage backend".to_string(),

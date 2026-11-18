@@ -581,7 +581,7 @@ fn f_iv_2_a_kw_scaled_value_at_the_mw_boundary_is_outside_capability_not_rescale
         first_units,
         "the flat record renders canonical MW/MVAr units, never kW"
     );
-    let rejection = first_rejection.expect("the mis-scaled value must be rejected");
+    let rejection = first_rejection.as_ref().expect("the mis-scaled value must be rejected");
     assert_eq!(rejection.rule, CommandRejectionRule::OutsideCapability);
     assert_eq!(rejection.code(), "outside_capability");
     assert!(
@@ -785,10 +785,10 @@ fn f_iv_5_a_target_outside_the_declared_capability_is_rejected_with_the_rule_nam
         assert_eq!(rejection.rule, CommandRejectionRule::OutsideCapability);
         assert_eq!(rejection.code(), "outside_capability");
     }
-    assert!(first_p.unwrap().detail.contains("6"));
-    assert!(first_q.unwrap().detail.contains("3"));
-    assert!(first_undeclared.unwrap().detail.contains("no reactive"));
-    assert!(first_ramp.unwrap().detail.contains("3"));
+    assert!(first_p.as_ref().unwrap().detail.contains("6"));
+    assert!(first_q.as_ref().unwrap().detail.contains("3"));
+    assert!(first_undeclared.as_ref().unwrap().detail.contains("no reactive"));
+    assert!(first_ramp.as_ref().unwrap().detail.contains("3"));
     // Determinism.
     let (second_p, second_q, second_undeclared, second_ramp) = run();
     assert_eq!(first_p, second_p);

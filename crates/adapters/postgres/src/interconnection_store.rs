@@ -32,6 +32,7 @@
 // for itself [S-21][S-169][S-170] — this module stores REFERENCES to
 // certification documents, nothing more.
 
+use sqlx::Row;
 use std::collections::HashSet;
 
 use crate::error::{is_unique_violation, map_backend};
@@ -145,7 +146,7 @@ impl InterconnectionRecordStore for PgUnitOfWork {
             .bind(&row.settings_profile_ref)
             .bind(row.ingested_at_unix_ms)
             .bind(&row.ingestion_source)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_interconnection_store_error(err, &row.device_model, &row.document_ref))?;
             if result.rows_affected() != 1 {
@@ -181,11 +182,13 @@ impl InterconnectionRecordStore for PgUnitOfWork {
                     code: err.code().to_string(),
                     message: err.message().to_string(),
                 })?;
-            let rows = sqlx::query(&format!(
+            // sqlx 0.9 audit: this statement interpolates only the
+            // INTERCONNECTION_SELECT const fragment; every value is a $n bind.
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{INTERCONNECTION_SELECT} WHERE device_model = $1 ORDER BY record_id ASC"
-            ))
+            )))
             .bind(device_model)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(map_interconnection_backend)?;
             rows.iter().map(decode_interconnection_record_row).collect()

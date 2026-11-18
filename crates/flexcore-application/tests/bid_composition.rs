@@ -422,7 +422,13 @@ fn invalid_quantities_are_refused() {
     )
     .expect_err("a non-finite quantity must be refused");
     assert!(matches!(error, BidCompositionError::InvalidQuantity { .. }));
-    let mismatched = vec![asset_input("asset-a", [1.0])];
+    // One interval where the structure expects two: the helper only
+    // builds 2-interval inputs, so this one is built directly.
+    let mismatched = vec![AssetBidInput {
+        asset_id: "asset-a".to_string(),
+        envelope_ref: "envelope-v7-asset-a".to_string(),
+        interval_quantities_mw: vec![1.0],
+    }];
     let error = compose_bid(
         &structure,
         &grant,

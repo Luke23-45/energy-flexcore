@@ -286,7 +286,14 @@ fn u3_program_exposes_default_control_and_control_list() {
     let programs = body["derPrograms"].as_array().expect("program array");
     assert_eq!(programs.len(), 1);
     assert_eq!(programs[0]["mrid"], "prog-1");
-    assert_eq!(programs[0]["defaultDERControlLink"], "/derp/dderc");
+    // Plain camelCase, the model's uniform rule (`rename_all =
+    // "camelCase"` on every struct; spellings UNVERIFIED per the lib
+    // header): `default_der_control_link` serializes as
+    // `defaultDerControlLink`, matching the sibling `derControlListLink`
+    // — not the spec's DER-caps `defaultDERControlLink`. If the wire
+    // spelling is ever verified as DER-caps, the MODEL needs an explicit
+    // rename, not a test change.
+    assert_eq!(programs[0]["defaultDerControlLink"], "/derp/dderc");
     assert_eq!(programs[0]["derControlListLink"], "/derc");
 }
 

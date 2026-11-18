@@ -176,7 +176,19 @@ fn emit_phase3_event(
     let subject = subject_for(&envelope.event).to_string();
     let write = OutboxWrite::new(receipt, idempotency_key, subject, payload, event_time)
         .map_err(|_| ApiError::infrastructure())?;
-    outbox.append(write).map_err(|_| ApiError::infrastructure())
+    // The outbox idempotency key is the durable dedupe (D-P3.21-4): a
+    // republication of an already-published event — the schedule POST
+    // re-emitting the `ScheduleProposed` the optimization-run POST already
+    // published for the same candidate, same deterministic key — is a
+    // no-op SUCCESS, not an infrastructure failure. Any other outbox
+    // error still fails the request.
+    match outbox.append(write) {
+        Ok(()) => Ok(()),
+        Err(flexcore_ports::event_outbox::EventOutboxError::DuplicateKey {
+            ..
+        }) => Ok(()),
+        Err(_) => Err(ApiError::infrastructure()),
+    }
 }
 
 /// Parses one canonical UUID reference (a cross-tenant/unknown reference
@@ -318,7 +330,7 @@ fn parse_schedule_cursor(raw: &str) -> Result<(FlexUuid, u64), ApiError> {
         (status = 422, description = "Validation rejected", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn create_flexibility_envelope(
+pub(crate) async fn create_flexibility_envelope(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Json(body): Json<CreateEnvelopeBody>,
@@ -454,7 +466,7 @@ async fn create_flexibility_envelope(
         (status = 422, description = "Malformed cursor/filter or oversized page", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn list_flexibility_envelopes(
+pub(crate) async fn list_flexibility_envelopes(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Query(params): Query<Phase3ListParams>,
@@ -477,11 +489,17 @@ async fn list_flexibility_envelopes(
                 after_envelope_id,
             };
             uow.envelope_records
-                .list_envelope_records(&ctx, &filter, limit)
+                .list_envelope_records(&ctx, &filter, limit + 1)
                 .map_err(map_envelope_store_error)
         })
         .await?;
-    let next_cursor = if rows.len() == limit {
+    // Keyset probe: fetch one row past the page — a full page does NOT
+    // prove another page exists (the old `len == limit` check emitted a
+    // cursor on the last page whenever it happened to be exactly full).
+    let mut rows = rows;
+    let has_more = rows.len() > limit;
+    rows.truncate(limit);
+    let next_cursor = if has_more {
         rows.last().map(|r| r.envelope_id.clone())
     } else {
         None
@@ -515,7 +533,7 @@ async fn list_flexibility_envelopes(
         (status = 422, description = "Validation rejected", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn create_optimization_run(
+pub(crate) async fn create_optimization_run(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Json(body): Json<CreateOptimizationRunBody>,
@@ -619,7 +637,7 @@ async fn create_optimization_run(
         (status = 422, description = "Malformed cursor/filter, oversized page, or seventh status value", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn list_optimization_runs(
+pub(crate) async fn list_optimization_runs(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Query(params): Query<Phase3ListParams>,
@@ -660,12 +678,16 @@ async fn list_optimization_runs(
                     site_filter.as_deref(),
                     status_filter.as_deref(),
                     after_candidate_id.as_deref(),
-                    limit,
+                    limit + 1,
                 )
                 .map_err(map_schedule_store_error)
         })
         .await?;
-    let next_cursor = if rows.len() == limit {
+    // Keyset probe (see list_flexibility_envelopes).
+    let mut rows = rows;
+    let has_more = rows.len() > limit;
+    rows.truncate(limit);
+    let next_cursor = if has_more {
         rows.last().map(|r| r.candidate_id.clone())
     } else {
         None
@@ -706,7 +728,7 @@ async fn list_optimization_runs(
         (status = 422, description = "Validation rejected (including a FAILED asset/time-coupled validation outcome — nothing is stored)", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn propose_schedule(
+pub(crate) async fn propose_schedule(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Json(body): Json<CreateScheduleBody>,
@@ -836,12 +858,16 @@ async fn propose_schedule(
             .map_err(map_revision_error)?;
             // Revision n > 1: mark the predecessor SUPERSEDED in THIS
             // transaction first (the store verifies the gapless pair).
+            // The target is the NEW revision, not the predecessor:
+            // `ScheduleSupersedeTarget.revision` is "the new revision
+            // number (must be exactly prior + 1)" and its candidate is the
+            // NEW revision's candidate — the old code passed the
+            // predecessor's revision and candidate, so the store refused
+            // every revision > 1 as an invalid target (422).
             if body.revision > 1 {
                 let target = ScheduleSupersedeTarget::new(
-                    row.revision - 1,
-                    body.supersedes_candidate_id
-                        .clone()
-                        .expect("checked above"),
+                    row.revision,
+                    body.candidate_id.clone(),
                 )
                 .map_err(map_revision_error)?;
                 uow.schedule_revisions
@@ -933,7 +959,7 @@ async fn propose_schedule(
         (status = 422, description = "Malformed cursor/filter or oversized page", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn list_schedules(
+pub(crate) async fn list_schedules(
     State(state): State<AppState>,
     crate::auth::CallerExtractor(caller): crate::auth::CallerExtractor,
     Query(params): Query<Phase3ListParams>,
@@ -987,12 +1013,16 @@ async fn list_schedules(
                             portfolio_filter.as_deref(),
                             after_schedule_id.as_deref(),
                             after_revision,
-                            limit,
+                            limit + 1,
                         )
                         .map_err(map_revision_error)
                 })
                 .await?;
-            let next_cursor = if records.len() == limit {
+            // Keyset probe (see list_flexibility_envelopes).
+            let mut records = records;
+            let has_more = records.len() > limit;
+            records.truncate(limit);
+            let next_cursor = if has_more {
                 records.last().map(|r| {
                     format!("{}:{}", r.row.schedule_id, r.row.revision)
                 })

@@ -29,6 +29,7 @@ use flexcore_kernel::plugin_path_protection::{
     refuse_protected_contract_claim, sequence_channel, CheckpointError,
     FilePluginSequenceCheckpoint, PluginPathOutcome, PluginPathError, PluginPathVerifier,
     PluginProposalEnvelope, PluginRequestEnvelope, PluginResponseEnvelope,
+    SequenceCheckpointStore,
     PROPOSAL_ENVELOPE_STATEMENT, PLUGIN_PATH_PROTECTION_STATEMENT,
 };
 use flexcore_kernel::resolve::{resolve, ExplicitSelections, ResolveError};
@@ -74,7 +75,7 @@ fn payload(sequence: u64) -> serde_json::Value {
 }
 
 /// A verifier over a fresh file checkpoint and a clock AT BASE_MS.
-fn verifier_at(clock: &FixedClock, path: &std::path::Path) -> PluginPathVerifier<'_> {
+fn verifier_at<'a>(clock: &'a FixedClock, path: &'a std::path::Path) -> PluginPathVerifier<'a> {
     let checkpoint =
         Box::new(FilePluginSequenceCheckpoint::open(path).expect("the checkpoint opens"));
     PluginPathVerifier::new(clock, checkpoint).expect("the verifier loads its history")
@@ -313,8 +314,10 @@ fn checkpoint_state_is_loaded_sorted_and_a_foreign_file_is_refused() {
     // A foreign file (wrong magic) is refused, never guessed at.
     let foreign = scratch_path("foreign");
     std::fs::write(&foreign, b"not a flexcore plugin-path checkpoint").expect("writes");
-    let error = FilePluginSequenceCheckpoint::open(&foreign)
-        .expect_err("a foreign file is refused");
+    let error = match FilePluginSequenceCheckpoint::open(&foreign) {
+        Ok(_) => panic!("a foreign file is refused"),
+        Err(error) => error,
+    };
     assert!(
         matches!(error, CheckpointError::NotACheckpointFile { .. }),
         "a foreign file is CHECKPOINT_FILE_FOREIGN: {error:?}"
@@ -377,8 +380,10 @@ fn a_verifier_cannot_run_without_its_checkpoint_history() {
         }
     }
     let clock = FixedClock::new(BASE_MS);
-    let error = PluginPathVerifier::new(&clock, Box::new(BrokenStore))
-        .expect_err("no history, no verification");
+    let error = match PluginPathVerifier::new(&clock, Box::new(BrokenStore)) {
+        Ok(_) => panic!("no history, no verification"),
+        Err(error) => error,
+    };
     assert_eq!(error.name(), "CHECKPOINT_UNAVAILABLE");
 }
 
@@ -412,8 +417,10 @@ fn the_path_outcome_has_no_dispatch_authorizing_variant() {
     };
     assert_eq!(description, "proposal prop-1");
 
-    // The restated statement is pinned (what IS and IS NOT claimed).
-    assert!(PROPOSAL_ENVELOPE_STATEMENT.contains("no dispatch-authorizing variant"));
+    // The restated statement is pinned (what IS and IS NOT claimed). The
+    // statement words the claim emphatically ("NO dispatch-authorizing
+    // variant"), so the pin uses its exact wording.
+    assert!(PROPOSAL_ENVELOPE_STATEMENT.contains("NO dispatch-authorizing variant"));
     assert!(PROPOSAL_ENVELOPE_STATEMENT.contains("no authority"));
 }
 
@@ -472,7 +479,7 @@ fn manifest_with_provider(provider_of: &[&str]) -> serde_json::Value {
         "plugin-id": "neryva.hostile-plugin",
         "name": "Hostile Plugin",
         "version": "0.1.0",
-        "api-version": ">=0.5,<1.0",
+        "api-version": ">=0.5.0,<1.0.0",
         "class": "builtin-rust",
         "entry-point": { "registered-type": "neryva.builtin/hostile" },
         "provider-of": provider_of,

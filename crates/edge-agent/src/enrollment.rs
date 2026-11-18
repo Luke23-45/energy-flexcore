@@ -64,6 +64,7 @@ use crate::ports::{EdgeAuditEvent, EdgeAuditKind, EdgeError, LocalBuffer};
 /// `Display` are redacted unconditionally — the token can never enter a log
 /// line, an audit event, or a panic message by accident (the config rule
 /// from `config.rs`: no secret VALUES in diagnostics).
+#[derive(Clone)]
 pub struct ProvisioningToken {
     value: String,
 }
@@ -621,10 +622,14 @@ impl FilesystemCredentialStore {
                               root_ca_pem: &mut Option<PemBody>,
                               chain: &mut Vec<PemBody>|
          -> Result<(), EdgeError> {
-            let body = PemBody::new(lines.join("\n"));
+            // str::lines() strips the terminators, so join() alone drops
+            // the body's trailing newline; encode() guarantees exactly one
+            // trailing newline before >>PEM (appending one when missing),
+            // so the faithful inverse restores it.
+            let body = PemBody::new(format!("{}\n", lines.join("\n")));
             match field {
-                "certificate_pem" => certificate_pem = Some(body),
-                "root_ca_pem" => root_ca_pem = Some(body),
+                "certificate_pem" => *certificate_pem = Some(body),
+                "root_ca_pem" => *root_ca_pem = Some(body),
                 other if other.starts_with("chain_") => chain.push(body),
                 other => {
                     return Err(EdgeError::CredentialStoreFailed {
@@ -768,7 +773,8 @@ impl CredentialStore for FilesystemCredentialStore {
             #[cfg(unix)]
             let mut file = {
                 use std::os::unix::fs::OpenOptionsExt;
-                std::fs::OpenOptions::new()
+                use std::os::unix::fs::PermissionsExt;
+                let file = std::fs::OpenOptions::new()
                     .write(true)
                     .create(true)
                     .truncate(true)
@@ -776,7 +782,20 @@ impl CredentialStore for FilesystemCredentialStore {
                     .open(&temp)
                     .map_err(|error| EdgeError::CredentialStoreFailed {
                         reason: format!("credential store not writable: {error}"),
-                    })?
+                    })?;
+                // The open-time mode applies ONLY at creation: a leftover
+                // .partial sibling from a crashed write (0660 under a
+                // permissive umask) keeps its wider permissions through
+                // truncate, and the post-rename owner-only check then
+                // refuses the store's own file. Enforce 0600 explicitly
+                // before any credential bytes are written.
+                file.set_permissions(std::fs::Permissions::from_mode(0o600))
+                    .map_err(|error| EdgeError::CredentialStoreFailed {
+                        reason: format!(
+                            "credential store permissions could not be set: {error}"
+                        ),
+                    })?;
+                file
             };
             #[cfg(not(unix))]
             let mut file = std::fs::OpenOptions::new()
@@ -914,7 +933,7 @@ impl RevocationChecker for UnconfiguredRevocationChecker {
         Err(EdgeError::RevocationCheckFailed {
             reason: "no revocation checker is composed; OCSP/CRL checking is a DEPLOYMENT \
                      REQUIREMENT (the FlexCore 0.x line implements no OCSP/CRL client) — the \
-                     revocation status cannot be established, so it is NOT 'not revoked'"
+                     revocation status cannot be established, so no clean verdict is claimed"
                 .to_string(),
         })
     }

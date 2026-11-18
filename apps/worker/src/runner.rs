@@ -64,7 +64,7 @@ async fn sleep_or_shutdown(
 /// `base * 2^(failures - 1)`, clamped to `[base, cap]`.
 fn backoff(base: Duration, cap: Duration, failures: u64) -> Duration {
     let exponent = failures.saturating_sub(1).min(16);
-    let factor = 1u64.checked_shl(exponent as u32).unwrap_or(u64::MAX);
+    let factor = 1u32.checked_shl(exponent as u32).unwrap_or(u32::MAX);
     base.checked_mul(factor)
         .unwrap_or(cap)
         .min(cap)
@@ -101,7 +101,7 @@ pub async fn run_outbox_publisher(
         // the phase-11 record
         // `records/05_p11_05_otel_python_and_trace_headers.md`.
         .with_trace_header_provider(std::sync::Arc::new(
-            flexcore_worker::otel::trace_header_pairs,
+            crate::otel::trace_header_pairs,
         ));
     loop {
         if *shutdown.borrow() {

@@ -32,7 +32,7 @@
 // Decision record: phase-13 `records/47_p13_21_notification_audit_interplay.md`.
 
 use crate::notifications::{EVENT_NOTIFICATION_MAP, NOTIFICATION_CHANNELS, NOTIFICATION_SEVERITIES};
-use flexcore_events::FROZEN_EVENT_NAMES;
+use flexcore_events::events::FROZEN_EVENT_NAMES;
 
 /// The registry version. Semantic-versioned DATA: amending a disposition
 /// is a recorded amendment that bumps this constant (a patch bump for a
@@ -316,7 +316,7 @@ pub fn validate_registry() -> Result<(), String> {
     for name in FROZEN_EVENT_NAMES {
         let count = EVENT_DISPOSITIONS
             .iter()
-            .filter(|row| row.event_name == *name)
+            .filter(|row| row.event_name == name)
             .count();
         if count != 1 {
             return Err(format!("'{name}' appears {count} times (exactly once required)"));
@@ -337,7 +337,7 @@ mod tests {
             assert_eq!(
                 EVENT_DISPOSITIONS
                     .iter()
-                    .filter(|row| row.event_name == *name)
+                    .filter(|row| row.event_name == name)
                     .count(),
                 1,
                 "'{name}' appears exactly once"
@@ -347,14 +347,19 @@ mod tests {
 
     #[test]
     fn exactly_four_events_notify_and_they_are_the_record_23_rows() {
-        let notify: Vec<&str> = EVENT_DISPOSITIONS
+        // Sorted: the registry is ordered by event FAMILY (dispatch rows
+        // precede plugin rows), while record 23 lists the four Notify rows
+        // in presentational order (PluginFailed before DispatchFailed).
+        // The pinned claim is the SET, not the registry's section order.
+        let mut notify: Vec<&str> = EVENT_DISPOSITIONS
             .iter()
             .filter(|row| row.disposition == NotificationDisposition::Notify)
             .map(|row| row.event_name)
             .collect();
+        notify.sort_unstable();
         assert_eq!(
             notify,
-            vec!["TelemetryQualityChanged", "AssetAvailabilityChanged", "PluginFailed", "DispatchFailed"],
+            vec!["AssetAvailabilityChanged", "DispatchFailed", "PluginFailed", "TelemetryQualityChanged"],
             "the Notify set is exactly the record 23 initial registration"
         );
         assert_eq!(

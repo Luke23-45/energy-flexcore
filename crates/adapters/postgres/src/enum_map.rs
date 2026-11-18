@@ -12,6 +12,7 @@
 use crate::error::decode_failure;
 use flexcore_contracts::quality::TelemetryQuality;
 use flexcore_domain::entities::{AssetLifecycleStatus, AssetType};
+use flexcore_ports::backend_error::BackendError;
 use flexcore_ports::repository::RepositoryError;
 
 /// The contracts asset type as the `assets.asset_type` text value.
@@ -62,13 +63,17 @@ pub(crate) fn quality_text(quality: TelemetryQuality) -> &'static str {
 
 /// The `telemetry_quality` enum text as the contracts quality state. A
 /// seventh value cannot exist in the enum (D-S4), so any mismatch is a
-/// decode failure of a row written outside this adapter.
-pub(crate) fn quality_from_text(raw: &str) -> Result<TelemetryQuality, RepositoryError> {
+/// decode failure of a row written outside this adapter. The error is a
+/// plain `BackendError` (a decode failure, like the sibling
+/// `clock_quality_from_text` / `q_sign_from_text` in telemetry.rs) —
+/// `RepositoryError` added nothing here: its only construction was the
+/// `Backend` variant wrapping this same decode failure.
+pub(crate) fn quality_from_text(raw: &str) -> Result<TelemetryQuality, BackendError> {
     TelemetryQuality::ALL
         .iter()
         .copied()
         .find(|q| q.name() == raw)
-        .ok_or_else(|| RepositoryError::Backend(decode_failure("asset_state.quality")))
+        .ok_or_else(|| decode_failure("asset_state.quality"))
 }
 
 #[cfg(test)]

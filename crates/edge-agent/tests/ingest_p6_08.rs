@@ -258,7 +258,10 @@ fn read_path_flows_simulated_to_uplink_with_canonical_fields_in_order() {
     // Quality at tick 0: both GOOD — exactly one canonical state per value.
     assert_eq!(forwarded[0].quality, TelemetryQuality::Good);
     assert_eq!(forwarded[1].quality, TelemetryQuality::Good);
-    assert_eq!(forwarded[0].source_quality_code, None);
+    // The source's native code is preserved alongside the canonical
+    // quality (the simulated source reports "GOOD" at tick 0; the degraded
+    // case preserves "OUT_OF_RANGE" the same way).
+    assert_eq!(forwarded[0].source_quality_code, Some("GOOD".to_string()));
 }
 
 #[test]
@@ -363,7 +366,10 @@ fn a_fresh_event_time_flows_again_after_dedup() {
     assert_eq!(second.forwarded, 2, "fresh event_time: no dedup");
     let forwarded = recorded.lock().expect("poisoned");
     let sequences: Vec<u64> = forwarded.iter().map(|r| r.sequence).collect();
-    assert_eq!(sequences, vec![2, 2], "tick 1 sequences");
+    // `recorded` accumulates BOTH ticks ([1, 1] then [2, 2]); the tick-1
+    // samples are the tail.
+    assert_eq!(sequences, vec![1, 1, 2, 2], "both ticks, in order");
+    assert_eq!(&sequences[2..], &[2, 2], "tick 1 sequences");
 }
 
 // --- 3. ACL failure accounting ----------------------------------------------------

@@ -135,9 +135,12 @@ fn central_outage_during_a_command_flow_events_accumulate_in_order() {
         .expect_err("the default build refuses commands");
     assert_eq!(refusal.code(), "command_path_disabled");
 
-    // The supervision loop with the channel DOWN (FailClosedUplink): the
-    // poll fails (site EMS unreachable in this synthetic window) and the
-    // runner enters degraded buffering mode — both audited durably.
+    // The supervision loop with the poll failing (site EMS unreachable in
+    // this synthetic window): the poll failure is audited durably. The
+    // runner does NOT enter degraded mode here -- degraded is entered only
+    // on a FORWARD failure (runner.rs state machine), and with the poll
+    // failing and the telemetry buffer empty no forward is attempted, so
+    // forward_failed stays false and no degraded-entry event exists.
     let mut runner = EdgeRunner::new(
         RunnerParams::from_config(Duration::from_millis(60_000), 10, 1_000),
         Box::new(FailClosedEmsSource),
@@ -148,21 +151,20 @@ fn central_outage_during_a_command_flow_events_accumulate_in_order() {
     );
     let report = runner.tick();
     assert!(report.poll_failed);
-    assert!(report.forward_failed);
-    assert!(runner.is_degraded(), "channel down = degraded mode");
+    assert!(!report.forward_failed, "no forward was attempted: nothing buffered");
+    assert!(!runner.is_degraded(), "degraded is entered only on forward failure");
 
     // EVERYTHING generated during the outage window is durably in the
-    // buffer, in order, with no gaps.
+    // buffer, in order, with no gaps: exactly three records -- the gate
+    // state (CommandReceiver::new audits it at construction, P6.14 step 2),
+    // the command rejection, and the poll failure (no degraded entry: see
+    // above).
     let pending = buffer.drain(1_000);
-    assert!(pending.len() >= 4, "gate state + rejection + degraded entry + poll failure: {}", pending.len());
+    assert_eq!(pending.len(), 3, "gate state + rejection + poll failure: {}", pending.len());
     let names: Vec<&str> = pending.iter().map(|r| r.kind.name()).collect();
     assert!(
         names.iter().any(|n| *n == "EDGE_COMMAND_REJECTED"),
         "the command refusal is durably audited: {names:?}"
-    );
-    assert!(
-        names.iter().any(|n| *n == "EDGE_DEGRADED_BUFFERING_ENTERED"),
-        "the degraded entry is durably audited: {names:?}"
     );
     assert!(
         names.iter().any(|n| *n == "EDGE_SOURCE_POLL_FAILED"),
@@ -244,7 +246,7 @@ fn audit_buffer_overflow_is_explicitly_reported_never_silent() {
     let dir = scratch_dir("overflow");
     let journal = dir.join("audit.journal");
     let buffer = Arc::new(FileAuditBuffer::open(&journal, 3, clock_at(BASE_MILLIS)).expect("opens"));
-    let sink: Arc<dyn AuditSink> = Arc::clone(&buffer);
+    let sink: Arc<dyn AuditSink> = Arc::clone(&buffer) as Arc<dyn AuditSink>;
 
     // Five events into a capacity-3 buffer: two OLDEST records are dropped
     // under the audited drop-of-oldest policy.
@@ -316,9 +318,12 @@ fn upload_is_in_order_only_and_never_skips_an_un_uploaded_predecessor() {
     buffer.prepend(batch_b);
 
     // The uploader CANNOT jump ahead to seq 5–6 while 3–4 are un-uploaded:
-    // an out-of-order commit is refused and removes NOTHING.
+    // prepend put B back at the FRONT, so the next drain re-delivers B
+    // (at-least-once) -- the uploader cannot even REACH 5–6 yet. The jump
+    // is attempted below with the hand-built seq-5 record, and the
+    // out-of-order commit is refused and removes NOTHING.
     let batch_c = buffer.drain(2);
-    assert_eq!(batch_c.iter().map(|r| r.sequence).collect::<Vec<_>>(), vec![5, 6]);
+    assert_eq!(batch_c.iter().map(|r| r.sequence).collect::<Vec<_>>(), vec![3, 4]);
     buffer.prepend(batch_c);
     let jump = vec![BufferedAuditRecord {
         sequence: 5,
@@ -379,9 +384,11 @@ fn outage_window_event_count_reconciles_before_and_after_reconnect() {
     assert_eq!(synthetic_ticks, 30, "the synthetic window covers the 30-minute ledger scenario");
 
     // BEFORE reconnect: every tick produced exactly one audited poll
-    // failure (plus one degraded-entry event); nothing was lost within
-    // capacity, nothing was dropped.
-    let expected_events = synthetic_ticks + 1; // 30 poll failures + 1 degraded entry
+    // failure and nothing else -- no degraded-entry event: degraded is
+    // entered only on a failed forward (runner.rs state machine), and with
+    // the poll failing and the buffer empty no forward is attempted.
+    // Nothing was lost within capacity, nothing was dropped.
+    let expected_events = synthetic_ticks; // 30 poll failures
     assert!(buffer.dropped_oldest() == 0, "no loss within capacity");
     assert!(!buffer.has_overflowed());
     assert_eq!(buffer.appended_total(), expected_events);
@@ -393,24 +400,26 @@ fn outage_window_event_count_reconciles_before_and_after_reconnect() {
         expected_events,
         "event-count reconciliation: every event generated during the outage window is uploaded on reconnect"
     );
-    // In order with strictly increasing sequences; the FIRST tick audits
-    // the poll failure and then the degraded entry (the runner's poll
-    // phase runs before the forward phase), so:
-    //   seq 1  = SOURCE_POLL_FAILED   at BASE
-    //   seq 2  = DEGRADED_BUFFERING_ENTERED at BASE
-    //   seq 3..=31 = one SOURCE_POLL_FAILED per later tick, 60 s apart.
+    // In order with strictly increasing sequences; every tick audits
+    // exactly one poll failure (no degraded entry: see above), so:
+    //   seq 1..=30 = one SOURCE_POLL_FAILED per tick, 60 s apart,
+    //   tick k at BASE + (k-1) * 60_000.
     assert_eq!(
         pending.iter().map(|r| r.sequence).collect::<Vec<_>>(),
         (1..=expected_events).collect::<Vec<_>>(),
         "sequences are dense and ordered across the whole outage window"
     );
     assert_eq!(pending[0].kind, BufferedAuditKind::SourcePollFailed);
-    assert_eq!(pending[1].kind, BufferedAuditKind::DegradedBufferingEntered);
+    assert_eq!(pending[1].kind, BufferedAuditKind::SourcePollFailed);
     // The timestamps advance with the synthetic window (never re-stamped).
     assert_eq!(pending[0].recorded_at.unix_millis(), BASE_MILLIS as i128);
     assert_eq!(
-        pending[2].recorded_at.unix_millis(),
+        pending[1].recorded_at.unix_millis(),
         (BASE_MILLIS + TICK_MILLIS) as i128
+    );
+    assert_eq!(
+        pending[2].recorded_at.unix_millis(),
+        (BASE_MILLIS + 2 * TICK_MILLIS) as i128
     );
     assert_eq!(
         pending.last().expect("non-empty").recorded_at.unix_millis(),
@@ -498,7 +507,7 @@ fn a_failed_audit_write_is_a_named_error_never_a_silent_skip() {
     let journal = dir.join("audit.journal");
     let buffer = FileAuditBuffer::open(&journal, 10, clock_at(BASE_MILLIS)).expect("opens");
     let error = buffer
-        .record_event(BufferedAuditKind::ScopeDenied, "", "object", "no actor")
+        .record_event(BufferedAuditKind::ScopeDenied, "", "object", "no actor".to_string())
         .expect_err("refused");
     assert!(matches!(error, EdgeError::AuditWriteFailed { .. }));
     cleanup(&dir);

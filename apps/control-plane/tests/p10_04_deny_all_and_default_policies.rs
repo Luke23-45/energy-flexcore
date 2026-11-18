@@ -306,14 +306,15 @@ fn the_cumulative_default_set_allows_exactly_the_recorded_table() {
         }
     }
     // The recorded total, counted cell-by-cell from the transcription:
-    // PlatformAdmin 27 (p1: 9, p2: 8, p3: 6, p4: 3, p5: 1),
+    // PlatformAdmin 28 (p1: 10 — SiteRead and AssetRead each span two
+    // scope kinds — p2: 8, p3: 6, p4: 3, p5: 1),
     // TenantAdmin 25 (p1: 8, p2: 7, p3: 6, p4: 3, p5: 1),
     // Operator 14 (p1: 5, p2: 1, p3: 4, p4: 3, p5: 1),
     // Viewer 13 (p1: 5, p2: 1, p3: 3, p4: 3, p5: 1).
     assert_eq!(
         allows,
-        27 + 25 + 14 + 13,
-        "the cumulative table grants exactly 79 cells"
+        28 + 25 + 14 + 13,
+        "the cumulative table grants exactly 80 cells"
     );
 }
 

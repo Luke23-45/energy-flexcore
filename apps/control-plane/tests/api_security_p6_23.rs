@@ -95,7 +95,7 @@ fn base_state() -> AppState {
         Arc::new(FakeTenantRepository::new(journal.clone())),
         Arc::new(FakePortfolioRepository::new(journal.clone())),
         Arc::new(FakeSiteRepository::new(journal.clone())),
-        Arc::new(FakeAssetRepository::new(journal)),
+        Arc::new(FakeAssetRepository::new(journal.clone())),
         Arc::new(FakeEventOutbox::new(journal.clone())),
         Arc::new(CountingIdGenerator::new()),
         Arc::new(FixedClock::at_unix_millis(1_700_000_000_000)),
@@ -303,7 +303,7 @@ async fn a_foreign_site_within_the_tenant_is_403_and_the_denial_is_audited() {
     assert_eq!(status, StatusCode::FORBIDDEN);
     let rejection = store
         .events()
-        .iter()
+        .into_iter()
         .find(|e| e.event_type == "REJECTED" && e.device_id == "edge-hostile")
         .expect("the foreign-site denial is journaled");
     assert_eq!(rejection.actor, "edge:enrollment:edge-hostile");
@@ -350,7 +350,7 @@ async fn a_revoked_identity_cannot_re_enroll_and_the_attempt_is_audited() {
     assert_eq!(status, StatusCode::FORBIDDEN);
     let rejection = store
         .events()
-        .iter()
+        .into_iter()
         .find(|e| e.event_type == "REJECTED" && e.device_id == "edge-revoked")
         .expect("the revoked re-enrollment attempt is journaled");
     assert_eq!(rejection.actor, "edge:enrollment:edge-revoked");
@@ -387,20 +387,26 @@ async fn a_malformed_device_identity_is_422_and_writes_nothing() {
 
 #[tokio::test]
 async fn a_malformed_tenant_or_site_uuid_is_422() {
-    let (router, store) = composed_router(vec![("t-1".to_string(), edge_a_scope())]);
+    // Two attempts, two single-use provisioning tokens: the first attempt
+    // consumes "t-1" at the token gate before the 422, so the second
+    // attempt needs its own token (reusing "t-1" answers 401, not 422).
+    let (router, store) = composed_router(vec![
+        ("t-1".to_string(), edge_a_scope()),
+        ("t-2".to_string(), edge_a_scope()),
+    ]);
     let bad_tenant = json!({
         "device_id": "edge-01",
         "tenant_id": "not-a-uuid",
         "site_id": site_uuid(0xA1).to_hyphenated().to_string(),
     });
-    let (status, _body) = post_enroll(router, Some("t-1"), bad_tenant).await;
+    let (status, _body) = post_enroll(router.clone(), Some("t-1"), bad_tenant).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     let bad_site = json!({
         "device_id": "edge-01",
         "tenant_id": tenant_uuid(TENANT_A_SEED).to_hyphenated().to_string(),
         "site_id": "../../etc/passwd",
     });
-    let (status, _body) = post_enroll(router, Some("t-1"), bad_site).await;
+    let (status, _body) = post_enroll(router, Some("t-2"), bad_site).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(store.events().is_empty());
 }
@@ -434,7 +440,7 @@ async fn every_state_decision_refusal_carries_actor_object_and_timestamp() {
     assert_eq!(second, StatusCode::CONFLICT);
     let rejections: Vec<_> = store
         .events()
-        .iter()
+        .into_iter()
         .filter(|e| e.event_type == "REJECTED")
         .collect();
     assert!(

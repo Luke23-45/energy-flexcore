@@ -38,8 +38,8 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use flexcore_kernel::lifecycle::{
-    DrainOutcome, DrainPolicy, DrainPort, FixedClock, GateOutcome, MemoryAuditSink,
-    PluginLifecycle,
+    DrainOutcome, DrainPolicy, DrainPort, FixedClock, GateOutcome, LifecycleError,
+    MemoryAuditSink, PluginLifecycle,
 };
 use flexcore_kernel::manifest::{parse_manifest_value, Manifest, ManifestError};
 use flexcore_kernel::plugin_config::{resolve_for_instance, ConfigError};
@@ -101,7 +101,7 @@ impl_named_error!(
 /// Runs one step's expectation against a `Result`. Returns `Some(value)`
 /// when an `ok` outcome was expected and produced; `None` when a `refused`
 /// outcome was expected and matched BY NAME. Any mismatch fails the scenario.
-fn expect_step<T, E: NamedError>(
+fn expect_step<T, E: NamedError + std::fmt::Debug>(
     scenario_id: &str,
     step_index: usize,
     expect: &serde_json::Value,
@@ -112,7 +112,7 @@ fn expect_step<T, E: NamedError>(
         Some("ok") => match result {
             Ok(value) => Some(value),
             Err(err) => panic!(
-                "{what}: expected ok, was refused with '{}' ({err})",
+                "{what}: expected ok, was refused with '{}' ({err:?})",
                 err.named()
             ),
         },
@@ -265,7 +265,6 @@ fn run_scenario(scenario: &serde_json::Value) {
     let clock = FixedClock::new(BASE_MS);
     let audit = MemoryAuditSink::new();
     let drain_script = Rc::new(RefCell::new(DrainScript::default()));
-    let mut drain_port = ScriptedDrainPort::new(drain_script.clone());
     let mut lifecycle: Option<PluginLifecycle<'_>> = None;
     let mut verifier_slot: Option<PluginPathVerifier<'_>> = None;
 
@@ -550,8 +549,19 @@ fn run_scenario(scenario: &serde_json::Value) {
                 let active = lifecycle
                     .as_mut()
                     .expect("lifecycle-begin-drain runs after lifecycle-register");
+                // A fresh port per drain step: begin_drain STORES the &mut
+                // drain in the lifecycle for its whole lifetime
+                // (lifecycle.rs: `self.drain = Some(drain)`), so one port
+                // cannot serve two steps and a loop-local port would die
+                // before the lifecycle. The port is one Rc clone (the
+                // shared script is the only state), leaked for the test
+                // process so it outlives the lifecycle; behaviour is
+                // identical across steps.
+                let drain_port = Box::leak(Box::new(ScriptedDrainPort::new(
+                    drain_script.clone(),
+                )));
                 let result = active.begin_drain(
-                    &mut drain_port,
+                    drain_port,
                     "scenario-interpreter",
                     "scenario scripted drain",
                 );
@@ -816,7 +826,7 @@ fn every_scenario_is_wellformed_with_pinned_inputs_seeds_and_tolerance() {
                 .as_str()
                 .unwrap_or_else(|| panic!("scenario '{id}' step {step_index} has no step kind"));
             // Structural reference checks: every referenced input index exists.
-            if let Some(i) = step["index"].and_then(|v| v.as_u64()) {
+            if let Some(i) = step["index"].as_u64() {
                 let bound = match kind {
                     "parse-manifest" => manifest_inputs.len(),
                     "parse-profile" => profile_inputs.len(),
@@ -835,8 +845,15 @@ fn every_scenario_is_wellformed_with_pinned_inputs_seeds_and_tolerance() {
                 );
             }
             // Expectation presence: every outcome-producing step carries an
-            // expect object; state-mutation helpers do not.
-            let needs_expect = !matches!(kind, "tamper-envelope" | "set-drain-script" | "advance-clock");
+            // expect object; state-mutation helpers do not — and neither
+            // does `lifecycle-state`, whose expectation IS its `state`
+            // field (the runner asserts the lifecycle's state name
+            // against it; an `expect` object there would be unread
+            // decoration that could drift from the real field).
+            let needs_expect = !matches!(
+                kind,
+                "tamper-envelope" | "set-drain-script" | "advance-clock" | "lifecycle-state"
+            );
             if needs_expect {
                 assert!(
                     step["expect"].as_object().is_some(),

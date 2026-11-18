@@ -36,7 +36,7 @@ use flexcore_contracts::units::ReactiveSignConvention;
 use flexcore_edge_agent::adapters::acl::{
     AntiCorruptionLayer, AclError, NativeSign, NativeTimestamp, NativeUnit, PointMapping,
 };
-use flexcore_edge_agent::adapters::port::{EmsNativeReading, PointKey};
+use flexcore_edge_agent::adapters::port::{EmsAdapter, EmsNativeReading, PointKey};
 use flexcore_edge_agent::adapters::simulated::{
     SimulatedEmsSource, SimulatedFixture, SimulatedPointFixture,
 };
@@ -44,6 +44,7 @@ use flexcore_edge_agent::conformance::{
     CaseOutcome, ConformanceCase, ConformanceHarness, ConformanceLimits,
 };
 use flexcore_edge_agent::ingest::AdapterIngestSource;
+use flexcore_edge_agent::ports::EmsSource;
 use flexcore_ports::fakes::FixedClock;
 use flexcore_ports::telemetry_source::TelemetryQuantity;
 

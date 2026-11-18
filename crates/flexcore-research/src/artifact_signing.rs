@@ -1432,14 +1432,26 @@ mod tests {
     fn the_default_verifier_refuses_everything_fail_closed() {
         // A record that would verify under the test-grade verifier STILL
         // fails under the default: the absence of signing infrastructure
-        // can never look like success.
+        // can never look like success. The gate's documented check order
+        // is ref → algorithm → verdict, and `NoArtifactVerifier` computes
+        // algorithm "none" while the record declares "fnv1a64-test", so
+        // step 2 (algorithm mismatch) fires before the verifier is ever
+        // consulted — the same order as the kernel signing gate (P7.14).
         let record = parsed_record(b"model-artifact-bytes");
         let verdict = verify_model_artifact(&record, ARTIFACT_REF, b"model-artifact-bytes", &NoArtifactVerifier);
         match &verdict {
             ModelProvenanceVerdict::Refused { reason } => {
-                assert!(reason.starts_with(MODEL_REFUSAL_VERIFIER_REFUSED));
+                assert!(reason.starts_with(MODEL_REFUSAL_ALGORITHM_MISMATCH));
             }
             other => panic!("expected a refusal, got {other:?}"),
+        }
+        // The verifier-level refusal itself is pinned by a direct call:
+        // the default verifier refuses every digest, fail-closed.
+        match NoArtifactVerifier.verify(b"model-artifact-bytes", "cbf29ce484222325") {
+            ModelDigestVerdict::Refused { reason } => {
+                assert!(reason.contains("no digest verifier is configured"));
+            }
+            other => panic!("expected the default verifier to refuse, got {other:?}"),
         }
     }
 
@@ -1514,13 +1526,17 @@ mod tests {
             .expect_err("duplicate refused");
         assert_eq!(err.name(), "MODEL_ARTIFACT_REVOCATION_ALREADY_RECORDED");
 
-        // Audit: two refusals then one recording, in emission order.
+        // Audit: every outcome is recorded — two refusals, one recording,
+        // then the duplicate refusal — in emission order. (The duplicate
+        // revoke audits too; `revoke` records every outcome, refused or
+        // recorded, like the approval path.)
         let records = audit.records();
-        assert_eq!(records.len(), 3);
+        assert_eq!(records.len(), 4);
         assert_eq!(records[0].kind, ModelArtifactAuditKind::RevocationRefused);
         assert_eq!(records[1].kind, ModelArtifactAuditKind::RevocationRefused);
         assert_eq!(records[2].kind, ModelArtifactAuditKind::RevocationRecorded);
         assert_eq!(records[2].timestamp_millis, 5_000);
+        assert_eq!(records[3].kind, ModelArtifactAuditKind::RevocationRefused);
     }
 
     #[test]

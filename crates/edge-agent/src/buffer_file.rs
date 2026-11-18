@@ -931,6 +931,7 @@ impl LocalBuffer for FileLocalBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::EdgeTelemetrySampleParts;
     use flexcore_contracts::quality::TelemetryQuality;
     use flexcore_contracts::time_model::{EventTime, IngestTime};
     use flexcore_contracts::units::{ActivePowerMW, ReactiveSignConvention};
@@ -958,6 +959,10 @@ mod tests {
     }
 
     /// A power sample with distinct event/ingest times and sequence.
+    /// `ingest_offset_millis` is the lag AFTER the event (ingest = event +
+    /// offset): ingest must never precede event
+    /// (`EdgeTelemetrySample::new` refuses that), and every call site
+    /// passes a uniform 1_000 lag across sequences.
     fn power_sample(sequence: u64, mw: f64, ingest_offset_millis: i64) -> EdgeTelemetrySample {
         EdgeTelemetrySample::new(EdgeTelemetrySampleParts {
             asset_key: "ess-01".to_string(),
@@ -967,8 +972,10 @@ mod tests {
             source_quality_code: None,
             event_time: EventTime::from_unix_millis(BASE_MILLIS + sequence as i64 * 1_000)
                 .expect("valid"),
-            ingest_time: IngestTime::from_unix_millis(BASE_MILLIS + ingest_offset_millis)
-                .expect("valid"),
+            ingest_time: IngestTime::from_unix_millis(
+                BASE_MILLIS + sequence as i64 * 1_000 + ingest_offset_millis,
+            )
+            .expect("valid"),
             source_sequence: sequence,
             source_id: "edge:pilot-site-A:simulated-test/ess0/ActivePower".to_string(),
         })
@@ -1115,13 +1122,15 @@ mod tests {
         let dir = scratch_dir("foreign");
         let path = dir.join("telemetry.journal");
         std::fs::write(&path, b"not a flexcore journal at all").expect("writes");
-        let error = FileLocalBuffer::open(
+        let error = match FileLocalBuffer::open(
             &path,
             10,
             None,
             Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)) as Arc<dyn Clock + Send + Sync>,
-        )
-        .expect_err("a foreign file is refused");
+        ) {
+            Ok(_) => panic!("a foreign file must never open as a journal"),
+            Err(error) => error,
+        };
         assert!(matches!(error, FileBufferError::NotAJournal { .. }));
         cleanup(&dir);
     }
@@ -1176,8 +1185,10 @@ mod tests {
             Arc::clone(&clock) as Arc<dyn Clock + Send + Sync>,
         )
         .expect("opens");
-        buffer.append(power_sample(1, 1.0, 1_000)).expect("appends"); // ingest at +1 s: expired
-        buffer.append(power_sample(2, 2.0, 6_000)).expect("appends"); // ingest at +6 s: fresh
+        // Ingest is 1 s after the event: sample 1 ingests at BASE+2 s
+        // (expired: cutoff is BASE+4 s), sample 2 at BASE+8 s (fresh).
+        buffer.append(power_sample(1, 1.0, 1_000)).expect("appends");
+        buffer.append(power_sample(2, 2.0, 6_000)).expect("appends");
 
         let drained = buffer.drain(10);
         assert_eq!(drained.len(), 1, "the expired record is retained-dropped");
@@ -1282,9 +1293,13 @@ mod tests {
             None,
             Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)) as Arc<dyn Clock + Send + Sync>,
         );
+        let error = match result {
+            Ok(_) => panic!("an unusable journal path must never open"),
+            Err(error) => error,
+        };
         assert!(
-            matches!(result, Err(FileBufferError::Io { .. })),
-            "an unusable journal path is a named I/O error: {result:?}"
+            matches!(error, FileBufferError::Io { .. }),
+            "an unusable journal path is a named I/O error: {error:?}"
         );
         cleanup(&dir);
     }

@@ -29,6 +29,7 @@
 // transaction (tenant rows are cheap, indexed lookups; RLS already scopes
 // every fetch to the caller's tenant).
 
+use sqlx::Row;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -84,8 +85,8 @@ const ASSET_SELECT: &str = "SELECT asset_id::text AS asset_id, site_id::text AS 
 
 /// One unit of work: the port bundle over one native transaction.
 pub struct PgUnitOfWork {
-    tx: Arc<AsyncMutex<Option<Tx>>>,
-    runtime: Arc<Runtime>,
+    pub(crate) tx: Arc<AsyncMutex<Option<Tx>>>,
+    pub(crate) runtime: Arc<Runtime>,
     unit: UnitOfWork,
     finalized: AtomicBool,
     /// The deployment-supplied audit-chain namespace key, when configured
@@ -115,7 +116,7 @@ impl PgUnitOfWork {
 
     /// Commits the native transaction. Consumes the unit of work: exactly
     /// one finalization is possible (P1.10 rule 3).
-    pub fn commit(mut self) -> Result<FinalizedUnitOfWork, BackendError> {
+    pub fn commit(self) -> Result<FinalizedUnitOfWork, BackendError> {
         self.finalized.store(true, Ordering::SeqCst);
         let tx = Arc::clone(&self.tx);
         let runtime = Arc::clone(&self.runtime);
@@ -132,7 +133,7 @@ impl PgUnitOfWork {
     }
 
     /// Rolls the native transaction back. Consumes the unit of work.
-    pub fn rollback(mut self) -> Result<FinalizedUnitOfWork, BackendError> {
+    pub fn rollback(self) -> Result<FinalizedUnitOfWork, BackendError> {
         self.finalized.store(true, Ordering::SeqCst);
         let tx = Arc::clone(&self.tx);
         let runtime = Arc::clone(&self.runtime);
@@ -372,9 +373,11 @@ async fn load_tenant_by_id(
     tx: &mut Tx,
     tenant_id_text: &str,
 ) -> Result<Tenant, RepositoryError> {
-    let row = sqlx::query(&format!("{TENANT_SELECT} WHERE tenant_id = $1::uuid"))
+    // sqlx 0.9 audit: this statement interpolates only the TENANT_SELECT
+    // const fragment; every value is a $n bind parameter.
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!("{TENANT_SELECT} WHERE tenant_id = $1::uuid")))
         .bind(tenant_id_text)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|err| map_repository_error(entities::TENANTS, err))?
         .ok_or_else(|| RepositoryError::Backend(referential_failure("tenants")))?;
@@ -385,11 +388,11 @@ async fn load_portfolio_by_id(
     tx: &mut Tx,
     portfolio_id_text: &str,
 ) -> Result<Portfolio, RepositoryError> {
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "{PORTFOLIO_SELECT} WHERE portfolio_id = $1::uuid"
-    ))
+    )))
     .bind(portfolio_id_text)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(|err| map_repository_error(entities::PORTFOLIOS, err))?
     .ok_or_else(|| RepositoryError::Backend(referential_failure("portfolios")))?;
@@ -398,9 +401,9 @@ async fn load_portfolio_by_id(
 }
 
 async fn load_site_by_id(tx: &mut Tx, site_id_text: &str) -> Result<Site, RepositoryError> {
-    let row = sqlx::query(&format!("{SITE_SELECT} WHERE site_id = $1::uuid"))
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!("{SITE_SELECT} WHERE site_id = $1::uuid")))
         .bind(site_id_text)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|err| map_repository_error(entities::SITES, err))?
         .ok_or_else(|| RepositoryError::Backend(referential_failure("sites")))?;
@@ -427,7 +430,7 @@ impl TenantRepository for PgUnitOfWork {
             .bind(tenant.identity_provider_reference())
             .bind(tenant.policy_profile())
             .bind(tenant.created_at().timestamp())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::TENANTS, err))?;
             Ok(StateChangeReceipt::new(
@@ -452,7 +455,7 @@ impl TenantRepository for PgUnitOfWork {
             .bind(tenant.description())
             .bind(tenant.identity_provider_reference())
             .bind(tenant.policy_profile())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::TENANTS, err))?;
             if result.rows_affected() == 0 {
@@ -473,9 +476,9 @@ impl TenantRepository for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(RepositoryError::Backend)?;
-            let row = sqlx::query(&format!("{TENANT_SELECT} WHERE tenant_id = $1::uuid"))
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!("{TENANT_SELECT} WHERE tenant_id = $1::uuid")))
                 .bind(&id_text)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await
                 .map_err(|err| map_repository_error(entities::TENANTS, err))?;
             match row {
@@ -493,11 +496,11 @@ impl TenantRepository for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(RepositoryError::Backend)?;
-            let row = sqlx::query(&format!(
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{TENANT_SELECT} WHERE idp_reference = $1"
-            ))
+            )))
             .bind(&reference)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::TENANTS, err))?;
             match row {
@@ -511,10 +514,10 @@ impl TenantRepository for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(RepositoryError::Backend)?;
-            let rows = sqlx::query(&format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{TENANT_SELECT} ORDER BY created_at, tenant_id"
-            ))
-            .fetch_all(&mut *tx)
+            )))
+            .fetch_all(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::TENANTS, err))?;
             rows.iter().map(decode_tenant).collect()
@@ -528,7 +531,7 @@ impl TenantRepository for PgUnitOfWork {
             let tx = tx_ref(&mut guard).await.map_err(RepositoryError::Backend)?;
             let result = sqlx::query("DELETE FROM tenants WHERE tenant_id = $1::uuid")
                 .bind(&id_text)
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await
                 .map_err(|err| map_repository_error(entities::TENANTS, err))?;
             Ok(result.rows_affected() > 0)
@@ -575,7 +578,7 @@ impl PortfolioRepository for PgUnitOfWork {
             .bind(portfolio.market_region())
             .bind(Value::String(portfolio.aggregation_rules().to_string()))
             .bind(portfolio.created_at().timestamp())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::PORTFOLIOS, err))?;
             Ok(StateChangeReceipt::new(
@@ -608,7 +611,7 @@ impl PortfolioRepository for PgUnitOfWork {
             .bind(portfolio.operator())
             .bind(portfolio.market_region())
             .bind(Value::String(portfolio.aggregation_rules().to_string()))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::PORTFOLIOS, err))?;
             if result.rows_affected() == 0 {
@@ -634,12 +637,12 @@ impl PortfolioRepository for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(RepositoryError::Backend)?;
-            let row = sqlx::query(&format!(
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{PORTFOLIO_SELECT} WHERE portfolio_id = $1::uuid AND tenant_id = $2::uuid"
-            ))
+            )))
             .bind(&id_text)
             .bind(&tenant_text)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::PORTFOLIOS, err))?;
             match row {
@@ -660,11 +663,11 @@ impl PortfolioRepository for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(RepositoryError::Backend)?;
-            let rows = sqlx::query(&format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{PORTFOLIO_SELECT} WHERE tenant_id = $1::uuid ORDER BY created_at, portfolio_id"
-            ))
+            )))
             .bind(&tenant_text)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::PORTFOLIOS, err))?;
             let mut portfolios = Vec::with_capacity(rows.len());
@@ -691,7 +694,7 @@ impl PortfolioRepository for PgUnitOfWork {
             )
             .bind(&id_text)
             .bind(&tenant_text)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::PORTFOLIOS, err))?;
             Ok(result.rows_affected() > 0)
@@ -729,7 +732,7 @@ impl SiteRepository for PgUnitOfWork {
             .bind(site.grid_model_reference())
             .bind(site.edge_identity())
             .bind(site.created_at().timestamp())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::SITES, err))?;
             Ok(StateChangeReceipt::new(
@@ -764,7 +767,7 @@ impl SiteRepository for PgUnitOfWork {
             .bind(Value::String(site.point_of_common_coupling().to_string()))
             .bind(site.grid_model_reference())
             .bind(site.edge_identity())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::SITES, err))?;
             if result.rows_affected() == 0 {
@@ -790,12 +793,12 @@ impl SiteRepository for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(RepositoryError::Backend)?;
-            let row = sqlx::query(&format!(
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{SITE_SELECT} WHERE site_id = $1::uuid AND tenant_id = $2::uuid"
-            ))
+            )))
             .bind(&id_text)
             .bind(&tenant_text)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::SITES, err))?;
             match row {
@@ -814,11 +817,11 @@ impl SiteRepository for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(RepositoryError::Backend)?;
-            let rows = sqlx::query(&format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{SITE_SELECT} WHERE tenant_id = $1::uuid ORDER BY created_at, site_id"
-            ))
+            )))
             .bind(&tenant_text)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::SITES, err))?;
             let mut sites = Vec::with_capacity(rows.len());
@@ -842,7 +845,7 @@ impl SiteRepository for PgUnitOfWork {
             )
             .bind(&id_text)
             .bind(&tenant_text)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::SITES, err))?;
             Ok(result.rows_affected() > 0)
@@ -887,7 +890,7 @@ impl AssetRepository for PgUnitOfWork {
             .bind(asset.bus_reference())
             .bind(Value::String(asset.capability_profile().to_string()))
             .bind(asset.created_at().timestamp())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::ASSETS, err))?;
             // Initial current-state row (P1.12 §4.5 Phase 1 write convention).
@@ -897,7 +900,7 @@ impl AssetRepository for PgUnitOfWork {
             )
             .bind(uuid_text(asset.asset_id().uuid()))
             .bind(&tenant_text)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::ASSETS, err))?;
             Ok(StateChangeReceipt::new(
@@ -940,7 +943,7 @@ impl AssetRepository for PgUnitOfWork {
             .bind(lifecycle_status_text(asset.lifecycle_status()))
             .bind(asset.deactivation_reason())
             .bind(asset.deactivated_at().map(|at| at.timestamp()))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::ASSETS, err))?;
             if result.rows_affected() == 0 {
@@ -966,12 +969,12 @@ impl AssetRepository for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(RepositoryError::Backend)?;
-            let row = sqlx::query(&format!(
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{ASSET_SELECT} WHERE asset_id = $1::uuid AND tenant_id = $2::uuid"
-            ))
+            )))
             .bind(&id_text)
             .bind(&tenant_text)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::ASSETS, err))?;
             match row {
@@ -989,11 +992,11 @@ impl AssetRepository for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(RepositoryError::Backend)?;
-            let rows = sqlx::query(&format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{ASSET_SELECT} WHERE tenant_id = $1::uuid ORDER BY created_at, asset_id"
-            ))
+            )))
             .bind(&tenant_text)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::ASSETS, err))?;
             let mut assets = Vec::with_capacity(rows.len());
@@ -1016,7 +1019,7 @@ impl AssetRepository for PgUnitOfWork {
             )
             .bind(&id_text)
             .bind(&tenant_text)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_repository_error(entities::ASSETS, err))?;
             Ok(result.rows_affected() > 0)
@@ -1043,7 +1046,7 @@ impl EventOutbox for PgUnitOfWork {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(EventOutboxError::Backend)?;
             outbox::insert_outbox_row(
-                &mut *tx,
+                &mut **tx,
                 &key,
                 &event_type,
                 &schema_version,
@@ -1062,7 +1065,7 @@ impl EventOutbox for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(EventOutboxError::Backend)?;
-            outbox::pending_entries(&mut *tx, limit).await
+            outbox::pending_entries(&mut **tx, limit).await
         })
     }
 
@@ -1071,7 +1074,7 @@ impl EventOutbox for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(EventOutboxError::Backend)?;
-            outbox::record_attempt(&mut *tx, &key).await
+            outbox::record_attempt(&mut **tx, &key).await
         })
     }
 
@@ -1080,7 +1083,7 @@ impl EventOutbox for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(EventOutboxError::Backend)?;
-            outbox::mark_delivered(&mut *tx, &key).await
+            outbox::mark_delivered(&mut **tx, &key).await
         })
     }
 
@@ -1089,7 +1092,7 @@ impl EventOutbox for PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(EventOutboxError::Backend)?;
-            outbox::mark_failed(&mut *tx, &key).await
+            outbox::mark_failed(&mut **tx, &key).await
         })
     }
 }
@@ -1127,7 +1130,7 @@ impl AuditSink for PgUnitOfWork {
                     crate::audit::append_audit_record_with_chain(&mut *tx, &record, &namespace)
                         .await
                 }
-                None => crate::audit::insert_audit_record(&mut *tx, &record, None).await,
+                None => crate::audit::insert_audit_record(&mut **tx, &record, None).await,
             }
         })
     }

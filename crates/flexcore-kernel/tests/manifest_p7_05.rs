@@ -37,7 +37,7 @@ fn valid_builtin_json() -> serde_json::Value {
         "plugin-id": "neryva.sim-builtin-ess",
         "name": "Built-in ESS Simulator Provider",
         "version": "0.1.0",
-        "api-version": ">=0.5,<1.0",
+        "api-version": ">=0.5.0,<1.0.0",
         "class": "builtin-rust",
         "entry-point": { "registered-type": "neryva.builtin/sim-ess" },
         "provider-of": ["ess.simulation"],
@@ -189,7 +189,7 @@ fn unknown_field_reporting_is_sorted_deterministic() {
     let obj = v.as_object_mut().expect("object");
     obj.insert("zzz-late".to_string(), serde_json::json!(1));
     obj.insert("aaa-early".to_string(), serde_json::json!(2));
-    assert_rejected(&v, |e| matches!(e, ManifestError::UnknownField { field } if field == "aaa-early"), "UNKNOWN_FIELD");
+    assert_rejected(&v, |e| matches!(e, ManifestError::UnknownField { field, .. } if field == "aaa-early"), "UNKNOWN_FIELD");
 }
 
 #[test]
@@ -250,7 +250,7 @@ fn secret_value_instead_of_reference_is_rejected() {
     // A top-level field literally named `secret_value` is likewise unknown.
     assert_rejected(
         &with_field("secret_value", serde_json::json!("hunter2")),
-        |e| matches!(e, ManifestError::UnknownField { field } if field == "secret_value"),
+        |e| matches!(e, ManifestError::UnknownField { field, .. } if field == "secret_value"),
         "UNKNOWN_FIELD",
     );
 }
@@ -414,7 +414,7 @@ fn resource_bound_violations_are_rejected() {
     assert_rejected(&v, |e| matches!(e, ManifestError::ResourceBoundInvalid { field, .. } if field == "max-memory-mb"), "RESOURCE_BOUND_INVALID");
     let mut v = valid_builtin_json();
     v["resources"]["timeout-ms"] = serde_json::json!("soon");
-    assert_rejected(&v, |e| matches!(e, ManifestError::WrongType { location, field } if location == "resources" && field == "timeout-ms"), "WRONG_TYPE");
+    assert_rejected(&v, |e| matches!(e, ManifestError::WrongType { location, field, .. } if location == "resources" && field == "timeout-ms"), "WRONG_TYPE");
     let mut v = valid_builtin_json();
     v["resources"]["max-output-mb"] = serde_json::json!(0);
     assert_rejected(&v, |e| matches!(e, ManifestError::ResourceBoundInvalid { .. }), "RESOURCE_BOUND_INVALID");
@@ -424,7 +424,7 @@ fn resource_bound_violations_are_rejected() {
 fn metadata_and_envelope_violations_are_rejected() {
     assert_rejected(
         &without_field("metadata"),
-        |e| matches!(e, ManifestError::MissingField { field } if field == "metadata"),
+        |e| matches!(e, ManifestError::MissingField { field, .. } if field == "metadata"),
         "MISSING_FIELD",
     );
     let mut v = valid_builtin_json();
@@ -464,7 +464,7 @@ fn non_json_and_non_object_inputs_are_rejected() {
 
 #[test]
 fn api_version_ranges_are_parsed_as_ranges() {
-    let r = ApiVersionRange::parse(">=0.5,<1.0").expect("parses");
+    let r = ApiVersionRange::parse(">=0.5.0,<1.0.0").expect("parses");
     assert!(r.satisfied_by(SemVer::new(0, 5, 0)));
     assert!(r.satisfied_by(SemVer::new(0, 9, 9)));
     assert!(!r.satisfied_by(SemVer::new(1, 0, 0)));
@@ -495,7 +495,7 @@ fn manifest_version_negotiation_against_platform_api_version() {
     assert!(covering.covers_api_version(CURRENT_PLATFORM_API_VERSION));
 
     let mut beyond = valid_builtin_json();
-    beyond["api-version"] = serde_json::json!(">=1.0");
+    beyond["api-version"] = serde_json::json!(">=1.0.0");
     let m = validate(&beyond).expect("validates structurally");
     assert!(!m.covers_api_version(CURRENT_PLATFORM_API_VERSION));
 }
@@ -503,7 +503,7 @@ fn manifest_version_negotiation_against_platform_api_version() {
 #[test]
 fn range_intersection_rule_for_composed_pairs() {
     let a = ApiVersionRange::parse("^0.5.0").expect("parses");
-    let touching = ApiVersionRange::parse(">=0.6,<1.0").expect("parses");
+    let touching = ApiVersionRange::parse(">=0.6.0,<1.0.0").expect("parses");
     // [0.5.0, 0.6.0) vs [0.6.0, 1.0.0): touching at an exclusive/inclusive
     // boundary is NOT an intersection.
     assert!(!a.intersects(&touching));
@@ -657,9 +657,14 @@ fn violation_classes_land_on_pairwise_distinct_named_errors() {
             v["configuration-schema"]["additionalProperties"] = serde_json::json!(true);
             v
         }),
-        ("secret value", {
+        ("secret reference without scheme", {
+            // A scheme-less reference is the "likely an inline credential"
+            // refusal (SECRET_REFERENCE_INVALID) — the distinct secret
+            // error. An extra `value` key is NOT a distinct family: by
+            // design any other key in a secret object is an unknown-field
+            // rejection (see the separate assertion below).
             let mut v = valid_builtin_json();
-            v["secrets"] = serde_json::json!([{ "name": "a", "reference": "env:A", "value": "x" }]);
+            v["secrets"] = serde_json::json!([{ "name": "a", "reference": "hunter2" }]);
             v
         }),
         ("duplicate secret", dup_secret),
@@ -689,4 +694,16 @@ fn violation_classes_land_on_pairwise_distinct_named_errors() {
     }
     // The null case: parse_manifest_value(json!(null)) is MANIFEST_NOT_AN_OBJECT.
     assert!(names.contains(&"MANIFEST_NOT_AN_OBJECT"));
+    // A secret object carrying an inline `value` key is refused as an
+    // unknown field — by design (any other key in a secret object is an
+    // unknown-field rejection, so a manifest is structurally incapable of
+    // carrying a secret value). It is the SAME name as the top-level
+    // unknown-field case, which is why it is not in the distinct list.
+    let mut secret_value = valid_builtin_json();
+    secret_value["secrets"] =
+        serde_json::json!([{ "name": "a", "reference": "env:A", "value": "x" }]);
+    match validate(&secret_value) {
+        Err(err) => assert_eq!(err.name(), "UNKNOWN_FIELD"),
+        Ok(_) => panic!("a secret object with a `value` key unexpectedly validated"),
+    }
 }

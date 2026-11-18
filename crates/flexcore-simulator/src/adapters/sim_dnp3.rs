@@ -41,6 +41,12 @@ pub enum SimDnp3Error {
     Inventory(flexcore_dnp3_adapter::outstation::OutstationError),
 }
 
+impl From<TransportError> for SimDnp3Error {
+    fn from(error: TransportError) -> Self {
+        SimDnp3Error::Config(error)
+    }
+}
+
 impl std::fmt::Display for SimDnp3Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -254,8 +260,9 @@ mod tests {
         ));
         // An empty inventory (the model's own rule).
         assert_eq!(
-            OutstationModel::new(format!("{SIM_DNP3_ID_PREFIX}:outstation"), Vec::new()),
-            Err(OutstationError::EmptyInventory)
+            OutstationModel::new(format!("{SIM_DNP3_ID_PREFIX}:outstation"), Vec::new())
+                .expect_err("an empty inventory is refused"),
+            OutstationError::EmptyInventory
         );
     }
 }

@@ -328,7 +328,7 @@ fn expiry_and_prematurity_are_injected_clock_decisions_and_refusals_never_advanc
         .expect_err("a not-yet-valid request is refused");
     assert_eq!(error_name(&err), "REQUEST_NOT_YET_VALID");
     assert_eq!(verifier.last_accepted(
-        flexcore_kernel::plugin_path_protection::sequence_channel(PLUGIN_ID, "invocation")
+        flexcore_kernel::plugin_path_protection::sequence_channel(PLUGIN_ID, "invocation").as_str()
     ), None, "a refusal must never advance the sequence window");
 
     // Expired: the clock reading reaches the window's end. The clock is
@@ -350,7 +350,7 @@ fn expiry_and_prematurity_are_injected_clock_decisions_and_refusals_never_advanc
     assert_eq!(error_name(&err), "REQUEST_EXPIRED");
     assert_eq!(
         verifier.last_accepted(
-            flexcore_kernel::plugin_path_protection::sequence_channel(PLUGIN_ID, "invocation")
+            flexcore_kernel::plugin_path_protection::sequence_channel(PLUGIN_ID, "invocation").as_str()
         ),
         None,
         "the expiry refusal also must not advance the window"
@@ -365,7 +365,7 @@ fn expiry_and_prematurity_are_injected_clock_decisions_and_refusals_never_advanc
         .expect("a valid request inside the window is admitted");
     assert_eq!(
         verifier.last_accepted(
-            flexcore_kernel::plugin_path_protection::sequence_channel(PLUGIN_ID, "invocation")
+            flexcore_kernel::plugin_path_protection::sequence_channel(PLUGIN_ID, "invocation").as_str()
         ),
         Some(3)
     );
@@ -536,7 +536,7 @@ const DET_PROFILE: &str = r#"{
 fn resolver_profile_and_config_outputs_are_pure_functions_of_their_inputs() {
     let portfolio = parse_manifest(DET_PORTFOLIO_MANIFEST).expect("the provider fixture parses");
     let optimizer = parse_manifest(DET_OPTIMIZER_MANIFEST).expect("the consumer fixture parses");
-    let manifests = vec![portfolio, optimizer];
+    let manifests = vec![portfolio, optimizer.clone()];
 
     // Resolver: identical inputs → identical plan, across runs. The
     // selections mirror the profile's pins (every provider-of contract of

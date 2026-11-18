@@ -52,6 +52,12 @@ pub enum SimCimError {
     Model(CimModelError),
 }
 
+impl From<CimModelError> for SimCimError {
+    fn from(error: CimModelError) -> Self {
+        SimCimError::Model(error)
+    }
+}
+
 impl std::fmt::Display for SimCimError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

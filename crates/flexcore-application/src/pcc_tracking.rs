@@ -602,7 +602,7 @@ pub fn evaluate_pcc_tracking(
         let schedule = inputs
             .schedules
             .iter()
-            .find(|s| s.pcc == point.pcc())
+            .find(|s| s.pcc == *point.pcc())
             .ok_or_else(|| PccTrackingError::MissingSchedule {
                 pcc: point.pcc().as_str().to_string(),
             })?;

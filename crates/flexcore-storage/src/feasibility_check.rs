@@ -322,7 +322,7 @@ pub struct FeasibilityCheckFilter {
 ///   leaks (P0.16 rule 5);
 /// - storage failures surface as [`FeasibilityCheckStoreError::Backend`]
 ///   with an opaque code + message only.
-pub trait FeasibilityCheckStore {
+pub trait FeasibilityCheckStore: Send + Sync {
     /// Inserts one NEW check record (a duplicate (check_id, tenant_id) is
     /// [`FeasibilityCheckStoreError::Conflict`] — check rows are
     /// immutable; a re-checked candidate is a NEW check id).
@@ -364,6 +364,19 @@ mod tests {
     }
 
     fn base_row(outcome: &str) -> FeasibilityCheckRow {
+        // A valid row for the outcome: LIMIT_VIOLATED must name its
+        // constraint and FAIL_CLOSED must name its reason (the
+        // verdict-shape rules in `new`); PASSED names neither.
+        let failing_constraint = if outcome == FEASIBILITY_OUTCOME_LIMIT_VIOLATED {
+            Some("line_2_3:thermal".to_string())
+        } else {
+            None
+        };
+        let reason = if outcome == FEASIBILITY_OUTCOME_FAIL_CLOSED {
+            Some("model unavailable".to_string())
+        } else {
+            None
+        };
         FeasibilityCheckRow::new(
             tenant(),
             "attempt-7".to_string(),
@@ -377,8 +390,8 @@ mod tests {
             Some("grid-model-v1".to_string()),
             Some("fnv1a64:deadbeef".to_string()),
             outcome.to_string(),
-            None,
-            None,
+            failing_constraint,
+            reason,
             Some(" margins ok ".to_string()),
             Some("balanced radial feeder".to_string()),
             "svc:grid-gate".to_string(),

@@ -16,7 +16,7 @@
 // here may look like a working PKI.
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 /// The enrollment request body. The edge submits its CONFIGURED binding
 /// (tenant + site, §16.2) and its requested device identity; the control
@@ -70,7 +70,7 @@ pub struct EnrollResponseDto {
 /// tenant or site parameter — the server derives the tenant from the
 /// caller's verified claims (§16.2) and the site from the registry row
 /// (the P6.21 no-request-supplied-scope rule).
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct EdgeStatusParams {
     /// The device identity (non-empty text; must exist in the caller's
     /// tenant scope — an unknown identity is 404, never a guessed scope).
@@ -166,7 +166,7 @@ pub struct EdgeStatusDto {
 /// what it confirms is refused (ledger P6.32 step 1). The actor must MATCH
 /// the authenticated caller's subject (the step-up binding; a mismatch is
 /// a refusal, never a proxy confirmation).
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct DecommissionRequestBody {
     /// The edge identity to decommission (non-empty).
     pub device_id: String,

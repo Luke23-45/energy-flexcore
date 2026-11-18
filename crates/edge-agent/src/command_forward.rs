@@ -1431,7 +1431,7 @@ impl CommandForwardingEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_verify::FallbackTrigger;
+    use crate::command_forward::FallbackTrigger;
     use crate::ports::InMemoryAuditSink;
     use flexcore_ports::fakes::FixedClock;
     use std::sync::Mutex as StdMutex;

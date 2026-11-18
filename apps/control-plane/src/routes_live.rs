@@ -57,7 +57,7 @@ use axum::extract::State;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::get;
 use axum::Router;
-use flexcore_events::DomainEvent;
+use flexcore_events::events::{DomainEvent, event_name};
 use serde::Serialize;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -201,6 +201,12 @@ pub struct LiveEventEnvelope {
     pub command_id: Option<String>,
     /// The plugin id (plugin events only).
     pub plugin_id: Option<String>,
+    /// The NEW canonical quality state (quality events only — the frozen
+    /// `quality` field of `TelemetryQualityChanged`; the console maps
+    /// this tag to the mirrored TS type, §15.3).
+    pub quality: Option<String>,
+    /// The quality state BEFORE the change (quality events only).
+    pub previous_quality: Option<String>,
     /// The event time (§10.3), RFC 3339 UTC.
     pub event_time: String,
     /// The server delivery time (when the SSE handler forwarded it), RFC
@@ -252,7 +258,7 @@ fn build_live_envelope(subject: &str, payload: &[u8]) -> Option<LiveEventEnvelop
             .get("event_type")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)?,
-        event_name: flexcore_events::event_name(&event).to_string(),
+        event_name: event_name(&event).to_string(),
         subject: subject.to_string(),
         correlation_id: wire
             .get("correlation_id")
@@ -264,6 +270,11 @@ fn build_live_envelope(subject: &str, payload: &[u8]) -> Option<LiveEventEnvelop
         asset_id: optional_id(&wire, "asset_id"),
         command_id: optional_id(&wire, "command_id"),
         plugin_id: optional_id(&wire, "plugin_id"),
+        // The quality pair travels only on quality events (absent — null
+        // — elsewhere, like the other scope fields); the old form dropped
+        // them, so a quality event forwarded without its quality states.
+        quality: optional_id(&wire, "quality"),
+        previous_quality: optional_id(&wire, "previous_quality"),
         event_time: wire
             .get("event_time")
             .and_then(serde_json::Value::as_str)
@@ -335,7 +346,7 @@ pub fn live_router() -> Router<AppState> {
         (status = 403, description = "Denied by policy"),
     )
 )]
-async fn live_events(
+pub(crate) async fn live_events(
     State(state): State<AppState>,
     CallerExtractor(caller): CallerExtractor,
 ) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>>, ApiError> {
@@ -424,15 +435,8 @@ pub async fn run_live_forwarder(
                     return;
                 }
                 message = subscription.next() => match message {
-                    Some(Ok(message)) => {
+                    Some(message) => {
                         bus.publish(message.subject.to_string(), message.payload.to_vec());
-                    }
-                    Some(Err(error)) => {
-                        tracing::warn!(
-                            error = %error,
-                            "live forwarder: subscription error; resubscribing"
-                        );
-                        break;
                     }
                     None => {
                         tracing::warn!("live forwarder: subscription ended; resubscribing");
@@ -470,7 +474,7 @@ mod tests {
     use flexcore_contracts::ids::FlexUuid;
     use flexcore_contracts::time_model::EventTime;
     use flexcore_domain::ids::{AssetId, SiteId, TenantId};
-    use flexcore_events::{TelemetryReceivedPayload, TelemetryQualityChangedPayload};
+    use flexcore_events::events::{TelemetryReceivedPayload, TelemetryQualityChangedPayload};
     use flexcore_contracts::quality::TelemetryQuality;
 
     const TENANT_A: FlexUuid = FlexUuid::from_bytes([
@@ -546,10 +550,10 @@ mod tests {
         // A frozen event with the P2.16 additive field still decodes; the
         // envelope carries the frozen names, never a hand-maintained copy.
         let payload = TelemetryQualityChangedPayload {
-            correlation_id: FlexUuid::from_u128(1),
+            correlation_id: FlexUuid::from_bytes(1u128.to_be_bytes()),
             tenant_id: TenantId::new(TENANT_B),
-            site_id: SiteId::new(FlexUuid::from_u128(2)),
-            asset_id: AssetId::new(FlexUuid::from_u128(3)),
+            site_id: SiteId::new(FlexUuid::from_bytes(2u128.to_be_bytes())),
+            asset_id: AssetId::new(FlexUuid::from_bytes(3u128.to_be_bytes())),
             quality: TelemetryQuality::Stale,
             previous_quality: Some(TelemetryQuality::Good),
             event_time: EventTime::from_unix_millis(1_700_000_000_000)
@@ -567,7 +571,7 @@ mod tests {
     fn close_ends_the_bus_and_subscribe_fails_closed() {
         let bus = LiveEventBus::new();
         bus.close();
-        assert_eq!(bus.subscribe(), Err(LiveBusClosed));
+        assert!(matches!(bus.subscribe(), Err(LiveBusClosed)));
         // Publishing after close is a no-op, never a panic.
         bus.publish("flexcore.v1.a.b".to_string(), b"{}".to_vec());
     }

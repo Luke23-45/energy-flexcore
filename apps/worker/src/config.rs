@@ -20,6 +20,8 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use flexcore_ports::source_auth::{SourceAuthMode, DEFAULT_AUTH_WINDOW_SECS};
+
 /// Required: PostgreSQL connection URL for the outbox store and the inbox
 /// store. Connects as the runtime role (`flexcore_app` per P1.12 §3.1);
 /// migrations need the owner role, which this worker deliberately does not
@@ -45,12 +47,26 @@ pub const ENV_SHUTDOWN_TIMEOUT_MS: &str = "FLEXCORE_SHUTDOWN_TIMEOUT_MS";
 /// frames with a retryable error — never unbounded buffering, never a
 /// silent drop.
 pub const ENV_INGEST_CHANNEL_CAPACITY: &str = "FLEXCORE_INGEST_CHANNEL_CAPACITY";
-/// Optional: the trusted telemetry source identity for the Phase 2 stub
-/// source authentication (P2.10 step 6). When set, a provider declaring a
-/// different source id is rejected at the receive stage; unset = accept
-/// the (single, simulator) provider. The stub status is recorded in
+/// Optional: the trusted telemetry source identity (defence in depth
+/// only — the health + allowlist check; the real authentication is the
+/// Patch B signed envelope). When set, a provider declaring a different
+/// source id is rejected at the receive stage; unset = accept the
+/// (single, simulator) provider. The mechanism is recorded in
 /// [`crate::ingestion::SOURCE_AUTH_STATUS`].
 pub const ENV_INGEST_TRUSTED_SOURCE_ID: &str = "FLEXCORE_INGEST_TRUSTED_SOURCE_ID";
+/// Optional: the signed-envelope source-authentication mode (Patch B,
+/// P2.07): `enforced` (default) or `dev-key`. `enforced` verifies only
+/// keys enrolled in the signing-key registry and rejects the `dev` key
+/// identifier; `dev-key` verifies `dev` envelopes against an ephemeral
+/// in-process keypair generated at startup (local development only —
+/// the worker logs a warning on every start in this mode). Any other
+/// value fails fast at startup.
+pub const ENV_SOURCE_AUTH_MODE: &str = "FLEXCORE_SOURCE_AUTH_MODE";
+/// Optional: the signed-envelope time-window half-width in seconds
+/// (Patch B, P2.07); default 300. An envelope's event time must lie
+/// within ±this window of the receiver's clock. Must be a positive
+/// integer; anything else fails fast at startup.
+pub const ENV_SOURCE_AUTH_WINDOW_SECS: &str = "FLEXCORE_SOURCE_AUTH_WINDOW_SECS";
 /// Optional: the maintenance loop's database URL (P2.20 D-R1). The
 /// maintenance job needs DDL (partition CREATE/DETACH/DROP), which the
 /// runtime role must not hold (D-P6), so it connects as the
@@ -188,9 +204,14 @@ pub struct WorkerConfig {
     /// Telemetry ingestion bounded-channel capacity (P2.07 §5 default
     /// 10,000; P2.10).
     pub ingest_channel_capacity: usize,
-    /// The trusted telemetry source identity for the Phase 2 stub source
-    /// authentication (`None` = accept the configured provider).
+    /// The trusted telemetry source identity for the health + allowlist
+    /// check (defence in depth only; the envelope authentication is the
+    /// real check).
     pub ingest_trusted_source_id: Option<String>,
+    /// The signed-envelope source-authentication mode (Patch B).
+    pub source_auth_mode: SourceAuthMode,
+    /// The signed-envelope time-window half-width (Patch B).
+    pub source_auth_window: Duration,
     /// The maintenance loop's database URL (migrator/maintenance role,
     /// D-R1). Secret: never logged. `None` = the maintenance loop is not
     /// started (fail-safe).
@@ -233,6 +254,8 @@ impl std::fmt::Debug for WorkerConfig {
             .field("shutdown_timeout", &self.shutdown_timeout)
             .field("ingest_channel_capacity", &self.ingest_channel_capacity)
             .field("ingest_trusted_source_id", &self.ingest_trusted_source_id)
+            .field("source_auth_mode", &self.source_auth_mode)
+            .field("source_auth_window", &self.source_auth_window)
             .field("maintenance_database_url", &"<redacted>")
             .field("maintenance_interval", &self.maintenance_interval)
             .field("maintenance_months_ahead", &self.maintenance_months_ahead)
@@ -300,6 +323,29 @@ impl WorkerConfig {
             Ok(_) => None,
             Err(_) => None,
         };
+        // Signed-envelope source authentication (Patch B, P2.07):
+        // enforced by default; dev-key is the local-development mode.
+        let source_auth_mode = match std::env::var(ENV_SOURCE_AUTH_MODE) {
+            Ok(raw) => SourceAuthMode::from_env_str(raw.trim()).ok_or_else(|| {
+                ConfigError::InvalidEnv {
+                    name: ENV_SOURCE_AUTH_MODE,
+                    reason: "expected 'enforced' or 'dev-key'".to_string(),
+                }
+            })?,
+            Err(_) => SourceAuthMode::Enforced,
+        };
+        let source_auth_window_secs =
+            optional_parse(ENV_SOURCE_AUTH_WINDOW_SECS, DEFAULT_AUTH_WINDOW_SECS).and_then(|value| {
+                if value == 0 {
+                    Err(ConfigError::InvalidEnv {
+                        name: ENV_SOURCE_AUTH_WINDOW_SECS,
+                        reason: "expected a positive number of seconds".to_string(),
+                    })
+                } else {
+                    Ok(value)
+                }
+            })?;
+        let source_auth_window = Duration::from_secs(source_auth_window_secs);
         let maintenance_database_url = match std::env::var(ENV_MAINTENANCE_DATABASE_URL) {
             Ok(raw) if !raw.trim().is_empty() => Some(raw.trim().to_string()),
             Ok(_) => None,
@@ -398,6 +444,8 @@ impl WorkerConfig {
             shutdown_timeout,
             ingest_channel_capacity,
             ingest_trusted_source_id,
+            source_auth_mode,
+            source_auth_window,
             maintenance_database_url,
             maintenance_interval,
             maintenance_months_ahead,
@@ -486,6 +534,8 @@ mod tests {
             shutdown_timeout: Duration::from_millis(10_000),
             ingest_channel_capacity: 10_000,
             ingest_trusted_source_id: None,
+            source_auth_mode: SourceAuthMode::Enforced,
+            source_auth_window: Duration::from_secs(DEFAULT_AUTH_WINDOW_SECS),
             maintenance_database_url: Some("postgres://migrator:secret@db/flexcore".to_string()),
             maintenance_interval: Duration::from_millis(3_600_000),
             maintenance_months_ahead: 2,

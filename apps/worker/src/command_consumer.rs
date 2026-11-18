@@ -663,14 +663,15 @@ mod tests {
         assert_eq!(m.duplicate_deliveries.load(Ordering::Relaxed), 1);
     }
 
-    /// A frozen edge the command has not taken (PROPOSED stored, ISSUED
-    /// fact arrives) is surfaced as a named handler error — the poison
-    /// path owns it; the consumer never fabricates a journal row.
+    /// A frozen edge the command has not taken (APPROVED stored, ISSUED
+    /// fact arrives — Approved -> Issued IS a frozen edge) is surfaced as
+    /// a named handler error — the poison path owns it; the consumer never
+    /// fabricates a journal row.
     #[test]
     fn unsupported_lifecycle_fact_is_a_named_error_not_a_write() {
         let command = FlexUuid::nil();
         let gateway =
-            Arc::new(FakeGateway::with(&command.to_hyphenated(), CommandState::Proposed));
+            Arc::new(FakeGateway::with(&command.to_hyphenated(), CommandState::Approved));
         let m = metrics();
         let inbox = flexcore_nats_adapter::inbox::InMemoryInboxStore::new();
         let mut handler =
@@ -684,6 +685,31 @@ mod tests {
             1
         );
         assert_eq!(m.duplicate_deliveries.load(Ordering::Relaxed), 0);
+    }
+
+    /// A forward JUMP over unrecorded gates (PROPOSED stored, ISSUED
+    /// fact arrives) is NOT a frozen edge, so it neutralizes as a
+    /// duplicate — the record's "everything else" arm — rather than
+    /// surfacing as an unsupported fact. (The old form of the test above
+    /// mislabelled this pair as a frozen edge; the frozen table allows
+    /// Proposed -> Validated | Rejected only.)
+    #[test]
+    fn forward_jump_over_unrecorded_gates_neutralizes_as_a_duplicate() {
+        let command = FlexUuid::nil();
+        let gateway =
+            Arc::new(FakeGateway::with(&command.to_hyphenated(), CommandState::Proposed));
+        let m = metrics();
+        let inbox = flexcore_nats_adapter::inbox::InMemoryInboxStore::new();
+        let mut handler =
+            command_idempotency_handler(gateway, m.clone(), "dispatch-command-track-v1".to_string());
+
+        let result = handler(&message_for(dispatch_event_with(tenant(), command), "k-3b"), &inbox);
+        assert_eq!(result, Ok(()));
+        assert_eq!(m.duplicate_deliveries.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            m.unsupported_lifecycle_facts.load(Ordering::Relaxed),
+            0
+        );
     }
 
     /// A fact naming an unknown command surfaces as a named error (poison

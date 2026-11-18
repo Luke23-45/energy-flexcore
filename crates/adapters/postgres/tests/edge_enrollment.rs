@@ -93,7 +93,7 @@ fn fixture_uuid(prefix: u8) -> FlexUuid {
     bytes[6] = (run_key() >> 24) as u8;
     bytes[7] = (run_key() >> 16) as u8;
     bytes[8] = (run_key() >> 8) as u8;
-    bytes[9] = run_key() as u8;
+    bytes[9] = *run_key() as u8;
     let counter = next_counter().to_be_bytes();
     bytes[10..16].copy_from_slice(&counter[2..8]);
     FlexUuid::from_bytes(bytes)
@@ -121,7 +121,7 @@ fn seed_environment(
     let unit: PgUnitOfWork = store.begin(Some(&ctx)).expect("unit of work opens");
     let tenant = Tenant::try_new(
         TenantId::new(tenant_uuid),
-        "p6.06 tenant".to_string(),
+        format!("p6.06 tenant {tenant_uuid}"),
         None,
         format!("idp-{tenant_uuid}"),
         "default".to_string(),

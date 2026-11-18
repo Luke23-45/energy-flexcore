@@ -56,6 +56,21 @@ project material and do not distribute them separately.
 The last row is deliberate: this file records what was actually executed, not
 what is expected to work.
 
+## Dependency license audit (Patch B, P2.07)
+
+Crates added for the signed-envelope source authentication (workspace
+pins in the root `Cargo.toml`; exact resolved versions are VERIFY-BUILD
+at lockfile generation — no `Cargo.lock` exists yet). Licenses verified
+against docs.rs / lib.rs on 2026-11-18; the D4 license decision for the
+repository itself stays OPEN (see "License status of this setup" above).
+
+| Crate | Version pinned | License (verified) | Used for |
+|---|---|---|---|
+| `ed25519-dalek` | `3` (latest 2.x observed: 2.1.2, May 2025; current major 3.0.0, Jul 2026) | BSD-3-Clause | Ed25519 signing (simulator) and verification (adapter) |
+| `sha2` | `0.11` (0.11.1 observed) | MIT OR Apache-2.0 | SHA-256 payload digests |
+| `base64` | `0.23` (0.23.1, Aug 2026) | MIT AND Apache-2.0 | STANDARD-alphabet wire payload encoding |
+| `rand` | `0.9` (0.9.4 observed) | MIT AND Apache-2.0 | OS RNG for the ephemeral dev keypair (`OsRng`) |
+
 ## Updating
 
 1. Edit `AGENTS.md`, `.agent/CONTEXT.md`, a skill, or a role.

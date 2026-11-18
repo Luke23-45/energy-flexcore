@@ -16,7 +16,7 @@ use flexcore_entsoe_adapter::token::{
     validate_token_reference, TokenGateState, TOKEN_GATE_STATEMENT,
 };
 use flexcore_entsoe_adapter::transport::{
-    A44PriceQuery, A44ResponseStatus, UnwiredA44Transport,
+    A44PriceQuery, A44ResponseStatus, A44Transport, UnwiredA44Transport,
 };
 use flexcore_entsoe_adapter::xml_seam::{
     extract_a44_price_points, A44_ELEMENT_CURRENCY, A44_ELEMENT_END, A44_ELEMENT_IN_DOMAIN,

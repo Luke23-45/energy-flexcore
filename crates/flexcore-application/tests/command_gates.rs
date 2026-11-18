@@ -1322,7 +1322,8 @@ fn self_approval_is_rejected_where_separation_of_duties_is_enforced() {
         Some("self-approval prohibited (separation of duties, §17.4)")
     );
     // FEASIBLE → REJECTED with the denying actor recorded.
-    let entry = h.store.journal_of(command.command_id()).last().unwrap();
+    let journal = h.store.journal_of(command.command_id());
+    let entry = journal.last().unwrap();
     assert_eq!(entry.to, CommandState::Rejected);
     assert_eq!(entry.gate, Some(Gate::Authorization));
     assert_eq!(entry.actor.identity(), PROPOSER);

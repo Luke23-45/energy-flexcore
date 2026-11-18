@@ -104,7 +104,7 @@
 
 use flexcore_contracts::time_model::EventTime;
 use flexcore_domain::command_lifecycle::{
-    Actor, CommandTransition, EvidenceReference, FailureReason, LifecycleClock, LifecycleError,
+    Actor, CommandTransition, EvidenceReference, FailureReason, LifecycleError,
 };
 use flexcore_domain::command_state::CommandState;
 use flexcore_domain::dispatch_command::{
@@ -325,6 +325,12 @@ pub struct SimulatorTransportError {
     pub failure: SimulatorTransportFailure,
     /// The recorded detail (audit text).
     pub detail: String,
+}
+
+impl std::fmt::Display for SimulatorTransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}: {}", self.failure, self.detail)
+    }
 }
 
 /// The simulator's application-layer acceptance result (§14.1 edge 13:

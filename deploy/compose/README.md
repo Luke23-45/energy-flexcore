@@ -55,6 +55,33 @@ P11.16 Vault DEFAULT [S-74][S-75]; the SQLx pool credential-refresh
 design is written at the pool seam in the postgres adapter) — this floor
 is the Compose-shape minimum, never the production answer.
 
+## NATS TLS + source authentication (Patch B, P2.07)
+
+The NATS server runs from [`nats-server.conf`](nats-server.conf) (TLS on
+the client listener, per-user authorization, JetStream encryption at
+rest) instead of CLI flags. Before the first start:
+
+1. Copy [`.env.example`](.env.example) to `.env` and fill in real values
+   (JetStream encryption key + the three NATS user passwords — generation
+   commands are in the file). The stack fails fast without them.
+2. Provision the server TLS material under `./secrets/nats-certs/`
+   (`server-cert.pem`, `server-key.pem` `0600`, `ca.pem`; the server cert
+   SAN must cover `nats`). No certificate or key is ever committed.
+3. Read the `VERIFY-BUILD` list at the top of `nats-server.conf` — the
+   TLS 1.3 minimum-version key and the JetStream key spelling
+   (`key:` vs `encryption_key`) are both UNVERIFIED against the pinned
+   2.15.2 server; confirm with `nats-server -t -c nats-server.conf`
+   before trusting the file. Clients must also trust the CA (the worker
+   enforces TLS with `require_tls(true)` + a `tls://` URL, but no custom
+   root/client certificate is wired in code yet — see
+   `apps/worker/src/main.rs`).
+
+The worker runs in dev-key source-auth mode in this stack
+(`FLEXCORE_SOURCE_AUTH_MODE: dev-key`): the simulator signs its frames
+with an ephemeral in-process keypair and the worker verifies them
+against it. Enforced mode (registry keys only) is the default when the
+variable is unset and is the only mode past local development.
+
 ## Observability profile (FRV1-R8-001, final review)
 
 The shipped P11.09 dashboards/datasource/rules tree

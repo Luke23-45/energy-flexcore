@@ -27,7 +27,7 @@
 use std::collections::BTreeMap;
 
 use flexcore_protocol_ports::observability::{
-    Admission, BoundedQueuePolicy, BudgetError, MessageRateBudget, QueueOverflowPolicy,
+    Admission, BoundedQueuePolicy, BudgetError, MessageRateBudget, RateRefusal,
 };
 
 /// Errors the MQTT backpressure binding reports. Every failure is named.
@@ -174,6 +174,7 @@ impl FleetUplinkBudgetRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flexcore_protocol_ports::observability::QueueOverflowPolicy;
 
     fn node_budget(id: &str) -> EdgeNodeUplinkBudget {
         EdgeNodeUplinkBudget::new(

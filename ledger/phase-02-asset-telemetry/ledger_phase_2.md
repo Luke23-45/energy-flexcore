@@ -161,6 +161,7 @@
   - [x] `EXPLAIN` for a time-bounded asset query shows partition pruning. — implemented, awaiting human build/test
   - [x] RLS test passes for telemetry rows. — implemented, awaiting human build/test
   - [x] Duplicate insert is rejected by the unique constraint (test). — implemented, awaiting human build/test
+  - Patch A (2026-11-18): the real `PgTelemetryReader` + five test files now stand behind these boxes (previously over-ticked against `FakeTelemetryReader`); status stays "implemented, awaiting human build/test" — nothing here is build-verified. EXPLAIN evidence still deferred to the human build round. See `HANDOVER_PATCH_A.md`.
 - **Owner role:** Platform engineering (Rust)
 - **Dependencies:** P2.05
 - **Verification method:** Integration tests on PostgreSQL 18; `EXPLAIN` output in the test log.
@@ -254,6 +255,7 @@
   - [x] Quarantine count metric increments for invalid records; no invalid record is stored as GOOD. — implemented, awaiting human build/test
   - [x] Ingestion depends only on the `TelemetrySource` port (no simulator import in the service). — implemented, awaiting human build/test
   - [x] Source-auth status is recorded honestly (stub vs real). — implemented, awaiting human build/test
+  - Patch B (2026-11-18): the status is now REAL — Ed25519 signed envelopes (`flexcore-telemetry-v1`), enforced by default; the STUB is gone. The box's meaning changed from "the stub is honestly labelled" to "the real mechanism is honestly labelled"; status stays "implemented, awaiting human build/test" — nothing here is build-verified. See `HANDOVER_PATCH_B.md`.
 - **Owner role:** Platform engineering (Rust)
 - **Dependencies:** P2.07–P2.09
 - **Verification method:** Integration tests on the Compose stack.
@@ -299,6 +301,7 @@
   - [x] Telemetry query enforces time range, page size, and the six-state quality filter (tests). — implemented, awaiting human build/test
   - [x] Cross-tenant denial tested per route. — implemented, awaiting human build/test
   - [x] OpenAPI spec regenerated and committed. — implemented, awaiting human build/test
+  - Patch A (2026-11-18): the routes now read through the real `PgTelemetryReader` (wired in `main.rs`); route logic unchanged. See `HANDOVER_PATCH_A.md`.
 - **Owner role:** Platform engineering (Rust)
 - **Dependencies:** P2.03, P2.06, P2.10
 - **Verification method:** API tests on the Compose stack; OpenAPI diff review.
@@ -430,6 +433,7 @@
   - [x] MISSING test passes (no records → MISSING, not a zero value). — implemented, awaiting human build/test
   - [x] Response carries quality + age + `simulated` flag (test). — implemented, awaiting human build/test
   - [x] Query uses the P2.05 index (`EXPLAIN` shows index use, not a full scan). — implemented (index-aligned query written; the EXPLAIN run is the human's, loop bans) — awaiting human build/test
+  - Patch A (2026-11-18): `latest_state` now runs through the real `PgTelemetryReader` reusing `latest_telemetry_per_asset`; the DISTINCT ON ordering does not exactly match an existing index, so the EXPLAIN check in the build round matters here. See `HANDOVER_PATCH_A.md`.
 - **Owner role:** Platform engineering (Rust)
 - **Dependencies:** P2.06, P2.08–P2.09, P2.12
 - **Verification method:** Unit + API tests; `EXPLAIN` output.
@@ -517,6 +521,7 @@
   - [x] Tenant-isolation tests exist per new route and pass. — implemented, awaiting human build/test
   - [x] Cross-tenant registry/telemetry cases are rejected in tests. — implemented, awaiting human build/test
   - [x] Unauthenticated/wrong-tenant source tests pass. — implemented per the recorded P2.10 stub status, awaiting human build/test
+  - Patch B (2026-11-18): the stub status this box was implemented against no longer exists — the tests now pin the real Ed25519 envelope status (`security_phase2.rs`, `source_auth_pipeline.rs` incl. the negative test that `trusted_source_id` alone does NOT authenticate). Status stays "implemented, awaiting human build/test". See `HANDOVER_PATCH_B.md`.
   - [x] Not-yet-covered list names owning phases. — implemented (21_22_observability_security.md)
 - **Owner role:** Platform engineering (Rust) + security (reviewer)
 - **Dependencies:** P2.03, P2.06, P2.10, P2.12

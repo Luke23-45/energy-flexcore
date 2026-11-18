@@ -9,7 +9,8 @@
 // replay lands with P3.19/P3.26 — decision note §6 item 6).
 
 use flexcore_optimization_api::backend::{
-    BackendDescription, BackendError, BackendOutcome, BackendStatus, Tier1Backend, Tier1Model,
+    BackendDescription, BackendError, BackendOptions, BackendOutcome, BackendStatus,
+    Tier1Backend, Tier1Model,
 };
 use std::sync::{Arc, Mutex};
 

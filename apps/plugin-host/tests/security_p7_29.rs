@@ -43,13 +43,12 @@
 
 use std::sync::Arc;
 
-use flexcore_plugin_host::bindings::PluginBinding;
 use flexcore_plugin_host::broker::{
     BrokerAuditEvent, BrokerAuditKind, BrokerAuditSink, BrokerError, CapabilityBroker,
     CapabilityScope, InMemoryBrokerAuditSink,
 };
 use flexcore_plugin_host::enforcement::{
-    instantiate, EnforcementAuditEvent, EnforcementAuditKind, EnforcementError, EnforcementGate,
+    instantiate, EnforcementAuditEvent, EnforcementAuditKind, EnforcementGate,
     EnforcementRequest, InMemoryEnforcementAuditSink, InstantiationInput, ProfileCeiling,
     ProfileGrant,
 };
@@ -243,9 +242,9 @@ fn detected_escalation_is_contained_by_revoking_the_whole_frozen_set() {
     }
 
     // Each denial is individually audited (§17.4: attempt → denial → audit).
-    let denials: Vec<&BrokerAuditEvent> = broker_sink
+    let denials: Vec<BrokerAuditEvent> = broker_sink
         .events()
-        .iter()
+        .into_iter()
         .filter(|e| e.kind == BrokerAuditKind::CapabilityDenied)
         .collect();
     assert_eq!(denials.len(), 3, "each post-revocation use attempt is audited");
@@ -360,7 +359,7 @@ fn the_escalation_attempt_leaves_a_complete_ordered_audited_trail() {
     // the reason class in its detail.
     let denial = broker_sink
         .events()
-        .iter()
+        .into_iter()
         .find(|e| e.kind == BrokerAuditKind::CapabilityDenied)
         .expect("the post-revocation denial is audited broker-side");
     assert_eq!(denial.plugin_id, ESCALATING_PLUGIN);

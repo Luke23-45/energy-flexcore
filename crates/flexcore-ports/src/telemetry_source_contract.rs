@@ -962,7 +962,11 @@ mod tests {
             // clock: a private/shifted timeline.
             Box::new(ScriptedSource::new(scripted_batches(|tick, parts| {
                 if tick == 1 {
+                    // Only the clock invariant breaks: ingest moves along
+                    // so the record stays constructible (ingest after
+                    // event) and the suite can flag the off-clock event.
                     parts.event_time = event(2_500);
+                    parts.ingest_time = ingest(2_501);
                 }
             })))
         };

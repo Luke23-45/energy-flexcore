@@ -84,12 +84,12 @@ fn test_namespace_key() -> ChainKey {
 /// Builds an honestly chained window: digests computed from genesis (or
 /// from `seed`) over the records IN ORDER, with strictly increasing
 /// sequence numbers starting at `first_sequence`.
-fn chained_entries(
+fn chained_entries<'a>(
     namespace_key: &ChainKey,
     seed: Option<[u8; 32]>,
     first_sequence: i64,
-    records: &[AuditRecord],
-) -> Vec<TenantChainEntry<'_>> {
+    records: &'a [AuditRecord],
+) -> Vec<TenantChainEntry<'a>> {
     let mut head = match seed {
         Some(s) => s,
         None => genesis_head(namespace_key),
@@ -128,9 +128,14 @@ fn a_tenant_chain_verifies_from_genesis_and_the_head_is_deterministic() {
     let head_two = verify_tenant_chain(&namespace_key, &entries).expect("the walk is deterministic");
     assert_eq!(head_one, head_two);
 
-    // The final head differs from every stored digest and from genesis —
-    // the head is a NEW commitment, not the last record's digest.
-    for entry in &entries {
+    // The final head IS the last entry's stored digest by construction:
+    // `verify_tenant_chain` returns the last stored digest as the head
+    // (chain.rs: the walk sets `head = entry.stored_digest` at each step).
+    // What makes it a commitment to the whole history is that each stored
+    // digest chains the previous head — so the head differs from genesis
+    // and from every EARLIER stored digest.
+    assert_eq!(head_one, entries.last().expect("three entries").stored_digest);
+    for entry in &entries[..entries.len() - 1] {
         assert_ne!(head_one, entry.stored_digest);
     }
     assert_ne!(head_one, genesis_head(&namespace_key));
@@ -155,12 +160,32 @@ fn a_content_edit_is_a_named_digest_mismatch_at_the_edited_sequence() {
     let entries = chained_entries(&namespace_key, None, 1, &records);
     verify_tenant_chain(&namespace_key, &entries).expect("the honest chain verifies");
 
+    // The tamper check pairs the ORIGINAL stored digests with MUTATED
+    // records: the entries borrow their records, so the records cannot be
+    // mutated in place while the entries live. The tampered copies below
+    // carry the same digests, so the walk sees exactly what the original
+    // in-place edit would have shown.
+    // Pairing the ORIGINAL stored digests with the tampered records,
+    // built inline per check: a closure cannot express that the returned
+    // entries borrow the tampered records (a closure's return lifetime is
+    // independent of its parameter's).
+    let mut tampered = records.clone();
+
     // An edit to the LAST record (actor changed) breaks the digest AT
     // sequence 3 — the head commits to every record, not just the early
     // ones. (Checked first so the walk's first-discrepancy rule is
     // exercised at both positions in one honest window.)
-    records[2].actor = ActorIdentity::new("attacker".to_string()).expect("valid actor");
-    match verify_tenant_chain(&namespace_key, &entries) {
+    tampered[2].actor = ActorIdentity::new("attacker".to_string()).expect("valid actor");
+    let tampered_entries: Vec<TenantChainEntry<'_>> = entries
+        .iter()
+        .zip(tampered.iter())
+        .map(|(entry, record)| TenantChainEntry {
+            chain_sequence: entry.chain_sequence,
+            stored_digest: entry.stored_digest,
+            record,
+        })
+        .collect();
+    match verify_tenant_chain(&namespace_key, &tampered_entries) {
         Err(ChainError::DigestMismatch { sequence }) => assert_eq!(sequence, 3),
         other => panic!("expected DigestMismatch at sequence 3, got: {other:?}"),
     }
@@ -168,9 +193,18 @@ fn a_content_edit_is_a_named_digest_mismatch_at_the_edited_sequence() {
     // An edit to record 2 (after_ref changed) breaks the digest AT sequence
     // 2 — the walk fails at the FIRST discrepancy (a verification never
     // reports "probably fine").
-    records[1].after_ref =
+    tampered[1].after_ref =
         Some(RecordReference::new("asset-2:TAMPERED".to_string()).expect("valid reference"));
-    match verify_tenant_chain(&namespace_key, &entries) {
+    let tampered_entries: Vec<TenantChainEntry<'_>> = entries
+        .iter()
+        .zip(tampered.iter())
+        .map(|(entry, record)| TenantChainEntry {
+            chain_sequence: entry.chain_sequence,
+            stored_digest: entry.stored_digest,
+            record,
+        })
+        .collect();
+    match verify_tenant_chain(&namespace_key, &tampered_entries) {
         Err(ChainError::DigestMismatch { sequence }) => assert_eq!(sequence, 2),
         other => panic!("expected DigestMismatch at sequence 2, got: {other:?}"),
     }
@@ -315,7 +349,8 @@ fn key_material_fails_closed_at_the_minimum_length() {
             length: 31,
             required: 32,
         }) => {}
-        other => panic!("expected KeyTooShort for 31 bytes, got: {other:?}"),
+        Err(error) => panic!("expected KeyTooShort for 31 bytes, got error: {error:?}"),
+        Ok(_) => panic!("expected KeyTooShort for 31 bytes, got an accepted key"),
     }
     // Exactly 32 bytes: accepted.
     ChainKey::from_bytes(&[0x42u8; CHAIN_KEY_MIN_BYTES]).expect("the minimum length is accepted");

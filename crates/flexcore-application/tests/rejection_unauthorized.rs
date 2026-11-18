@@ -656,10 +656,18 @@ fn assert_denial_record(h: &Harness, command: &DispatchCommand, expected_reason:
     assert_eq!(entry.to, CommandState::Rejected);
     assert_eq!(entry.gate, Some(Gate::Authorization));
     assert_eq!(entry.actor.identity(), denier);
-    assert_eq!(
-        entry.reason.as_deref(),
-        Some(expected_reason),
-        "the denial reason is the pre-registered authorization error"
+    // The journal reason is the pre-registered reason PLUS the covered-
+    // evidence bracket (command_gates.rs:1775); the bare reason lives on
+    // result.denial_reason. Pin the prefix and the bracket, as the passing
+    // command_gates denial test does (starts_with).
+    let reason = entry.reason.as_deref().expect("the denial reason");
+    assert!(
+        reason.starts_with(expected_reason),
+        "the denial reason is the pre-registered authorization error: {reason}"
+    );
+    assert!(
+        reason.contains("[covers validation evidence"),
+        "the denial reason carries the covered-evidence bracket: {reason}"
     );
     let evidence = entry.evidence.as_ref().expect("the denial evidence");
     assert!(

@@ -88,7 +88,7 @@ impl DepartureConstraintSource {
 
 /// Errors of the departure-constraint model. Every variant names the
 /// offending vehicle and value (the P3.04 named-error style).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EvDepartureError {
     /// The vehicle key was empty or whitespace-only.
     EmptyVehicleKey,

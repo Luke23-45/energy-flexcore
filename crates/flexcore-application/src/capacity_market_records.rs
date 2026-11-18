@@ -329,9 +329,7 @@ pub fn lr_075_pjm_capacity_date_conflict() -> DateConflictRecord {
     )
     .expect("sourced date with the mandatory re-verify rule");
     let second = SourcedDate::new(
-        "1 February 2028 (energy participation expected; the capacity-market date \
-         conflicting between sources — an open verification task)"
-            .to_string(),
+        "1 February 2028 (energy participation expected)".to_string(),
         "ledger/phase-09-pilot-qualification/11_market_program_requirements.md section 7 \
          (checked 2026-11-07)"
             .to_string(),

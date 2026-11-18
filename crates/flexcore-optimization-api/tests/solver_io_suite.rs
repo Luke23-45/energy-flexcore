@@ -47,7 +47,7 @@ mod common;
 
 use common::{outcome, scripted};
 use flexcore_contracts::ids::FlexUuid;
-use flexcore_optimization_api::backend::BackendStatus;
+use flexcore_optimization_api::backend::{BackendStatus, Tier1Backend};
 use flexcore_optimization_api::config::SolverConfig;
 use flexcore_optimization_api::fixture;
 use flexcore_optimization_api::port::{Optimizer, OptimizerError};
@@ -357,8 +357,9 @@ fn malformed_input_is_rejected_before_any_backend_interaction() {
 
     for (label, problem) in &cases {
         let backend = scripted(Vec::new());
+        let backend_dyn: Arc<dyn Tier1Backend> = backend.clone();
         let outcome = flexcore_optimization_api::highs_provider::HighsTier1Provider::new(
-            Arc::clone(&backend),
+            backend_dyn,
         )
         .solve(problem, &SolverConfig::default());
 
@@ -459,16 +460,18 @@ fn property_non_finite_coefficients_are_always_rejected() {
         // Inject into a rotating slot per case.
         let slot = case % 6;
         let mut p = valid_lp();
+        let variable_count = p.variables.len();
+        let row_count = p.rows.len();
         match slot {
-            0 => p.variables[case % p.variables.len()].lower_bound = Some(poison),
-            1 => p.variables[case % p.variables.len()].upper_bound = Some(poison),
+            0 => p.variables[case % variable_count].lower_bound = Some(poison),
+            1 => p.variables[case % variable_count].upper_bound = Some(poison),
             2 => {
                 let row_index = case % p.rows.len();
                 let variable_index = case % p.variables.len();
                 p.rows[row_index].coefficients =
                     vec![Coefficient { variable: variable_index, coefficient: poison }];
             }
-            3 => p.rows[case % p.rows.len()].bounds = RowBounds::Upper(poison),
+            3 => p.rows[case % row_count].bounds = RowBounds::Upper(poison),
             4 => p.objective.constant = poison,
             _ => {
                 p.declared_class = ProblemClass::ConvexQuadraticProgram;
@@ -500,8 +503,9 @@ fn property_non_finite_coefficients_are_always_rejected() {
 #[test]
 fn an_optimal_outcome_without_a_primal_payload_is_refused_at_the_gate() {
     let backend = scripted(vec![Ok(outcome(BackendStatus::Optimal, "Optimal", Some(4.5), None))]);
+    let backend_dyn: Arc<dyn Tier1Backend> = backend.clone();
     let provider =
-        flexcore_optimization_api::highs_provider::HighsTier1Provider::new(Arc::clone(&backend));
+        flexcore_optimization_api::highs_provider::HighsTier1Provider::new(backend_dyn);
     let error = provider
         .solve(&valid_lp(), &SolverConfig::default())
         .expect_err("an optimal result without primal diagnostics is incomplete");
@@ -525,8 +529,9 @@ fn an_optimal_outcome_without_a_primal_payload_is_refused_at_the_gate() {
 #[test]
 fn an_optimal_outcome_without_an_objective_value_is_refused_at_the_gate() {
     let backend = scripted(vec![Ok(outcome(BackendStatus::Optimal, "Optimal", None, Some(vec![1.0, 2.0])))]);
+    let backend_dyn: Arc<dyn Tier1Backend> = backend.clone();
     let provider =
-        flexcore_optimization_api::highs_provider::HighsTier1Provider::new(Arc::clone(&backend));
+        flexcore_optimization_api::highs_provider::HighsTier1Provider::new(backend_dyn);
     let error = provider
         .solve(&valid_lp(), &SolverConfig::default())
         .expect_err("an optimal result without an objective value is incomplete");
@@ -550,8 +555,9 @@ fn a_complete_outcome_passes_the_gate_with_every_required_field() {
         Some(4.5),
         Some(vec![1.5, 3.0]),
     ))]);
+    let backend_dyn: Arc<dyn Tier1Backend> = backend.clone();
     let provider =
-        flexcore_optimization_api::highs_provider::HighsTier1Provider::new(Arc::clone(&backend));
+        flexcore_optimization_api::highs_provider::HighsTier1Provider::new(backend_dyn);
     let result = provider
         .solve(&valid_lp(), &SolverConfig::default())
         .expect("a complete outcome publishes its record");

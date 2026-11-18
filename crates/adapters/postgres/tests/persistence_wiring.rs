@@ -45,6 +45,7 @@ use flexcore_storage::command_store::{
     CommandListFilter, CommandRecordRow, CommandRecordStore, CommandStoreError,
     CommandTransitionRecord,
 };
+use flexcore_storage::schedule_revision::ScheduleRevisionChainStore;
 use flexcore_storage::feasibility_check::{
     FeasibilityCheckFilter, FeasibilityCheckRow, FeasibilityCheckStore,
     FeasibilityCheckStoreError,
@@ -99,7 +100,7 @@ fn fixture_uuid(prefix: u8) -> FlexUuid {
     bytes[6] = (run_key() >> 24) as u8;
     bytes[7] = (run_key() >> 16) as u8;
     bytes[8] = (run_key() >> 8) as u8;
-    bytes[9] = run_key() as u8;
+    bytes[9] = *run_key() as u8;
     let counter = next_counter().to_be_bytes();
     bytes[10..16].copy_from_slice(&counter[2..8]);
     FlexUuid::from_bytes(bytes)
@@ -128,7 +129,7 @@ fn seed_environment(
     let unit: PgUnitOfWork = store.begin(Some(&ctx)).expect("unit of work opens");
     let tenant = Tenant::try_new(
         TenantId::new(tenant_uuid),
-        "p4.30 tenant".to_string(),
+        format!("p4.30 tenant {tenant_uuid}"),
         None,
         format!("idp-{tenant_uuid}"),
         "default".to_string(),
@@ -626,7 +627,7 @@ fn an_outbox_key_is_consumed_idempotently_p4_24() {
         EventOutbox::append(&unit, sample_outbox_write(receipt.clone(), &key))
             .expect("the first write under the key is accepted");
         assert!(
-            unit.pending_entries(10)
+            unit.pending(10)
                 .expect("pending reads")
                 .iter()
                 .any(|e| e.idempotency_key() == key)
@@ -658,7 +659,7 @@ fn an_outbox_key_is_consumed_idempotently_p4_24() {
     }
     {
         let unit = store.begin(Some(&ctx)).expect("unit of work opens");
-        let pending = unit.pending_entries(100).expect("pending reads");
+        let pending = unit.pending(100).expect("pending reads");
         assert_eq!(
             pending
                 .iter()

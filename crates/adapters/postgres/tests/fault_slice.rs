@@ -119,7 +119,7 @@ fn fixture_uuid(prefix: u8) -> FlexUuid {
     bytes[6] = (run_key() >> 24) as u8;
     bytes[7] = (run_key() >> 16) as u8;
     bytes[8] = (run_key() >> 8) as u8;
-    bytes[9] = run_key() as u8;
+    bytes[9] = *run_key() as u8;
     let counter = next_counter().to_be_bytes();
     bytes[10..16].copy_from_slice(&counter[2..8]);
     FlexUuid::from_bytes(bytes)
@@ -168,14 +168,22 @@ fn ensure_test_roles(pool: &flexcore_postgres_adapter::FlexCoreStore) {
     let pool = pool.pool().clone();
     runtime
         .block_on(async {
+            // See the advisory-lock note in the other copies of this
+            // helper: concurrent ALTER ROLE on the same role fails with
+            // "tuple concurrently updated" (XX000).
+            let mut tx = pool.begin().await?;
+            sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+                .execute(&mut *tx)
+                .await?;
             sqlx::query("ALTER ROLE flexcore_app WITH LOGIN PASSWORD 'flexcore_app_test_only'")
-                .execute(&pool)
+                .execute(&mut *tx)
                 .await?;
             sqlx::query(
                 "ALTER ROLE flexcore_migrator WITH LOGIN PASSWORD 'flexcore_migrator_test_only'",
             )
-            .execute(&pool)
+            .execute(&mut *tx)
             .await?;
+            tx.commit().await?;
             Ok::<(), sqlx::Error>(())
         })
         .expect("test roles must be grantable from the migration/admin connection");
@@ -210,7 +218,13 @@ fn outbox_write_for(receipt: StateChangeReceipt, key: &str) -> OutboxWrite {
         receipt,
         key.to_string(),
         "flexcore.v1.registry.asset_registered".to_string(),
-        format!(r#"{{"fault_slice": true, "key": "{key}"}}"#),
+        // The adapter classifies the outbox columns from the payload
+        // (outbox.rs: event.event_type + schema_version, both mandatory);
+        // the same internally-tagged shape as integration's
+        // sample_outbox_write, plus the fault marker.
+        format!(
+            r#"{{"schema_version": 1, "idempotency_key": "{key}", "event": {{"event_type": "ASSET_REGISTERED"}}, "fault_slice": true}}"#
+        ),
         SystemClock.now_event_time(),
     )
     .expect("valid outbox write")

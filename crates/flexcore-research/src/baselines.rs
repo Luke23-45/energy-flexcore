@@ -407,7 +407,7 @@ impl FrozenBaseline {
             definition_digest: format!("{:016x}", fnv1a64(record.canonical_string().as_bytes())),
             record: record.clone(),
             results_digest: None,
-            registry_version: BASELINE_REGISTRY_VERSION,
+            registry_version: BASELINE_REGISTRY_VERSION.to_string(),
         })
     }
 
@@ -701,7 +701,7 @@ pub fn priority_list_dispatch(
         intervals: interval_results,
         total_supplied_mwh,
         total_deficit_mwh,
-        baseline_version: PRIORITY_LIST_BASELINE_VERSION,
+        baseline_version: PRIORITY_LIST_BASELINE_VERSION.to_string(),
     })
 }
 

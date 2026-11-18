@@ -587,7 +587,9 @@ impl AdapterHealthMonitor {
         action: BlockedAction,
         now_unix_millis: i64,
     ) -> Result<(), String> {
-        let record = self.assess(adapter_id, now_unix_millis)?;
+        let record = self
+            .assess(adapter_id, now_unix_millis)
+            .map_err(|error| error.to_string())?;
         if record.blocks_dependent_actions() {
             Err(format!(
                 "{} against adapter '{}' is BLOCKED while health is {} (dependent actions are \

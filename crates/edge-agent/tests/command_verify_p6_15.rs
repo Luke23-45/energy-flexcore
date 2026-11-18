@@ -86,7 +86,16 @@ fn other_signing_key() -> CommandSigningKey {
 /// A REAL gate admission: a receiver whose four P6.14 conditions all hold,
 /// admitting the command through `receive` (the verifier is only ever fed
 /// gate-admitted commands in composition).
-fn gate_receipt(command: &EdgeCommand, target_adapter: &str) -> CommandReceipt {
+/// The gate receipt with an explicit gate allowlist. The gate and the
+/// verifier hold SEPARATE allowlists (P6.14 gate vs §17.5 rule 6
+/// authorization): a gate that admits an adapter the verifier's
+/// authorization does not list is exactly how the verifier's own allowlist
+/// check is exercised.
+fn gate_receipt_with_allowlist(
+    command: &EdgeCommand,
+    target_adapter: &str,
+    allowlist: Vec<String>,
+) -> CommandReceipt {
     let key = gate_key();
     let record = SignedEnablementRecord {
         site_id: "pilot-site-A".to_string(),
@@ -105,7 +114,7 @@ fn gate_receipt(command: &EdgeCommand, target_adapter: &str) -> CommandReceipt {
         config_flag_enabled: true,
         signed_record: Some(record),
         environment_token: Some("lab-token-123".to_string()),
-        command_allowlist: vec!["simulated-test".to_string()],
+        command_allowlist: allowlist,
         d6_record_reference: Some(
             "ledger/phase-06-edge-protocol/03_d6_boundary_review.md".to_string(),
         ),
@@ -129,18 +138,36 @@ fn gate_receipt(command: &EdgeCommand, target_adapter: &str) -> CommandReceipt {
 fn permissive_policy() -> flexcore_edge_agent::policy::SitePolicyEngine {
     flexcore_edge_agent::policy::SitePolicyEngine::new(SitePolicyConfig {
         format_version: 1,
-        adapters: vec![AdapterPolicy {
-            adapter_id: "simulated-test".to_string(),
-            enabled: true,
-            rate_limit: RateLimit {
-                max_commands: 100,
-                window_millis: 60_000,
+        adapters: vec![
+            AdapterPolicy {
+                adapter_id: "simulated-test".to_string(),
+                enabled: true,
+                rate_limit: RateLimit {
+                    max_commands: 100,
+                    window_millis: 60_000,
+                },
+                operating_window: OperatingWindow {
+                    start_millis_of_day: 0,
+                    end_millis_of_day: 86_400_000,
+                },
             },
-            operating_window: OperatingWindow {
-                start_millis_of_day: 0,
-                end_millis_of_day: 86_400_000,
+            // The allowlist test routes an openems-rest command through the
+            // gate so the VERIFIER's own allowlist check refuses it — the
+            // gate's site policy must also know the adapter, or the gate
+            // refuses first (unknown adapters are refused, never defaulted).
+            AdapterPolicy {
+                adapter_id: "openems-rest".to_string(),
+                enabled: true,
+                rate_limit: RateLimit {
+                    max_commands: 100,
+                    window_millis: 60_000,
+                },
+                operating_window: OperatingWindow {
+                    start_millis_of_day: 0,
+                    end_millis_of_day: 86_400_000,
+                },
             },
-        }],
+        ],
     })
     .expect("valid policy")
 }
@@ -243,6 +270,14 @@ fn verifier(dir: &std::path::Path) -> CommandVerifier {
         Arc::new(InMemoryAuditSink::new()),
         Arc::new(FixedClock::at_unix_millis(BASE_MILLIS + 1_000)),
         dir,
+    )
+}
+
+fn gate_receipt(command: &EdgeCommand, target_adapter: &str) -> CommandReceipt {
+    gate_receipt_with_allowlist(
+        command,
+        target_adapter,
+        vec!["simulated-test".to_string()],
     )
 }
 
@@ -683,7 +718,15 @@ fn a_non_allowlisted_target_rejects_with_the_allowlist_reason() {
             BASE_MILLIS + 600_000,
         )
     };
-    let receipt = receipt_for(&command);
+    // The GATE must admit the command (its allowlist lists openems-rest)
+    // so the VERIFIER's own allowlist check is what refuses it — the gate
+    // refuses a non-allowlisted adapter first, correctly, and the verifier
+    // never sees it.
+    let receipt = gate_receipt_with_allowlist(
+        &command.edge_command,
+        &command.target_adapter,
+        vec!["simulated-test".to_string(), "openems-rest".to_string()],
+    );
     let error = verifier
         .verify(&receipt, &command, ClockQuality::Synchronized)
         .expect_err("a non-allowlisted target is refused");

@@ -62,6 +62,7 @@ use flexcore_ports::event_outbox::EventOutbox;
 use flexcore_ports::repository::{
     AssetRepository, PortfolioRepository, SiteRepository, TenantRepository,
 };
+use flexcore_ports::source_auth::{SourceAuthError, SourceAuthenticator, VerifiedEnvelope};
 use flexcore_ports::telemetry_source::{
     NormalizedTelemetry, NormalizedTelemetryParts, ProviderDeclaration, QualityMappingDeclaration,
     QuantityValue, SourceStateMapping, TelemetryQuery, TelemetryQuantity, TelemetrySource,
@@ -186,9 +187,13 @@ fn ensure_test_roles(pool: &PgPool) {
                 ("flexcore_app", "flexcore_app_test_only"),
                 ("flexcore_migrator", "flexcore_migrator_test_only"),
             ] {
-                sqlx::query(&format!(
+                // SAFETY (sqlx 0.9 SqlSafeStr): `role` and `password` are
+                // fixed test-only literals from the list above — no user
+                // input reaches this DDL, and role names/passwords cannot
+                // be bind parameters in ALTER ROLE.
+                sqlx::query(sqlx::AssertSqlSafe(format!(
                     "ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"
-                ))
+                )))
                 .execute(pool)
                 .await?;
             }
@@ -211,10 +216,14 @@ fn ensure_partitions(url: &str) {
         .expect("connect as flexcore_migrator");
     blocking_runtime().block_on(async {
         for (name, from, to) in PARTITION_MONTHS {
-            sqlx::query(&format!(
+            // SAFETY (sqlx 0.9 SqlSafeStr): `name`/`from`/`to` are fixed
+            // literals from the PARTITION_MONTHS const above — no user
+            // input reaches this DDL, and partition names/bounds cannot
+            // be bind parameters in CREATE TABLE.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE IF NOT EXISTS {name} PARTITION OF telemetry \
                  FOR VALUES FROM ('{from}') TO ('{to}')"
-            ))
+            )))
             .execute(&migrator_pool)
             .await
             .expect("partition DDL as the table owner");
@@ -449,6 +458,30 @@ fn asset_uuid(asset_id: AssetId) -> String {
     asset_id.uuid().to_hyphenated().to_string()
 }
 
+/// Permissive source-auth double (Patch B): passes raw frames through
+/// unenveloped (`was_enveloped: false`, payload = the raw bytes) so the
+/// downstream-stage tests keep working with raw frames. The batch path
+/// skips the sequence-watermark advance entirely for unenveloped input.
+struct PassThroughAuthenticator;
+
+impl SourceAuthenticator for PassThroughAuthenticator {
+    fn authenticate(
+        &self,
+        ctx: &TenantContext,
+        payload: &[u8],
+    ) -> Result<VerifiedEnvelope, SourceAuthError> {
+        Ok(VerifiedEnvelope {
+            key_id: "test-double".to_string(),
+            source_id: "test-double".to_string(),
+            tenant_id: ctx.tenant_id(),
+            sequence: 0,
+            event_time_unix_millis: 0,
+            was_enveloped: false,
+            payload: payload.to_vec(),
+        })
+    }
+}
+
 /// Builds an ingestion task over the real store and a controllable fake
 /// source (the pipeline consumes ONLY the `TelemetrySource` port).
 fn build_task_with(
@@ -477,6 +510,7 @@ fn build_task_with(
         Arc::new(UuidV7Generator::new(store.pool().clone())),
         config,
         Arc::clone(&metrics),
+        Arc::new(PassThroughAuthenticator),
     ));
     (task, source, metrics)
 }
@@ -539,7 +573,7 @@ async fn simulator_stops_mid_batch_partial_batch_stored_remainder_retried_no_dup
     // all-or-nothing state: what arrived is committed, what did not is
     // absent and accounted for).
     let report = task
-        .process_batch(&h.ctx, &stored_before_stop)
+        .process_batch(&h.ctx, &stored_before_stop, None)
         .expect("the partial batch commits");
     assert_eq!(report.stored, 6, "the partial batch stores");
     assert_eq!(
@@ -551,7 +585,7 @@ async fn simulator_stops_mid_batch_partial_batch_stored_remainder_retried_no_dup
     // HANDLING: the source resumes (a restarted deterministic run emits the
     // full horizon); the remainder is retried and stored.
     let remainder = task
-        .process_batch(&h.ctx, &full[6..])
+        .process_batch(&h.ctx, &full[6..], None)
         .expect("the remainder commits");
     assert_eq!(remainder.stored, 6, "the remainder stores after the retry");
     assert_eq!(count_telemetry(&h.store, &h.ctx), 12, "the horizon is complete");
@@ -582,7 +616,7 @@ async fn ingestion_restart_mid_batch_redelivers_over_the_same_durable_inbox_with
     let (task_a, _source_a, metrics_a) =
         build_task_with(h.store.clone(), h.inbox.clone(), Vec::new(), default_config());
     let first = task_a
-        .process_batch(&h.ctx, &full[..6])
+        .process_batch(&h.ctx, &full[..6], None)
         .expect("the first instance commits its batch");
     assert_eq!(first.stored, 6);
     assert_eq!(
@@ -598,7 +632,7 @@ async fn ingestion_restart_mid_batch_redelivers_over_the_same_durable_inbox_with
     let (task_b, _source_b, metrics_b) =
         build_task_with(h.store.clone(), h.inbox.clone(), Vec::new(), default_config());
     let second = task_b
-        .process_batch(&h.ctx, &full)
+        .process_batch(&h.ctx, &full, None)
         .expect("the redelivered horizon processes");
     assert_eq!(
         second.redeliveries_skipped, 6,
@@ -656,7 +690,7 @@ async fn nats_down_state_and_outbox_written_events_drain_on_recovery() {
     // publisher connected). The outbox-only rule means ingestion succeeds.
     let records = horizon_records(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 24);
     let report = task
-        .process_batch(&h.ctx, &records)
+        .process_batch(&h.ctx, &records, None)
         .expect("ingestion succeeds while the broker is down");
     assert_eq!(report.stored, 24);
     assert_eq!(
@@ -749,7 +783,7 @@ async fn postgres_down_during_ingestion_fails_cleanly_with_no_partial_batch_and_
     // fault.
     let baseline = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 1, 1.0);
     let committed = task
-        .process_batch(&h.ctx, &[baseline])
+        .process_batch(&h.ctx, &[baseline], None)
         .expect("the baseline batch commits");
     assert_eq!(committed.stored, 1);
     let baseline_rows = outbox_rows_containing(&h.store, &needle);
@@ -781,9 +815,10 @@ async fn postgres_down_during_ingestion_fails_cleanly_with_no_partial_batch_and_
                 Arc::new(UuidV7Generator::new(h.store.pool().clone())),
                 default_config(),
                 Arc::clone(&metrics),
+                Arc::new(PassThroughAuthenticator),
             );
             let fault_record = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS + 60_000, 2, 2.0);
-            let outcome = down_task.process_batch(&h.ctx, &[fault_record]);
+            let outcome = down_task.process_batch(&h.ctx, &[fault_record], None);
 
             // FAULT FIRST: the failure actually happened.
             assert!(
@@ -848,7 +883,7 @@ async fn partition_missing_for_the_ingest_frontier_is_a_clear_error_not_a_silent
     let frontier = record(h.ctx.tenant_id(), h.asset_id, JUN_2031_MS, 2, 2.0);
 
     let report = task
-        .process_batch(&h.ctx, &[valid, frontier])
+        .process_batch(&h.ctx, &[valid, frontier], None)
         .expect("the batch commits (the rejection is per-record, not whole-batch)");
 
     // FAULT FIRST: the frontier record was actually rejected.
@@ -936,7 +971,7 @@ async fn clock_fault_far_future_event_times_are_quarantined_never_stored_as_good
         .collect();
 
     let report = task
-        .process_batch(&h.ctx, &records)
+        .process_batch(&h.ctx, &records, None)
         .expect("the batch commits with per-record rejections");
 
     // FAULT FIRST: every skewed record was actually rejected.
@@ -1034,7 +1069,7 @@ async fn clock_fault_far_past_event_times_fire_the_staleness_signal_never_good_c
 
     // HANDLING: the records store as valid history...
     let report = task
-        .process_batch(&h.ctx, &records)
+        .process_batch(&h.ctx, &records, None)
         .expect("the far-past records store (their partition exists)");
     assert_eq!(report.stored, 10);
     assert_eq!(count_telemetry(&h.store, &h.ctx), 10);

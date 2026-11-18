@@ -114,7 +114,7 @@ use flexcore_kernel::plugin_path_protection::{
     refuse_protected_contract_claim, PluginProposalEnvelope, PluginRequestEnvelope,
 };
 use flexcore_kernel::profile::{
-    parse_profile, validate_profile, ProfileError, POSTURE_SIMULATION_SHADOW,
+    parse_profile_value, validate_profile, ProfileError, POSTURE_SIMULATION_SHADOW,
 };
 use flexcore_kernel::registry::{FnFactory, ProviderFactory, ProviderRegistry, seed};
 use flexcore_kernel::resolve::{
@@ -344,6 +344,12 @@ fn manifest_not_covering_platform_version_is_refused_by_the_resolver() {
     bad.as_object_mut()
         .unwrap()
         .insert("api-version".to_string(), serde_json::json!(">=0.6.0, <0.7.0"));
+    // The manifest consumes nothing here: this test pins the platform gate,
+    // not the missing-provider refusal its `portfolio.read` consume would
+    // otherwise trigger first (the consumer pass runs before the gate).
+    bad.as_object_mut()
+        .unwrap()
+        .insert("consumes".to_string(), serde_json::json!([]));
     let manifest = parse_fixture(&bad);
     // A single-manifest composition still runs the platform gate.
     let err = resolve(&[manifest], &ExplicitSelections::new())
@@ -353,13 +359,26 @@ fn manifest_not_covering_platform_version_is_refused_by_the_resolver() {
 
 #[test]
 fn disjoint_consumer_provider_ranges_are_named() {
-    // Provider and consumer with disjoint api-version windows (§9.3).
-    let provider = parse_fixture(&class_a_manifest());
+    // Provider and consumer with disjoint api-version windows (§9.3). The
+    // pair is a REAL consumer→provider edge — the consumer consumes the
+    // contract the provider provides — and every other consume is closed,
+    // so the pairwise §9.3 check is what fires (not a missing provider,
+    // and not the platform gate, which runs after the consumer pass).
+    let mut provider_json = class_a_manifest();
+    provider_json
+        .as_object_mut()
+        .unwrap()
+        .insert("consumes".to_string(), serde_json::json!([]));
+    let provider = parse_fixture(&provider_json);
     let mut consumer_json = class_b_manifest();
     consumer_json.as_object_mut().unwrap().insert(
         "api-version".to_string(),
         serde_json::json!(">=2.0.0"),
     );
+    consumer_json
+        .as_object_mut()
+        .unwrap()
+        .insert("consumes".to_string(), serde_json::json!(["ess.simulation"]));
     let consumer = parse_fixture(&consumer_json);
     let err = resolve(&[provider, consumer], &ExplicitSelections::new())
         .expect_err("disjoint ranges must be a named refusal");
@@ -416,7 +435,7 @@ fn ceiling_containment_manifest_above_ceiling_refused() {
         "permission-ceiling": ["telemetry.read", "asset.read"],
         "selections": [{ "manifest-id": "neryva.optimizer-wasm-lp", "version-constraint": ">=0.2.0" }]
     });
-    let profile = parse_profile(&profile_json).expect("suite ceiling shell parses");
+    let profile = parse_profile_value(&profile_json).expect("suite ceiling shell parses");
     let class_b = parse_fixture(&class_b_manifest());
     // The Class B fixture consumes `portfolio.read`, which nothing here
     // provides; the ceiling violation fires FIRST (fail-closed order),
@@ -437,7 +456,7 @@ fn ceiling_never_contains_a_never_granted_id() {
         "permission-ceiling": ["telemetry.read", "dispatch.authorize"],
         "selections": [{ "manifest-id": "neryva.sim-builtin-ess", "version-constraint": ">=0.1.0" }]
     });
-    let err = parse_profile(&profile_json).expect_err("a ceiling can never grant §5.7 never rows");
+    let err = parse_profile_value(&profile_json).expect_err("a ceiling can never grant §5.7 never rows");
     assert_eq!(err.name(), "PROFILE_PERMISSION_CEILING_NEVER_GRANTED");
 }
 

@@ -251,7 +251,7 @@ fn compose_openems(
                 let mut concrete = OpenEmsRestAdapter::new(
                     Box::new(transport),
                     profile,
-                    clock_for_factory,
+                    Arc::clone(&clock_for_factory),
                 )
                 .map_err(|error| format!("the OpenEMS adapter could not be composed: {error}"))?;
                 let descriptors = concrete

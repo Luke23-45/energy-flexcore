@@ -213,7 +213,7 @@ pub struct ScenarioError {
 }
 
 impl ScenarioError {
-    fn new(detail: impl Into<String>) -> Self {
+    pub(crate) fn new(detail: impl Into<String>) -> Self {
         Self {
             detail: detail.into(),
         }
@@ -508,7 +508,7 @@ struct MeterParamsRaw {
     q_constant_mvar: f64,
 }
 
-fn validate_bess_params(raw: BessParamsRaw, key: &str) -> Result<BessParams, ScenarioError> {
+fn validate_bess_params(raw: BessParamsRaw, key: &str) -> Result<BehaviourParams, ScenarioError> {
     let charge_power_mw = required_positive(Some(raw.charge_power_mw), "charge_power_mw")?;
     let discharge_power_mw = required_positive(Some(raw.discharge_power_mw), "discharge_power_mw")?;
     let initial_soc = require_soc(raw.initial_soc, "initial_soc")?;
@@ -620,7 +620,7 @@ fn validate_evse_params(raw: EvseParamsRaw, key: &str) -> Result<EvseParams, Sce
     })
 }
 
-fn validate_meter_params(raw: MeterParamsRaw, key: &str) -> Result<BehaviourParams, ScenarioError> {
+fn validate_meter_params(raw: MeterParamsRaw, _key: &str) -> Result<BehaviourParams, ScenarioError> {
     let q = require_finite(raw.q_constant_mvar, "q_constant_mvar")?;
     Ok(BehaviourParams::Meter(MeterParams { q_constant_mvar: q }))
 }

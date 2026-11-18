@@ -864,7 +864,7 @@ mod tests {
 
     #[test]
     fn missing_gaps_are_derived_records_distinguishable_from_measured() {
-        // Horizon 0s..300s at a 60s cadence → expected 0, 60, 120, 180, 300.
+        // Horizon 0s..300s at a 60s cadence → expected 0, 60, 120, 180, 240, 300.
         let covered = [t(EVENT_MS), t(EVENT_MS + 120_000)];
         let gaps = expected_intervals(
             &covered,
@@ -875,8 +875,8 @@ mod tests {
             7,
         )
         .unwrap();
-        // Three missing intervals: 60s, 180s, and 300s offsets.
-        assert_eq!(gaps.len(), 3);
+        // Four missing intervals: 60s, 180s, 240s, and 300s offsets.
+        assert_eq!(gaps.len(), 4);
         for gap in &gaps {
             // Distinguishable from measured values by construction (D-T6):
             // derived namespace, MISSING quality, and no value field exists
@@ -889,12 +889,17 @@ mod tests {
         }
         // Detector-owned monotonic sequence from the supplied base.
         let seqs: Vec<u64> = gaps.iter().map(|g| g.source_sequence).collect();
-        assert_eq!(seqs, vec![7, 8, 9]);
+        assert_eq!(seqs, vec![7, 8, 9, 10]);
         // The gap event times are exactly the missing grid points.
         let times: Vec<i64> = gaps.iter().map(|g| g.event_time.unix_millis() as i64).collect();
         assert_eq!(
             times,
-            vec![EVENT_MS + 60_000, EVENT_MS + 180_000, EVENT_MS + 300_000]
+            vec![
+                EVENT_MS + 60_000,
+                EVENT_MS + 180_000,
+                EVENT_MS + 240_000,
+                EVENT_MS + 300_000
+            ]
         );
     }
 
@@ -905,6 +910,7 @@ mod tests {
             t(EVENT_MS + 60_000),
             t(EVENT_MS + 120_000),
             t(EVENT_MS + 180_000),
+            t(EVENT_MS + 240_000),
             t(EVENT_MS + 300_000),
         ];
         let gaps = expected_intervals(

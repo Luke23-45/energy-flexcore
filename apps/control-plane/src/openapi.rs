@@ -13,7 +13,7 @@ use crate::dto::{
     TelemetryPageEnvelope, TelemetryRecordDto, TenantDto,
 };
 // P5.31 — the alarm DTOs (the /api/v1/alarms derived-on-read resource).
-use crate::dto_alarms::{AlarmDto, AlarmListParams, AlarmPageEnvelope, AlarmSourcesDto};
+use crate::dto_alarms::{AlarmDto, AlarmPageEnvelope, AlarmSourcesDto};
 use crate::dto_phase3::{
     CreateEnvelopeBody, CreateOptimizationRunBody, CreateScheduleBody, EnvelopePageEnvelope,
     EnvelopeRecordDto, OptimizationRunDto, OptimizationRunPageEnvelope, Phase3ListParams,
@@ -41,7 +41,7 @@ use crate::routes_phase4::{
 // P5.25 — the live-update SSE stream.
 use crate::routes_live::{live_events, LiveEventEnvelope, LiveResyncNotice};
 // P5.31 — the alarms read resource.
-use crate::routes_alarms::list_alarms;
+use crate::routes_alarms::{AlarmListParams, list_alarms};
 // P6.06 — the edge enrollment seam. P6.25/P6.32 appended the edge-status
 // read and the operator decommission additively (same additive-path rule).
 use crate::dto_edge::{

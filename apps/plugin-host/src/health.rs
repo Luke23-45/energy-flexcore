@@ -923,7 +923,9 @@ impl<'a> PluginHealthMonitor<'a> {
         plugin_id: &str,
         now_unix_millis: u64,
     ) -> Result<(), String> {
-        let record = self.assess(plugin_id, now_unix_millis)?;
+        let record = self
+            .assess(plugin_id, now_unix_millis)
+            .map_err(|error| error.to_string())?;
         if record.blocks_dependent_actions() {
             Err(format!(
                 "dependent action against plugin '{}' is BLOCKED while health is {} \

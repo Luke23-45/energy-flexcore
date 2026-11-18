@@ -13,7 +13,7 @@
 //
 // | # | Stage | Where | Evidence |
 // |---|---|---|---|
-// | 1 | Receive (+ source authentication) | [`IngestionTask::run`] / [`authenticate_source`] | The source identity comes from the `TelemetrySource` port's provider declaration; the Phase 2 authentication is a RECORDED STUB (see [`SOURCE_AUTH_STATUS`]) — health + optional trusted-source-id check only. A rejected frame is quarantined (stage `1-receive`) and counted, never silently dropped |
+// | 1 | Receive (+ source authentication) | [`IngestionTask::run`] / [`authenticate_source`] + the [`SourceAuthenticator`] envelope check in [`IngestionTask::process_frame`] | The source identity comes from the `TelemetrySource` port's provider declaration; the Phase 2 health + trusted-source-id check is defence in depth only — the real authentication is the Ed25519 signed envelope (see [`SOURCE_AUTH_STATUS`]). A rejected frame is quarantined (stage `1-receive`) and counted, never silently dropped |
 // | 2 | Schema validation | the port's `decode` | Decode failure → quarantine (stage `2-validate`) + count; never a partial record (P2.11 step 3) |
 // | 3 | Normalize (unit/sign) | the port's `decode` | The port emits canonical records (P2.04 §3, canonical units P0.07); the mapping onto the storage record is 1:1 in [`UowTelemetryIngestStore`] |
 // | 4 | Quality assignment | [`refine_quality`] | Calls the P2.08 pure rules (`flexcore_domain::quality_rules::assign_quality`); the pipeline can only ever HOLD or LOWER a provider-assigned state, never upgrade it (the non-silencing rule, P0.08) |
@@ -106,6 +106,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tracing::Instrument;
 
 use flexcore_application::availability::{
     availability, availability_changed, AvailabilitySignalInput, AvailabilityState,
@@ -132,6 +133,7 @@ use flexcore_ports::clock::Clock;
 use flexcore_ports::event_outbox::{EventOutbox, EventOutboxError, OutboxWrite};
 use flexcore_ports::id_generator::IdGenerator;
 use flexcore_ports::repository::AssetRepository;
+use flexcore_ports::source_auth::{SourceAuthError, SourceAuthenticator, VerifiedEnvelope};
 use flexcore_ports::state_change::{StateChangeOperation, StateChangeReceipt};
 use flexcore_ports::telemetry_ingest::{
     IngestInboxError, IngestionInbox, TelemetryIngestError, TelemetryIngestItem,
@@ -142,6 +144,7 @@ use flexcore_ports::telemetry_source::{
     NormalizedTelemetry, NormalizedTelemetryParts, QuantityValue, TelemetryQuantity,
     TelemetrySource, TelemetrySourceError, TelemetrySourceHealth, TelemetrySubscription,
 };
+use flexcore_postgres_adapter::source_keys::AdvanceOutcome;
 use flexcore_postgres_adapter::telemetry::{
     Quantity as PgQuantity, StoredTelemetry, TelemetryBatchOutcome,
     TelemetryError as PgTelemetryError, TelemetryQuarantineEntry, TelemetryValue as PgTelemetryValue,
@@ -153,13 +156,20 @@ use tokio::sync::{mpsc, watch};
 /// are checked/recorded under it; P2.09 step 4).
 pub const INGESTION_CONSUMER: &str = "telemetry-ingestion-v1";
 
-/// The RECORDED Phase 2 source-authentication status (P2.10 step 6: record
-/// the stub status honestly). Real cryptographic source authentication
-/// arrives with real adapters in a later phase.
-pub const SOURCE_AUTH_STATUS: &str = "STUB: Phase 2 authenticates the simulator source by \
-     provider declaration and (optional) trusted-source-id configuration only — no \
-     cryptographic source authentication exists yet; real source authentication is a later \
-     phase (recorded per ledger P2.10 step 6)";
+/// The source-authentication mechanism (Patch B, P2.07): every frame
+/// must arrive inside an Ed25519 signed envelope
+/// (`flexcore-telemetry-v1`) — signature over the canonical signing
+/// bytes, SHA-256 payload digest, strictly increasing per-source
+/// sequence, event time inside the configured window — verified against
+/// a key enrolled in the signing-key registry, or (local development
+/// only) the ephemeral `dev` keypair. Enforced by default; the runtime
+/// mode is chosen by `FLEXCORE_SOURCE_AUTH_MODE` and logged at startup.
+/// The `trusted_source_id` allowlist below remains as defence in depth
+/// only; it never authenticates anything by itself.
+pub const SOURCE_AUTH_STATUS: &str = "Ed25519 signed envelopes (flexcore-telemetry-v1): \
+     signature + SHA-256 payload digest + strictly increasing per-source sequence + \
+     event-time window, verified against the signing-key registry; enforced by default, \
+     dev-key mode is local development only";
 
 /// The telemetry state-change entity name for the outbox receipts (the
 /// P2.06 table; outside the Stage 1 `entities` vocabulary on purpose).
@@ -176,7 +186,8 @@ pub struct IngestionConfig {
     /// instance).
     pub channel_capacity: usize,
     /// When set, only a provider declaring this exact source identity is
-    /// accepted (the Phase 2 stub authentication's configuration knob).
+    /// accepted (the health + allowlist configuration knob — defence in
+    /// depth only; the envelope authentication is the real check).
     pub trusted_source_id: Option<String>,
     /// Bounded retries for transient store failures per frame, with
     /// exponential backoff between attempts. After the budget is exhausted
@@ -355,7 +366,7 @@ impl IngestionMetrics {
             .lock()
             .expect("metrics mutex poisoned")
             .iter()
-            .map(|(k, v)| (k.clone(), v.0.load(Ordering::SeqCst)))
+            .map(|(k, v)| (k.clone(), v.load(Ordering::SeqCst)))
             .collect()
     }
 
@@ -373,7 +384,7 @@ impl IngestionMetrics {
         let entry = map
             .entry(reason_class.to_string())
             .or_insert_with(|| AtomicU64::new(0));
-        entry.0.fetch_add(1, Ordering::SeqCst);
+        entry.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Records the ingestion delay of one stored record
@@ -452,7 +463,7 @@ impl IngestionMetrics {
     }
 }
 
-// --- Stage 1: source authentication (recorded Phase 2 STUB) ---------------------
+// --- Stage 1: source authentication (health + allowlist only) ------------
 
 /// Why the receive stage rejected a frame's source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -460,14 +471,18 @@ pub struct SourceAuthRejection {
     pub reason: String,
 }
 
-/// The stage-1 source authentication (Phase 2 RECORDED STUB — see
-/// [`SOURCE_AUTH_STATUS`]). Two checks, both over the port contract only:
+/// The stage-1 health + allowlist check (defence in depth ONLY — it does
+/// NOT authenticate anything: a healthy provider declaring the trusted
+/// identity is necessary, never sufficient). Two checks, both over the
+/// port contract only:
 ///
 /// 1. the provider must not report itself `Unavailable`;
 /// 2. when `trusted_source_id` is configured, the provider's declared
 ///    source identity must match it exactly.
 ///
-/// Anything else accepts the frame's source — the honest stub boundary.
+/// The real authentication is the signed-envelope verification that
+/// [`IngestionTask::process_frame`] runs next, over the
+/// [`SourceAuthenticator`] port (see [`SOURCE_AUTH_STATUS`]).
 /// A rejected source is quarantined (stage `1-receive`) and counted; it is
 /// never silently dropped.
 pub fn authenticate_source(
@@ -856,6 +871,11 @@ pub enum IngestPipelineError {
     Outbox(EventOutboxError),
     Encode(ApplicationError),
     Commit(String),
+    /// The envelope sequence was already accepted (a replay or a stale
+    /// frame): the batch unit of work was dropped (rolled back) and
+    /// nothing was stored. The caller quarantines the frame with the
+    /// replay reason and does NOT retry — a replay is not transient.
+    Replay,
 }
 
 impl std::fmt::Display for IngestPipelineError {
@@ -865,11 +885,21 @@ impl std::fmt::Display for IngestPipelineError {
             IngestPipelineError::Outbox(e) => write!(f, "outbox append failed: {e}"),
             IngestPipelineError::Encode(_) => write!(f, "event payload encoding failed"),
             IngestPipelineError::Commit(reason) => write!(f, "unit-of-work commit failed: {reason}"),
+            IngestPipelineError::Replay => write!(
+                f,
+                "source sequence replay: the envelope sequence was already accepted"
+            ),
         }
     }
 }
 
 impl std::error::Error for IngestPipelineError {}
+
+impl From<ApplicationError> for IngestPipelineError {
+    fn from(error: ApplicationError) -> Self {
+        IngestPipelineError::Encode(error)
+    }
+}
 
 /// Appends one outbox write, treating an idempotency-key collision as
 /// "already published" (a redelivered batch re-runs stage 7 with the same
@@ -1186,7 +1216,7 @@ fn emit_event(
                 ),
             ))
         })?;
-    append_idempotent(unit, write)
+    append_idempotent(unit, write).map(|()| 1)
 }
 
 // --- The ingestion task -------------------------------------------------------------
@@ -1226,6 +1256,11 @@ pub struct IngestionTask {
     ids: Arc<dyn IdGenerator>,
     config: IngestionConfig,
     metrics: Arc<IngestionMetrics>,
+    /// The envelope authenticator (Patch B): verifies every frame's
+    /// signed envelope before decode. Held as a trait object so tests
+    /// can substitute a permissive double that passes raw frames
+    /// through unenveloped.
+    authenticator: Arc<dyn SourceAuthenticator>,
     queue_tx: mpsc::Sender<IngestFrame>,
     queue_rx: Mutex<Option<mpsc::Receiver<IngestFrame>>>,
 }
@@ -1234,7 +1269,8 @@ impl IngestionTask {
     /// Composes the task over its ports. `db` is the shared FlexCoreStore
     /// (the worker's pool); `inbox` the durable ingestion inbox; `encoder`
     /// the event payload renderer; `clock`/`ids` the platform clock and
-    /// the ID generator (the store's uuidv7 policy).
+    /// the ID generator (the store's uuidv7 policy); `authenticator` the
+    /// signed-envelope verifier (Patch B).
     pub fn new(
         source: Arc<dyn TelemetrySource>,
         db: Db,
@@ -1244,6 +1280,7 @@ impl IngestionTask {
         ids: Arc<dyn IdGenerator>,
         config: IngestionConfig,
         metrics: Arc<IngestionMetrics>,
+        authenticator: Arc<dyn SourceAuthenticator>,
     ) -> Self {
         let (queue_tx, queue_rx) = mpsc::channel(config.channel_capacity.max(1));
         Self {
@@ -1255,6 +1292,7 @@ impl IngestionTask {
             ids,
             config,
             metrics,
+            authenticator,
             queue_tx,
             queue_rx: Mutex::new(Some(queue_rx)),
         }
@@ -1284,7 +1322,9 @@ impl IngestionTask {
     ) -> IngestionRunReport {
         let mut report = IngestionRunReport::default();
 
-        // Stage 1 (once per task): source authentication (recorded STUB).
+        // Stage 1 (once per task): the provider's health + trusted
+        // identity (defence in depth only — the per-frame envelope
+        // verification in `process_frame` is the authentication).
         if let Err(rejection) =
             authenticate_source(self.source.as_ref(), self.config.trusted_source_id.as_deref())
         {
@@ -1302,7 +1342,7 @@ impl IngestionTask {
         tracing::info!(
             source = %self.source.source_id(),
             auth_status = SOURCE_AUTH_STATUS,
-            "ingestion source accepted (Phase 2 stub authentication)"
+            "ingestion source accepted (health + trusted identity; per-frame envelope authentication follows)"
         );
 
         let subscription = match self.source.subscribe(&query) {
@@ -1409,12 +1449,27 @@ impl IngestionTask {
         subscription: &TelemetrySubscription,
         frame: IngestFrame,
     ) {
-        let _frame = tracing::info_span!(
+        // P2.21 tracing: the frame's span carries the P1.20 correlation
+        // fields (tenant_id, source_id). It is attached with `Instrument`,
+        // not an entered guard: `EnteredSpan` is `!Send` and would make
+        // this future unspawnable, while `Instrument` keeps the span
+        // active across awaits on any thread.
+        let span = tracing::info_span!(
             "telemetry_ingest_frame",
             tenant_id = %ctx.tenant_id().uuid().to_hyphenated(),
             source_id = %self.source.source_id(),
-        )
-        .entered();
+        );
+        self.process_frame_inner(ctx, subscription, frame)
+            .instrument(span)
+            .await
+    }
+
+    async fn process_frame_inner(
+        &self,
+        ctx: &flexcore_domain::tenant_context::TenantContext,
+        subscription: &TelemetrySubscription,
+        frame: IngestFrame,
+    ) {
         self.metrics.frames_received.fetch_add(1, Ordering::SeqCst);
 
         // Stage 1 (per frame): the source's health can change mid-stream.
@@ -1431,10 +1486,33 @@ impl IngestionTask {
             return;
         }
 
+        // Stage 1 (per frame, Patch B): the signed-envelope
+        // authentication. The authenticator parses the envelope, verifies
+        // the signature over the canonical signing bytes, the SHA-256
+        // payload digest, the event-time window, and the sequence
+        // watermark, and returns the inner payload. A rejection is
+        // quarantined (stage `1-receive`) under the error's stable
+        // reason, counted, and never silently dropped. The authenticator
+        // is sync and may block on its own store runtime, so it runs
+        // under `block_in_place` (the multi-thread runtime contract of
+        // this module's sync-port hosting).
+        let verified = tokio::task::block_in_place(|| {
+            self.authenticator.authenticate(ctx, &frame.payload)
+        });
+        let verified = match verified {
+            Ok(verified) => verified,
+            Err(error) => {
+                self.metrics.frames_rejected_auth.fetch_add(1, Ordering::SeqCst);
+                self.quarantine_raw(ctx, &frame.payload, "1-receive", &error.quarantine_reason());
+                return;
+            }
+        };
+
         // Stages 2+3: decode = schema validation + normalization to
         // canonical records (the port's contract; failure is Err, never a
-        // partial record).
-        let records = match self.source.decode(subscription, &frame.payload) {
+        // partial record). The decode runs over the VERIFIED inner
+        // payload, never the raw frame bytes.
+        let records = match self.source.decode(subscription, &verified.payload) {
             Ok(records) => records,
             Err(error) => {
                 let reason = match &error {
@@ -1451,11 +1529,13 @@ impl IngestionTask {
             records.into_iter().map(|r| refine_quality(&r)).collect();
 
         // Stages 5–7 with the bounded retry budget (retryable transient
-        // store failures; exponential backoff, capped).
+        // store failures; exponential backoff, capped). A replay is NOT
+        // retried: the batch unit of work was rolled back and the frame
+        // is quarantined under the replay reason instead.
         let mut attempt: u32 = 0;
         loop {
             attempt += 1;
-            match self.process_batch(ctx, &records) {
+            match self.process_batch(ctx, &records, Some(&verified)) {
                 Ok(batch) => {
                     if batch.stored > 0 {
                         tracing::info!(
@@ -1467,6 +1547,16 @@ impl IngestionTask {
                             "ingestion batch committed"
                         );
                     }
+                    return;
+                }
+                Err(IngestPipelineError::Replay) => {
+                    self.metrics.frames_rejected_auth.fetch_add(1, Ordering::SeqCst);
+                    self.quarantine_raw(
+                        ctx,
+                        &frame.payload,
+                        "1-receive",
+                        &SourceAuthError::ReplayOrStaleSequence.quarantine_reason(),
+                    );
                     return;
                 }
                 Err(error) => {
@@ -1551,6 +1641,17 @@ impl IngestionTask {
     /// unit of work covers the dedup stage's inserts + quarantine writes
     /// and the outbox appends; a failure rolls everything back.
     ///
+    /// `verified` is the envelope verification for the frame this batch
+    /// came from. When it is `Some` with `was_enveloped`, the batch
+    /// advances the source-sequence watermark inside the SAME unit of
+    /// work, before dedup/store: the advance commits exactly when the
+    /// batch commits, so a rolled-back batch never consumes a sequence
+    /// number, and a sequence already at or below the watermark returns
+    /// [`IngestPipelineError::Replay`] (the caller quarantines the frame
+    /// and does not retry). When `was_enveloped` is `false` (a test
+    /// double passing raw frames through) the advance is skipped
+    /// entirely.
+    ///
     /// Public for the integration tests and future embeddings (the
     /// production caller is the run loop's stage sequence — the tests
     /// drive the SAME code path the loop uses).
@@ -1558,6 +1659,7 @@ impl IngestionTask {
         &self,
         ctx: &flexcore_domain::tenant_context::TenantContext,
         records: &[NormalizedTelemetry],
+        verified: Option<&VerifiedEnvelope>,
     ) -> Result<DedupReport, IngestPipelineError> {
         // P2.21 staleness signal (P2.08 staleness rule reused — never
         // recomputed here): a record whose age exceeds the DEPLOYMENT
@@ -1594,6 +1696,35 @@ impl IngestionTask {
                 .db
                 .begin(Some(ctx))
                 .map_err(|e| IngestPipelineError::Commit(e.to_string()))?;
+            // Patch B: the sequence-watermark advance, FIRST inside the
+            // batch unit of work and BEFORE dedup/store. An enveloped
+            // frame's sequence must be strictly greater than the last
+            // accepted sequence for its source; the advance re-checks
+            // under a per-source advisory lock, so this is the authority
+            // (the authenticator's earlier read was an early filter
+            // only). A stale sequence drops the unit of work — the
+            // rollback discards the whole batch — and reports Replay.
+            if let Some(verified) = verified {
+                if verified.was_enveloped {
+                    match unit.advance_source_sequence(
+                        ctx,
+                        &verified.source_id,
+                        verified.sequence,
+                    ) {
+                        Ok(AdvanceOutcome::Advanced) => {}
+                        Ok(AdvanceOutcome::Stale) => {
+                            drop(unit);
+                            return Err(IngestPipelineError::Replay);
+                        }
+                        Err(error) => {
+                            drop(unit);
+                            return Err(IngestPipelineError::Store(
+                                TelemetryIngestError::Backend(error),
+                            ));
+                        }
+                    }
+                }
+            }
             // P2.16 step 3 input: the PRE-batch availability records, read
             // in the SAME unit of work BEFORE the dedup stage inserts (a
             // post-insert read would see the incoming rows). One extra
@@ -1698,7 +1829,7 @@ impl IngestionTask {
 /// (the runner's backoff pattern).
 fn backoff_delay(base: Duration, cap: Duration, failures: u32) -> Duration {
     let exponent = failures.saturating_sub(1).min(16);
-    let factor = 1u64.checked_shl(exponent).unwrap_or(u64::MAX);
+    let factor = 1u32.checked_shl(exponent).unwrap_or(u32::MAX);
     base.checked_mul(factor)
         .unwrap_or(cap)
         .min(cap)
@@ -1769,7 +1900,9 @@ mod tests {
     use super::*;
     use flexcore_contracts::ids::FlexUuid;
     use flexcore_contracts::time_model::{ClockQuality, IngestTime};
+    use flexcore_contracts::units::ActivePowerMW;
     use flexcore_domain::ids::TenantId;
+    use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
     use flexcore_ports::fakes::FakeTelemetrySource;
     use flexcore_ports::telemetry_source::{
         NormalizedTelemetryParts, ProviderDeclaration, QualityMappingDeclaration,
@@ -1829,13 +1962,15 @@ mod tests {
     }
 
     #[test]
-    fn source_auth_stub_accepts_a_healthy_declared_source() {
+    fn source_auth_status_records_the_envelope_mechanism() {
         let source = fake_source(vec![good_record()]);
         assert!(authenticate_source(&source, None).is_ok());
         assert!(authenticate_source(&source, Some("sim://exit-gate")).is_ok());
-        // The stub status is recorded honestly and states the limitation.
-        assert!(SOURCE_AUTH_STATUS.contains("STUB"));
-        assert!(SOURCE_AUTH_STATUS.contains("no cryptographic source authentication"));
+        // The status records the Patch B mechanism honestly: envelopes,
+        // not the health + allowlist check above (which is defence in
+        // depth only).
+        assert!(SOURCE_AUTH_STATUS.contains("Ed25519 signed envelopes"));
+        assert!(SOURCE_AUTH_STATUS.contains("flexcore-telemetry-v1"));
     }
 
     #[test]

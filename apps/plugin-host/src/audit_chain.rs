@@ -277,6 +277,17 @@ pub struct ChainedAuditSink {
     state: std::sync::Mutex<ChainState>,
 }
 
+impl std::fmt::Debug for ChainedAuditSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The inner sink is a `Box<dyn BrokerAuditSink>` with no `Debug`
+        // bound, so the derive cannot apply; the session id is the
+        // inspectable identity.
+        f.debug_struct("ChainedAuditSink")
+            .field("session_id", &self.session_id)
+            .finish_non_exhaustive()
+    }
+}
+
 impl ChainedAuditSink {
     /// Composes the chained writer over an inner sink. `session_id` scopes
     /// every chain this writer builds (one host session = one chain space);

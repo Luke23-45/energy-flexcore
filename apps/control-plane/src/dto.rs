@@ -8,6 +8,8 @@
 use flexcore_contracts::time_model::EventTime;
 use flexcore_domain::entities::AssetType;
 use serde::Serialize;
+use std::borrow::Cow;
+use utoipa::openapi::{ArrayBuilder, ObjectBuilder, Ref, RefOr, Schema};
 use utoipa::ToSchema;
 
 /// The canonical snake_case id of an asset type (the frozen P0.10 §2
@@ -356,13 +358,70 @@ pub struct AssetViewDto {
 }
 
 /// The wrapped response envelope for single resources: `{"data": ...}`.
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize)]
 pub struct DataEnvelope<T: ToSchema> {
     pub data: T,
 }
 
 /// The wrapped response envelope for collections: `{"data": [...]}`.
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize)]
 pub struct ListEnvelope<T: ToSchema> {
     pub data: Vec<T>,
+}
+
+// Manual `ToSchema` for the two envelope generics. The derive inlines the
+// type parameter's schema (`T::schema()`), so `data` became a DUPLICATE
+// inline copy of the item definition instead of a `$ref` to the registered
+// component — the api_phase3/4 validators pin the `$ref` (an inline copy
+// drifts from the component the moment the item changes). The manual impls
+// emit the `$ref` and keep the derive's names (`DataEnvelope_Foo`,
+// `ListEnvelope_Foo`), description, `type: object`, and `required: [data]`.
+impl<T: ToSchema> ToSchema for DataEnvelope<T> {
+    fn name() -> Cow<'static, str> {
+        Cow::Owned(format!("DataEnvelope_{}", T::name()))
+    }
+}
+
+// Manual `ComposeSchema` for the envelope generics (utoipa also derives
+// `PartialSchema` from this via its blanket impl, so no separate
+// `PartialSchema` impl — it would conflict). The derive's `compose` takes
+// the generic argument's INLINE schema (utoipa-gen passes
+// `<T as PartialSchema>::schema()`) and uses it as the `data` property, so
+// `data` became a DUPLICATE inline copy of the item definition instead of
+// a `$ref` to the registered component — the api_phase3/4 validators pin
+// the `$ref` (an inline copy drifts from the component the moment the item
+// changes). This impl discards the passed generics and builds the `$ref`
+// schema, keeping the derive's names (`DataEnvelope_Foo`), description,
+// `type: object`, and `required: [data]`.
+impl<T: ToSchema> utoipa::__dev::ComposeSchema for DataEnvelope<T> {
+    fn compose(_generics: Vec<RefOr<Schema>>) -> RefOr<Schema> {
+        ObjectBuilder::new()
+            .description(Some(
+                "The wrapped response envelope for single resources: `{\"data\": ...}`.",
+            ))
+            .property("data", Ref::from_schema_name(T::name()))
+            .required("data")
+            .into()
+    }
+}
+
+impl<T: ToSchema> ToSchema for ListEnvelope<T> {
+    fn name() -> Cow<'static, str> {
+        Cow::Owned(format!("ListEnvelope_{}", T::name()))
+    }
+}
+
+impl<T: ToSchema> utoipa::__dev::ComposeSchema for ListEnvelope<T> {
+    fn compose(_generics: Vec<RefOr<Schema>>) -> RefOr<Schema> {
+        ObjectBuilder::new()
+            .description(Some(
+                "The wrapped response envelope for collections: `{\"data\": [...]}`.",
+            ))
+            .property(
+                "data",
+                ArrayBuilder::new().items(Ref::from_schema_name(T::name())),
+            )
+            .required("data")
+            .into()
+    }
 }

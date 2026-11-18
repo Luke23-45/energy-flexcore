@@ -34,7 +34,7 @@ use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, Verifi
 use flexcore_events::envelope::{EventEnvelope, SUPPORTED_SCHEMA_VERSION};
 use flexcore_events::events::{DispatchIssuedPayload, DomainEvent};
 use flexcore_nats_adapter::consumer::{ConsumerConfig, MaxDeliverMismatch};
-use flexcore_nats_adapter::inbox::{InMemoryInboxStore, InboxStore as _};
+use flexcore_nats_adapter::inbox::{InMemoryInboxStore, InboxStore};
 use flexcore_storage::command_store::COMMAND_STATES;
 use flexcore_worker::command_consumer::{
     command_idempotency_handler, command_state_for_event, decide_transition,
@@ -225,11 +225,16 @@ fn unknown_command_surfaces_instead_of_being_dropped() {
 
 /// The consumer never fabricates a journal row: a frozen edge the stored
 /// command has not taken returns the named error and writes nothing.
+/// (APPROVED stored, ISSUED fact — Approved -> Issued IS a frozen edge.
+/// PROPOSED stored would be a forward JUMP, not a frozen edge: the frozen
+/// table allows Proposed -> Validated | Rejected only, so that pair
+/// neutralizes as a duplicate — see the lib test
+/// `forward_jump_over_unrecorded_gates_neutralizes_as_a_duplicate`.)
 #[test]
 fn unsupported_lifecycle_fact_is_surfaced_never_written() {
     let gateway = Arc::new(SingleCommandGateway {
         command_id: command().to_hyphenated(),
-        state: CommandState::Proposed,
+        state: CommandState::Approved,
     });
     let metrics = Arc::new(CommandConsumerMetrics::default());
     let inbox = InMemoryInboxStore::new();

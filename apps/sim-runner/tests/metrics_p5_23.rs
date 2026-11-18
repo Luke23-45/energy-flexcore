@@ -74,7 +74,7 @@ fn the_timings_block_records_measured_legs_only_never_zeroes() {
     assert_eq!(value["record_schema"], METRICS_SCHEMA);
     assert_eq!(value["subtask"], METRICS_SUBTASK);
     assert_eq!(value["legs"].as_array().unwrap().len(), 1);
-    assert!(TIMINGS_STATEMENT.contains("never a target"));
+    assert!(TIMINGS_STATEMENT.contains("never targets"));
     assert!(TIMINGS_STATEMENT.contains("MEASUREMENTS"));
 }
 
@@ -228,7 +228,7 @@ fn the_load_spec_validator_fails_loud() {
 
 #[test]
 fn the_nearest_rank_percentile_is_reproducible() {
-    let samples = vec![4.0, 1.0, 3.0, 2.0, 5.0];
+    let samples: Vec<f64> = vec![4.0, 1.0, 3.0, 2.0, 5.0];
     let mut sorted = samples.clone();
     sorted.sort_by(|a, b| a.total_cmp(b));
     assert_eq!(percentile_nearest_rank(&sorted, 0.5).unwrap(), 3.0);

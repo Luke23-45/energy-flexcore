@@ -478,6 +478,7 @@ fn no_command_reaches_a_non_allowlisted_adapter() {
         SiteCommandAllowlist::new(vec!["simulated-test".to_string()]),
         fallback_config(),
         Arc::clone(&audit) as Arc<dyn AuditSink>,
+        Arc::new(FixedClock::at_unix_millis(BASE_MILLIS + 1_000)),
     );
     let error = engine
         .forward_verified(verified("cmd-1", "ess-01", "openems-rest", 1))
@@ -724,7 +725,14 @@ fn the_full_pipeline_flows_gate_then_verifier_then_engine_in_the_test_env() {
     };
     let checkpoint = FileSequenceCheckpoint::open(&dir.join("seq.ckpt")).expect("checkpoint opens");
     let verifier = CommandVerifier::new(
-        signing_key.clone(),
+        // The verifier takes ownership; the signing call below keeps the
+        // named key, so the verifier gets a fresh key from the same lab
+        // fixture material (the key type deliberately has no Clone).
+        CommandSigningKey::new(
+            "lab-command-signing-key-material".to_string(),
+            "deployment:lab-command-key-1".to_string(),
+        )
+        .expect("valid signing key"),
         authorization,
         Box::new(checkpoint),
         Arc::clone(&verify_audit) as Arc<dyn AuditSink>,

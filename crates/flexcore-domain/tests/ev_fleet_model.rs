@@ -182,8 +182,8 @@ fn departure_energy_is_a_hard_constraint() {
         .unwrap();
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, flexcore_domain::ev_fleet_model::EvViolation::DepartureEnergyNotMet { .. })),
-        Some(flexcore_domain::ev_fleet_model::EvViolation::DepartureEnergyNotMet { required_mwh, achieved_mwh, .. }
-            if approx(required_mwh, 0.054) && approx(achieved_mwh, 0.043))
+        Some(flexcore_domain::ev_fleet_model::EvViolation::DepartureEnergyNotMet { required_mwh, achieved_mwh, .. })
+            if approx(*required_mwh, 0.054) && approx(*achieved_mwh, 0.043)
     ));
     assert!(!evaluation.per_vehicle[0].departure_energy_met);
 }
@@ -245,8 +245,8 @@ fn below_minimum_charging_power_is_rejected() {
         .unwrap();
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, flexcore_domain::ev_fleet_model::EvViolation::BelowMinimumChargingPower { .. })),
-        Some(flexcore_domain::ev_fleet_model::EvViolation::BelowMinimumChargingPower { charge_mw, min_mw, .. }
-            if approx(charge_mw, 0.01) && approx(min_mw, 0.02))
+        Some(flexcore_domain::ev_fleet_model::EvViolation::BelowMinimumChargingPower { charge_mw, min_mw, .. })
+            if approx(*charge_mw, 0.01) && approx(*min_mw, 0.02)
     ));
     // Exactly at the minimum (boundary-inclusive) is feasible.
     let mut points = vec![EvSetpoint::idle(); model.interval_count()];
@@ -265,8 +265,9 @@ fn below_minimum_charging_power_is_rejected() {
 #[test]
 fn ramp_violations_are_detected_and_the_first_interval_is_exempt() {
     let mut vehicle = vehicle_a(None);
-    // 0.1 MW/min → 0.025 MW per 15-minute interval.
-    vehicle.ramp_limit_mw_per_minute = Some(0.1);
+    // Ramp limit (MW/min) x interval minutes: 0.001 MW/min over a
+    // 15-minute interval allows 0.015 MW per interval.
+    vehicle.ramp_limit_mw_per_minute = Some(0.001);
     let model = EvFleetModel::new(EvFleetConfig {
         evse: evse(0.05),
         vehicles: vec![vehicle],
@@ -276,9 +277,10 @@ fn ramp_violations_are_detected_and_the_first_interval_is_exempt() {
         horizon_start_millis: HORIZON_START_MILLIS,
     })
     .unwrap();
-    // The first interval is exempt (no prior setpoint exists in the model).
-    let mut points = vec![EvSetpoint::idle(); model.interval_count()];
-    points[0] = EvSetpoint::charge(0.05);
+    // The first interval is exempt (no prior setpoint exists in the model):
+    // a constant 0.05 MW schedule steps only into interval 0, so it
+    // passes exactly because that step is exempt.
+    let points = vec![EvSetpoint::charge(0.05); model.interval_count()];
     let evaluation = model
         .evaluate_schedule(&schedule(&model, vec![("vehicle-aggregate-north".to_string(), points)]))
         .unwrap();
@@ -299,8 +301,8 @@ fn ramp_violations_are_detected_and_the_first_interval_is_exempt() {
         .unwrap();
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, flexcore_domain::ev_fleet_model::EvViolation::RampViolation { .. })),
-        Some(flexcore_domain::ev_fleet_model::EvViolation::RampViolation { net_change_mw, limit_mw_per_interval, .. }
-            if approx(net_change_mw, 0.05) && approx(limit_mw_per_interval, 0.025))
+        Some(flexcore_domain::ev_fleet_model::EvViolation::RampViolation { net_change_mw, limit_mw_per_interval, .. })
+            if approx(*net_change_mw, 0.05) && approx(*limit_mw_per_interval, 0.015)
     ));
 }
 
@@ -328,8 +330,8 @@ fn site_transformer_limit_is_enforced_per_interval() {
     // B 00:00–10:00): the fleet import is 0.1 MW, above the 0.08 MW limit.
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, flexcore_domain::ev_fleet_model::EvViolation::SiteTransformerLimitExceeded { interval: 0, .. })),
-        Some(flexcore_domain::ev_fleet_model::EvViolation::SiteTransformerLimitExceeded { fleet_import_mw, limit_mw, .. }
-            if approx(fleet_import_mw, 0.1) && approx(limit_mw, 0.08))
+        Some(flexcore_domain::ev_fleet_model::EvViolation::SiteTransformerLimitExceeded { fleet_import_mw, limit_mw, .. })
+            if approx(*fleet_import_mw, 0.1) && approx(*limit_mw, 0.08)
     ));
     assert!(approx(evaluation.fleet_import_mw[0], 0.1));
     // P > 0 = export: charging is NEGATIVE net export.
@@ -373,8 +375,8 @@ fn v2x_is_disabled_by_default_and_discharge_is_a_named_violation() {
         .unwrap();
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, flexcore_domain::ev_fleet_model::EvViolation::DischargeWithV2xDisabled { .. })),
-        Some(flexcore_domain::ev_fleet_model::EvViolation::DischargeWithV2xDisabled { discharge_mw, .. }
-            if approx(discharge_mw, 0.02))
+        Some(flexcore_domain::ev_fleet_model::EvViolation::DischargeWithV2xDisabled { discharge_mw, .. })
+            if approx(*discharge_mw, 0.02)
     ));
     assert!(!evaluation.v2x_enabled);
     assert_eq!(evaluation.v2x_default_statement, V2X_DISABLED_BY_DEFAULT_REASON);
@@ -555,8 +557,11 @@ fn opted_out_vehicle_drops_out_of_the_feasible_set_from_the_opt_out_instant() {
         .contains(&"vehicle-aggregate-south".to_string()));
 
     // FROM THE OPT-OUT TIME ONWARD the vehicle is out of the feasible set:
-    // not in the active lists, no capacity retained.
-    for interval in 8..total {
+    // not in the active lists, no capacity retained. This holds while A is
+    // still connected (intervals 8..32); A disconnects at 08:00 (interval
+    // 32, end-exclusive window), after which capacity is 0 — the horizon
+    // runs to B's 10:00 departure (40 intervals).
+    for interval in 8..32 {
         assert!(
             !evaluation.active_vehicle_keys_per_interval[interval]
                 .contains(&"vehicle-aggregate-south".to_string()),
@@ -565,6 +570,17 @@ fn opted_out_vehicle_drops_out_of_the_feasible_set_from_the_opt_out_instant() {
         assert!(
             approx(evaluation.dispatchable_capacity_mw[interval], 0.05),
             "capacity is not silently retained at interval {interval}"
+        );
+    }
+    for interval in 32..total {
+        assert!(
+            !evaluation.active_vehicle_keys_per_interval[interval]
+                .contains(&"vehicle-aggregate-south".to_string()),
+            "interval {interval} is at or after the opt-out instant"
+        );
+        assert!(
+            approx(evaluation.dispatchable_capacity_mw[interval], 0.0),
+            "no capacity remains once A has also disconnected at interval {interval}"
         );
     }
     // The capacity step happens exactly at the opt-out interval.
@@ -606,8 +622,8 @@ fn dispatched_after_opt_out_is_a_named_violation_and_gated() {
         .unwrap();
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, flexcore_domain::ev_fleet_model::EvViolation::DispatchedAfterOptOut { interval: 8, .. })),
-        Some(flexcore_domain::ev_fleet_model::EvViolation::DispatchedAfterOptOut { interval: 8, opt_out_millis, .. }
-            if *opt_out_millis == HORIZON_START_MILLIS + 3_600_000)
+        Some(flexcore_domain::ev_fleet_model::EvViolation::DispatchedAfterOptOut { interval: 8, opt_out_millis, .. })
+            if *opt_out_millis == HORIZON_START_MILLIS + 3_600_000
     ));
     // The opt-out is a physical gate: interval 8 applies no energy.
     let energy_before_opt_out = evaluation.per_vehicle[0].energy_trajectory_mwh[8];
@@ -649,8 +665,8 @@ fn opt_out_mid_charge_leaves_the_departure_constraint_hard_and_unmet() {
     // at the gate; required 0.85 × 0.08 = 0.068 MWh: unmet.
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, flexcore_domain::ev_fleet_model::EvViolation::DepartureEnergyNotMet { .. })),
-        Some(flexcore_domain::ev_fleet_model::EvViolation::DepartureEnergyNotMet { required_mwh, achieved_mwh, .. }
-            if approx(required_mwh, 0.068) && approx(achieved_mwh, 0.045))
+        Some(flexcore_domain::ev_fleet_model::EvViolation::DepartureEnergyNotMet { required_mwh, achieved_mwh, .. })
+            if approx(*required_mwh, 0.068) && approx(*achieved_mwh, 0.045)
     ));
     // No post-opt-out dispatch was attempted: no DispatchedAfterOptOut
     // violation — the shortfall is solely the honest departure-energy fact.

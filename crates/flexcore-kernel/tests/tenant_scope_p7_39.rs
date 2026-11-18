@@ -195,25 +195,31 @@ fn cross_tenant_attempts_are_refused_and_audited_end_to_end() {
     )
     .expect_err("cross-tenant refused");
     assert_eq!(err.name(), "TENANT_SCOPE_MISMATCH");
-    let denied = audit
-        .records()
-        .iter()
-        .find(|r| r.kind == TenantScopeAuditKind::ScopeRefused)
-        .expect("the denial is audited");
-    assert_eq!(denied.plugin_id, "neryva.scoped-optimizer");
-    assert!(denied.detail.contains("TENANT_SCOPE_MISMATCH"));
-    assert_eq!(denied.timestamp_millis, BASE_MS, "the injected clock stamps the record");
+    // Scope the sink borrow: `Ref` keeps the sink borrowed until the end
+    // of its scope, and the admitted request below emits.
+    {
+        let records = audit.records();
+        let denied = records
+            .iter()
+            .find(|r| r.kind == TenantScopeAuditKind::ScopeRefused)
+            .expect("the denial is audited");
+        assert_eq!(denied.plugin_id, "neryva.scoped-optimizer");
+        assert!(denied.detail.contains("TENANT_SCOPE_MISMATCH"));
+        assert_eq!(denied.timestamp_millis, BASE_MS, "the injected clock stamps the record");
+    }
 
     // An in-scope request with a MATCHING echo: admitted and audited.
     let same = scope("tenant-alpha", Some("site-1"));
     enforce_scoped_request(&scoped, &same, Some(&same), &clock, &audit)
         .expect("in-scope request admitted");
-    let admitted = audit
-        .records()
-        .iter()
-        .find(|r| r.kind == TenantScopeAuditKind::ScopeAdmitted)
-        .expect("the admission is audited");
-    assert!(admitted.detail.contains("binding verified"));
+    {
+        let records = audit.records();
+        let admitted = records
+            .iter()
+            .find(|r| r.kind == TenantScopeAuditKind::ScopeAdmitted)
+            .expect("the admission is audited");
+        assert!(admitted.detail.contains("binding verified"));
+    }
 
     // An echo mismatch through the audited path is refused too (the
     // echo check runs AFTER the scope check, in the fixed order).

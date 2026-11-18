@@ -126,6 +126,15 @@ pub fn negotiate(offered: &[String]) -> Result<Subprotocol, NegotiationError> {
     }
     // Report the first offered name in the error (the record names the
     // negotiation failure; the transport seam owns the wire close).
+    // The 1.6-ONLY offer is refused with the P17-E-1 reason verbatim:
+    // `Subprotocol::parse` attaches it, and the conformance vector
+    // (`subprotocol_mismatch_negatives`, row 1) pins that the real
+    // `negotiate(["ocpp1.6"])` error contains "P17-E-1". Any other
+    // refused offer — including a list that merely CONTAINS 1.6 (vector
+    // rows 2–3) — gets the generic out-of-scope reason.
+    if offered.len() == 1 && offered[0] == "ocpp1.6" {
+        return Err(Subprotocol::parse("ocpp1.6").expect_err("1.6 is refused"));
+    }
     Err(NegotiationError::SubprotocolOutOfScope {
         offered: offered[0].clone(),
         reason: "none of the offered subprotocols is supported (accepted: ocpp2.0.1 \

@@ -44,6 +44,7 @@ use flexcore_edge_agent::update_session::{
     UpdateProgressState, UpdateSessionError, UpdateSessionStateMachine,
     UPDATE_FAILURE_CANCELLED, UPDATE_FAILURE_VERIFICATION_REFUSED,
 };
+use flexcore_edge_agent::update_bundle::UpdateBundleError;
 use flexcore_edge_agent::update_verification::{
     FileUpdateLedger, RollbackOverride, UpdateLedgerEventKind, UpdateLedgerRecord,
     UpdateVerificationError,
@@ -479,9 +480,11 @@ fn power_loss_mid_append_on_the_register_truncates_the_torn_tail_and_keeps_the_g
     let reopened = device.open_ledger();
     assert_eq!(reopened.len(), 1, "only the good record survives");
     assert_eq!(reopened.active_version().as_deref(), Some("1.1.0"));
-    // A direct open (outside the device) confirms the counted truncation.
+    // The count lives on the instance that truncated the tail (this open);
+    // a LATER direct open sees a clean file and counts 0.
+    assert_eq!(reopened.corrupt_tail_truncated(), 1, "counted, never silent");
     let direct = FileUpdateLedger::open(device.ledger_path()).expect("reopens");
-    assert_eq!(direct.corrupt_tail_truncated(), 1, "counted, never silent");
+    assert_eq!(direct.len(), 1, "the good record survives the second open too");
     cleanup(device.scratch());
 }
 

@@ -1095,7 +1095,7 @@ impl CommandReceiver {
                 format!("command path disabled ({reason})"),
             ),
         };
-        receiver.audit_event(name, detail);
+        receiver.audit_event(EdgeAuditKind::Startup, name, detail);
         receiver
     }
 
@@ -1135,6 +1135,7 @@ impl CommandReceiver {
         let currently_enabled = enablement.is_enabled_at(now_millis);
         if previously_enabled && !currently_enabled {
             self.audit_event(
+                EdgeAuditKind::Startup,
                 "EDGE_COMMAND_PATH_DISABLED",
                 match &enablement {
                     CommandPathEnablement::Disabled { reason } => {
@@ -1210,6 +1211,7 @@ impl CommandReceiver {
                 .to_string(),
         };
         self.audit_event(
+            EdgeAuditKind::Startup,
             "EDGE_COMMAND_ACCEPTED",
             format!(
                 "command={} asset={} adapter={} admitted by the test-env gate (approver='{}', \
@@ -1236,10 +1238,10 @@ impl CommandReceiver {
     /// port (see the audit-kind note on [`CommandReceiver`]). A failed audit
     /// write is a loud tracing error, never silently skipped (the
     /// P4.28/P4.30 audit-or-refuse discipline, cited).
-    fn audit_event(&self, name: &'static str, detail: String) {
+    fn audit_event(&self, kind: EdgeAuditKind, name: &'static str, detail: String) {
         let event = EdgeAuditEvent {
             recorded_at: self.clock.now_ingest_time(),
-            kind: EdgeAuditKind::Startup,
+            kind,
             detail: format!("{name}: {detail}"),
         };
         if let Err(error) = self.audit.record(event) {
@@ -1266,10 +1268,19 @@ impl CommandReceiver {
                 command.command_id, target_adapter, now_millis, refusal.code()
             ),
         };
-        self.audit_event(
-            "EDGE_COMMAND_REJECTED",
-            record.audit_text(),
-        );
+        // The NAMED policy violation rides the audit line: the coarse
+        // `policy_refused` code names the gate, but the decision doc
+        // (13_14_17 §3.1) requires the named violation
+        // (policy_adapter_disabled / policy_rate_limit_exceeded / ...) to
+        // be auditable — the receiver must not drop the specific code the
+        // engine returned.
+        let detail = match refusal {
+            CommandRefusal::PolicyRefused { refusal } => {
+                format!("{} policy_code={}", record.audit_text(), refusal.code)
+            }
+            _ => record.audit_text(),
+        };
+        self.audit_event(EdgeAuditKind::CommandRejected, "EDGE_COMMAND_REJECTED", detail);
     }
 }
 
@@ -1705,7 +1716,7 @@ mod tests {
         let mut rx = CommandReceiver::new(
             runtime,
             policy,
-            audit as Arc<dyn AuditSink>,
+            Arc::clone(&audit) as Arc<dyn AuditSink>,
             Arc::new(FixedClock::at_unix_millis(BASE_MILLIS + 1_000)),
         );
         let error = rx

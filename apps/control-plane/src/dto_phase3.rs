@@ -327,7 +327,7 @@ pub struct CreateOptimizationRunBody {
 /// a value over the maximum or below 1 is 422); `cursor` is the opaque
 /// keyset value from the previous page (malformed = 422 — never a silent
 /// "first page"). There is NO offset pagination and no unbounded query.
-#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct Phase3ListParams {
     /// Restrict to one portfolio (canonical UUID; malformed = 422).
     #[serde(default)]

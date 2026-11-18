@@ -365,8 +365,11 @@ mod tests {
         assert_eq!(sample.p_min_mw, -2.0);
         assert_eq!(sample.p_max_mw, 1.0);
         // Stale (cadence 60 s × budget 2 → freshness 120 s; update at
-        // issue): the SAPN fallback applies — the STATIC bounds.
-        let sample = profile.sample(&at(121_000)).expect("samples");
+        // issue): the SAPN fallback applies — the STATIC bounds. The
+        // lapse instant is 121_001, not 121_000: at 121_000 the age is
+        // exactly the 120 s budget and age == limit is FRESH per the
+        // frozen P2.08 `>` convention (domain doe_envelope.rs).
+        let sample = profile.sample(&at(121_001)).expect("samples");
         assert_eq!(lapse_reason_name(flexcore_domain::doe_envelope::LapseReason::Stale), "stale");
         let (p_min, p_max) = effective_envelope_bounds_mw(&sample.effective);
         assert_eq!(p_min, -5.0, "the static fallback governs after lapse");
@@ -399,8 +402,10 @@ mod tests {
         // Past the freshness budget the envelope lapses: the synthetic
         // tick is clipped to the STATIC export bound of 3.0 MW, and the
         // breach record carries no envelope id (the static limit was
-        // breached — the honest no-DOE representation).
-        let tick = profile.clip_tick(3.5, &at(121_000), None).expect("clips");
+        // breached — the honest no-DOE representation). (121_001: at
+        // 121_000 the age is exactly the budget and the envelope is
+        // still fresh per the P2.08 `>` convention.)
+        let tick = profile.clip_tick(3.5, &at(121_001), None).expect("clips");
         assert_eq!(tick.clipped_mw, 3.0);
         let breach = tick.breach.expect("static-bound breach recorded");
         // The breach record still names the (lapsed) envelope — the

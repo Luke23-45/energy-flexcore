@@ -56,7 +56,12 @@ use flexcore_ports::telemetry_source::{
     SourceStateMapping, TelemetryQuery, TelemetrySource, TelemetrySourceError,
     TelemetrySourceHealth, TelemetrySubscription,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use ed25519_dalek::{Signer, SigningKey};
+use flexcore_ports::source_auth::{canonical_signing_bytes, ENVELOPE_VERSION};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -101,6 +106,15 @@ struct SourceState {
 pub struct SimulatorTelemetrySource {
     declaration: ProviderDeclaration,
     state: Mutex<SourceState>,
+    /// Patch B: when set, every pulled frame is wrapped in a signed
+    /// envelope (`key_id` "dev") instead of being emitted raw. The key
+    /// is the ephemeral dev keypair, generated in-process at worker
+    /// startup and never written anywhere.
+    signing_key: Option<SigningKey>,
+    /// Patch B: the envelope sequence counter. Envelope sequences start
+    /// at 1 and increase strictly, per source (the receiver's watermark
+    /// rejects any sequence at or below the last accepted one).
+    envelope_sequence: AtomicU64,
 }
 
 impl SimulatorTelemetrySource {
@@ -182,7 +196,21 @@ impl SimulatorTelemetrySource {
                 next_subscription: 1,
                 asset_ids: mapping,
             }),
+            signing_key: None,
+            envelope_sequence: AtomicU64::new(0),
         })
+    }
+
+    /// Signs every pulled frame with `key` (Patch B): frames are wrapped
+    /// in a signed envelope (`key_id` "dev", per the normative wire
+    /// format in `flexcore_ports::source_auth`) instead of being emitted
+    /// raw. The keypair is the ephemeral dev keypair, generated
+    /// in-process at worker startup and never written anywhere.
+    /// Consumes and returns the source (builder style, applied at
+    /// composition in the worker's `compose_ingestion`).
+    pub fn with_signing_key(mut self, key: SigningKey) -> Self {
+        self.signing_key = Some(key);
+        self
     }
 
     fn lock(&self) -> MutexGuard<'_, SourceState> {
@@ -250,8 +278,16 @@ impl SimulatorTelemetrySource {
         subscription: &TelemetrySubscription,
     ) -> Result<Option<Vec<u8>>, TelemetrySourceError> {
         let mut st = self.lock();
-        let Some(info) = st.subscriptions.get(&subscription.handle()) else {
-            return Err(TelemetrySourceError::NotSubscribed);
+        // The subscription's interest sets are copied out BEFORE the loop:
+        // `next_frame` needs `&mut st` while the filter below reads the
+        // sets, and the two borrows cannot coexist.
+        let (assets, quantities, tenant_id) = {
+            let Some(info) = st.subscriptions.get(&subscription.handle()) else {
+                return Err(TelemetrySourceError::NotSubscribed);
+            };
+            // `TenantId` is `Copy` (typed_id! newtype over the `Copy`
+            // FlexUuid), so this moves out by value like the clones.
+            (info.assets.clone(), info.quantities.clone(), info.tenant_id)
         };
         loop {
             if st.status != RunStatus::Running {
@@ -263,20 +299,86 @@ impl SimulatorTelemetrySource {
             let asset_subscribed = st
                 .asset_ids
                 .get(&frame.asset_key)
-                .is_some_and(|id| info.assets.contains(id));
+                .is_some_and(|id| assets.contains(id));
             let quantity_subscribed = frame.samples.iter().any(|s| {
                 quantity_from_name(s.quantity)
-                    .is_some_and(|q| info.quantities.contains(&q))
+                    .is_some_and(|q| quantities.contains(&q))
             });
             if asset_subscribed && quantity_subscribed {
                 let bytes = serde_json::to_vec(&frame)
                     .expect("frame serialization over owned data cannot fail");
+                // Patch B: with a signing key configured, the frame is
+                // wrapped in a signed envelope; without one, the raw
+                // frame bytes are emitted exactly as before.
+                let bytes = self.wrap_frame(bytes, &frame, tenant_id);
                 return Ok(Some(bytes));
             }
             // Not this subscription's frame: consumed and skipped (the
             // stream is global; nothing is buffered for another reader).
         }
     }
+
+    /// Wraps raw frame bytes in a signed envelope (Patch B) when a
+    /// signing key is configured; returns the bytes unchanged otherwise.
+    /// The envelope follows the normative wire format in
+    /// `flexcore_ports::source_auth` (version 1, `key_id` "dev",
+    /// base64-STANDARD payload, lowercase-hex digest and signature) and
+    /// is signed over [`canonical_signing_bytes`].
+    ///
+    /// `event_time_unix_millis` is the frame's event time: every sample
+    /// in one frame shares the frame's `event_time_unix_ms`, so the
+    /// maximum sample event time IS the frame's event time — including
+    /// for a frame with no samples, which still carries its event time,
+    /// so no scenario-clock fallback is needed.
+    fn wrap_frame(
+        &self,
+        frame_bytes: Vec<u8>,
+        frame: &WireFrame,
+        tenant_id: TenantId,
+    ) -> Vec<u8> {
+        let Some(signing_key) = &self.signing_key else {
+            return frame_bytes;
+        };
+        let event_time_unix_millis = frame.event_time_unix_ms;
+        // Sequences start at 1 and increase strictly, per source.
+        let sequence = self.envelope_sequence.fetch_add(1, Ordering::SeqCst) + 1;
+        let payload_digest: [u8; 32] = Sha256::digest(&frame_bytes).into();
+        let signing_bytes = canonical_signing_bytes(
+            ENVELOPE_VERSION,
+            "dev",
+            self.declaration.source_id(),
+            &tenant_id,
+            sequence,
+            event_time_unix_millis,
+            &payload_digest,
+        );
+        let signature = signing_key.sign(&signing_bytes);
+        let envelope = serde_json::json!({
+            "version": ENVELOPE_VERSION,
+            "key_id": "dev",
+            "source_id": self.declaration.source_id(),
+            "tenant_id": tenant_id.to_string(),
+            "sequence": sequence,
+            "event_time_unix_millis": event_time_unix_millis,
+            "payload_digest": hex_encode(&payload_digest),
+            "payload": BASE64_STANDARD.encode(&frame_bytes),
+            "signature": hex_encode(&signature.to_bytes()),
+        });
+        serde_json::to_vec(&envelope)
+            .expect("envelope serialization over owned data cannot fail")
+    }
+}
+
+/// Encodes bytes as lowercase hex (the wire format's digest and
+/// signature alphabet). No hex crate is added for this one helper.
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 /// Maps a wire quantity name onto the frozen `TelemetryQuantity` vocabulary
@@ -605,17 +707,24 @@ mod tests {
         source
     }
 
+    /// The "end of time" for whole-horizon queries: 9999-12-31T23:59:59.999Z,
+    /// the largest whole-millisecond instant the `time` crate's
+    /// `OffsetDateTime` can represent. (`i64::MAX / 2` was used here before
+    /// and is NOT representable — `EventTime::from_unix_millis` rejects it
+    /// with `InvalidTimestamp`.)
+    const END_OF_TIME_MILLIS: i64 = 253402300799999;
+
     fn subscribe_all(source: &SimulatorTelemetrySource) -> TelemetrySubscription {
         let assets: Vec<AssetId> = ASSET_KEYS.iter().map(|k| asset_id(k)).collect();
-        source
-            .subscribe(&TelemetryQuery::new(
-                &tenant_context(),
-                assets,
-                EventTime::from_unix_millis(0).unwrap(),
-                EventTime::from_unix_millis(i64::MAX / 2).unwrap(),
-                all_quantities(),
-            ))
-            .unwrap()
+        let query = TelemetryQuery::new(
+            &tenant_context(),
+            assets,
+            EventTime::from_unix_millis(0).unwrap(),
+            EventTime::from_unix_millis(END_OF_TIME_MILLIS).unwrap(),
+            all_quantities(),
+        )
+        .expect("valid query");
+        source.subscribe(&query).unwrap()
     }
 
     /// Pulls and decodes the whole horizon, in arrival order.
@@ -717,14 +826,30 @@ mod tests {
     #[test]
     fn sequences_are_monotonic_per_asset_in_arrival_order() {
         let records = drain(&make_source(SCENARIO_V1));
-        let mut last: BTreeMap<AssetId, u64> = BTreeMap::new();
+        // `source_sequence` is assigned per FRAME (one per asset per tick —
+        // engine.rs: "monotonically per asset, gap-free from 1"), and a
+        // frame decodes into one record per quantity sample, all sharing
+        // the frame's sequence. So strict increase holds ACROSS frames,
+        // not across records: within one frame (same asset, same event
+        // time) the sequence repeats by design.
+        let mut last: BTreeMap<AssetId, (u64, i128)> = BTreeMap::new();
         for record in &records {
-            let entry = last.entry(record.asset_id()).or_insert(0);
-            assert!(
-                record.source_sequence() > *entry,
-                "sequence must strictly increase per asset in arrival order"
-            );
-            *entry = record.source_sequence();
+            let event_ms = record.event_time().unix_millis();
+            let (last_seq, last_ms) = last.entry(record.asset_id()).or_insert((0, i128::MIN));
+            if event_ms == *last_ms {
+                assert_eq!(
+                    record.source_sequence(),
+                    *last_seq,
+                    "one frame, one sequence"
+                );
+            } else {
+                assert!(
+                    record.source_sequence() > *last_seq,
+                    "sequence must strictly increase per asset across frames in arrival order"
+                );
+                *last_seq = record.source_sequence();
+                *last_ms = event_ms;
+            }
         }
         assert_eq!(last.len(), 10);
     }
@@ -852,15 +977,15 @@ mod tests {
         let stranger = AssetId::new(
             FlexUuid::parse("0192a5e0-0000-7e2f-9a1b-3c4d5e6f7a99").unwrap(),
         );
-        let err = source
-            .subscribe(&TelemetryQuery::new(
-                &tenant_context(),
-                vec![stranger],
-                EventTime::from_unix_millis(0).unwrap(),
-                EventTime::from_unix_millis(1000).unwrap(),
-                vec![TelemetryQuantity::ActivePower],
-            ))
-            .unwrap_err();
+        let query = TelemetryQuery::new(
+            &tenant_context(),
+            vec![stranger],
+            EventTime::from_unix_millis(0).unwrap(),
+            EventTime::from_unix_millis(1000).unwrap(),
+            vec![TelemetryQuantity::ActivePower],
+        )
+        .expect("valid query");
+        let err = source.subscribe(&query).unwrap_err();
         assert!(matches!(err, TelemetrySourceError::InvalidQuery { .. }));
 
         let subscription = subscribe_all(&source);
@@ -912,15 +1037,15 @@ mod tests {
             "samples": [{"quantity": "active_power", "value": 0.0}]
         }"#;
         // Subscribe to only site-north assets.
-        let north_only = source
-            .subscribe(&TelemetryQuery::new(
-                &tenant_context(),
-                vec![asset_id("site-north-bess-1")],
-                EventTime::from_unix_millis(0).unwrap(),
-                EventTime::from_unix_millis(i64::MAX / 2).unwrap(),
-                all_quantities(),
-            ))
-            .unwrap();
+        let query = TelemetryQuery::new(
+            &tenant_context(),
+            vec![asset_id("site-north-bess-1")],
+            EventTime::from_unix_millis(0).unwrap(),
+            EventTime::from_unix_millis(END_OF_TIME_MILLIS).unwrap(),
+            all_quantities(),
+        )
+        .expect("valid query");
+        let north_only = source.subscribe(&query).unwrap();
         assert!(matches!(
             source.decode(&north_only, foreign.as_bytes()),
             Err(TelemetrySourceError::DecodeFailed { .. })
@@ -930,7 +1055,10 @@ mod tests {
     #[test]
     fn a_scenario_with_an_unknown_mapping_key_is_rejected() {
         let mapping = vec![("not-in-scenario".to_string(), asset_id("site-north-bess-1"))];
-        let err = SimulatorTelemetrySource::new(SCENARIO_V1, mapping).unwrap_err();
+        let err = match SimulatorTelemetrySource::new(SCENARIO_V1, mapping) {
+            Ok(_) => panic!("an unknown mapping key is rejected"),
+            Err(err) => err,
+        };
         assert!(err.to_string().contains("not-in-scenario"));
     }
 

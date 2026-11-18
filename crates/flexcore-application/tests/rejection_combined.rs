@@ -99,8 +99,13 @@ const UUID_BASE: &str = "0192a5e0-0000-7e2f-9a1b-3c4d5e6f";
 const UUID_SCHEDULE: &str = "0192a5e0-0000-7e2f-9a1b-3c4d5e6f8c00";
 
 fn uuid(tag: u8) -> FlexUuid {
-    let mut bytes = [0u8; 16];
-    bytes[..12].copy_from_slice(UUID_BASE.as_bytes());
+    // UUID_BASE is a 32-char hex string (a UUID missing its final 4 hex
+    // digits); its .as_bytes() is 32 bytes and can never fit the 12-byte
+    // prefix. Parse the completed UUID instead and stamp the marker/tag
+    // bytes over the zero tail, as the Batch 46 lifecycle harness does.
+    let mut bytes = FlexUuid::parse(&format!("{UUID_BASE}0000"))
+        .expect("valid test uuid")
+        .to_bytes();
     bytes[12] = 0xC6; // P4.26 fixture marker
     bytes[13] = tag;
     FlexUuid::from_bytes(bytes)
@@ -814,6 +819,9 @@ fn emitted_events(h: &Harness) -> Vec<&'static str> {
                 "DispatchIssued",
                 "DispatchExpired",
                 "DispatchAcknowledged",
+                // The §15.3 grid-validation event the feasibility gate
+                // emits before its decision (P4.30).
+                "FeasibilityCheckCompleted",
             ] {
                 if payload.starts_with(candidate) {
                     return candidate;
@@ -864,10 +872,18 @@ fn assert_denial_record(h: &Harness, command: &DispatchCommand, expected_reason:
     assert_eq!(entry.to, CommandState::Rejected);
     assert_eq!(entry.gate, Some(Gate::Authorization));
     assert_eq!(entry.actor.identity(), denier);
-    assert_eq!(
-        entry.reason.as_deref(),
-        Some(expected_reason),
-        "the denial reason is the pre-registered authorization error"
+    // The journal reason is the pre-registered reason PLUS the covered-
+    // evidence bracket (command_gates.rs:1775); the bare reason lives on
+    // result.denial_reason. Pin the prefix and the bracket, as the passing
+    // command_gates denial test does (starts_with).
+    let reason = entry.reason.as_deref().expect("the denial reason");
+    assert!(
+        reason.starts_with(expected_reason),
+        "the denial reason is the pre-registered authorization error: {reason}"
+    );
+    assert!(
+        reason.contains("[covers validation evidence"),
+        "the denial reason carries the covered-evidence bracket: {reason}"
     );
     let evidence = entry.evidence.as_ref().expect("the denial evidence");
     assert!(
@@ -936,7 +952,7 @@ fn f_cm_1_stale_plus_infeasible_is_rejected_with_the_staleness_check_and_never_i
                     .expect("valid instant"),
             );
             let reason = match &freshness {
-                EnvelopeFreshness::Stale { reason: StalenessReason::MaxAgeExceeded { age_millis, max_age_millis } } => {
+                EnvelopeFreshness::Stale { reason: reason @ StalenessReason::MaxAgeExceeded { age_millis, max_age_millis } } => {
                     assert_eq!(*age_millis, CONFIGURED_MAX_AGE_MILLIS + 1_000);
                     assert_eq!(*max_age_millis, CONFIGURED_MAX_AGE_MILLIS);
                     format!("{reason:?}")
@@ -954,7 +970,6 @@ fn f_cm_1_stale_plus_infeasible_is_rejected_with_the_staleness_check_and_never_i
             .gates
             .run_validation_gate(&context(), &proposed.command, &actor("svc:validator"))
             .expect("the gate verdict");
-        let calls_after_validation = h.runner.call_count();
         let feasibility = if validation.passed {
             Some(
                 h.gates
@@ -964,12 +979,15 @@ fn f_cm_1_stale_plus_infeasible_is_rejected_with_the_staleness_check_and_never_i
         } else {
             None
         };
+        // Captured AFTER the feasibility gate: 0 behind the staleness
+        // fault (feasibility never reached), 1 in the control half.
+        let runner_calls = h.runner.call_count();
         let journal = h.store.journal_of(proposed.command.command_id());
         (
             validation.passed,
             validation.failing_check.clone(),
             feasibility.map(|f| (f.result.passed, f.result.failing_check.clone())),
-            calls_after_validation,
+            runner_calls,
             journal.last().map(|e| (e.from, e.to, e.reason.clone())),
             emitted_events(&h),
         )
@@ -1010,7 +1028,13 @@ fn f_cm_1_stale_plus_infeasible_is_rejected_with_the_staleness_check_and_never_i
     let (from, to, reason) = last_row.expect("the rejection is journalled");
     assert_eq!((from, to), (CommandState::Validated, CommandState::Rejected));
     assert_eq!(reason.as_deref(), Some("network_limit:branch_thermal:line_2_3"));
-    assert_eq!(events, vec!["DispatchProposed", "DispatchRejected"]);
+    // Control half only: feasibility ran, so its completed-check event
+    // sits between the proposal and the rejection (P4.30). The staleness
+    // half above has no check event — feasibility was never reached.
+    assert_eq!(
+        events,
+        vec!["DispatchProposed", "FeasibilityCheckCompleted", "DispatchRejected"]
+    );
 }
 
 #[test]
@@ -1146,7 +1170,20 @@ fn f_cm_2_duplicate_plus_unauthorized_rejects_with_the_named_authorization_error
     let (from, to, gate, reason) = last_row.clone().expect("the denial is journalled");
     assert_eq!((from, to), (CommandState::Feasible, CommandState::Rejected));
     assert_eq!(gate, Some(Gate::Authorization));
-    assert_eq!(reason.as_deref(), Some(pre_registered_rejection("duplicate_plus_unauthorized").as_str()));
+    assert!(
+        reason
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with(pre_registered_rejection("duplicate_plus_unauthorized").as_str()),
+        "the journal denial reason starts with the pre-registered error: {reason:?}"
+    );
+    assert!(
+        reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("[covers validation evidence"),
+        "the journal denial reason carries the covered-evidence bracket: {reason:?}"
+    );
     // The conflicting-duplicate attempt emitted no events of its own; the
     // walk already carried DispatchProposed, the denial adds DispatchRejected.
     assert_eq!(writes_after, writes_before + 1, "DispatchRejected is the only new write");
@@ -1282,6 +1319,7 @@ fn f_cm_3_expired_plus_infeasible_refuses_the_issue_and_expires_with_the_milesto
         .contains("issue"), "the milestone not reached is recorded");
     // Determinism.
     let (issue_is_expired_2, issue_error_text_2, expiry_2, last_row_2, events_2) = run();
+    let expiry_2 = expiry_2.expect("the lapsed APPROVED command expires");
     assert_eq!(issue_is_expired, issue_is_expired_2);
     assert_eq!(issue_error_text, issue_error_text_2);
     assert_eq!(expiry.transition, expiry_2.transition);
@@ -1319,6 +1357,11 @@ fn f_cm_3_control_the_inactive_model_fault_alone_blocks_the_issue() {
 fn f_cm_3_expired_plus_infeasible_never_reaches_issued() {
     let h = harness(5_000);
     let (command, decision_record) = walk_to_approved(&h, 13, 10, "idem:p426-cm3c");
+    // Fault 1 (expired): advance the clock exactly to the validity
+    // window's end-exclusive boundary, as the passing sibling test does
+    // — without this the command is not expired at issue time and the
+    // model fault fires instead.
+    h.clock.advance_to(70_000);
     *h.models.status_value.lock().expect("fake models") =
         ModelVersionGateStatus::NotActive { state: "retired".to_string() };
     let attempt = adapter_for(&h).issue(&context(), &command, &decision_record, &actor("svc:dispatcher"));
@@ -1414,12 +1457,18 @@ fn f_cm_4_forged_credential_plus_stale_refuses_the_issue_and_never_issued() {
 fn f_cm_4_the_pure_refusal_order_pins_forged_and_blank_authenticity() {
     let forged = CommandAuthenticity::Signature("forged-by-attacker".to_string());
     let blank = CommandAuthenticity::Signature("   ".to_string());
-    let input = |authenticity: &CommandAuthenticity, now: i64| IssueRefusalInput {
-        authenticity,
-        sequence: 10,
-        valid_until_millis: 70_000,
-        now_unix_millis: now,
-    };
+    // A local fn, not a closure: a closure cannot express that its
+    // returned IssueRefusalInput borrows the authenticity argument (the
+    // closure's return lifetime is independent of its parameter's); a
+    // fn item gets the standard elision and ties them.
+    fn input(authenticity: &CommandAuthenticity, now: i64) -> IssueRefusalInput<'_> {
+        IssueRefusalInput {
+            authenticity,
+            sequence: 10,
+            valid_until_millis: 70_000,
+            now_unix_millis: now,
+        }
+    }
     // Forged + stale: refused EXPIRED (the first applicable check in ledger
     // order — unsigned is non-firing for a non-empty string).
     let combined = check_issue_refusals(&input(&forged, 80_000));
@@ -1519,7 +1568,7 @@ fn f_cm_5_a_replayed_outbox_event_is_refused_with_duplicate_key() {
             first.created_at(),
         )
         .expect("the replayed write is well-formed");
-        let outcome = EventOutbox::append(&h.outbox, replay);
+        let outcome = EventOutbox::append(h.outbox, replay);
         (
             outcome.err(),
             h.outbox.len(),
@@ -1536,7 +1585,10 @@ fn f_cm_5_a_replayed_outbox_event_is_refused_with_duplicate_key() {
         }
         other => panic!("unexpected outcome: {other:?}"),
     }
-    assert_eq!(writes, 1, "only the original DispatchProposed write exists");
+    assert_eq!(
+        writes, 2,
+        "the walk's own writes only (DispatchProposed + FeasibilityCheckCompleted); the replay adds nothing"
+    );
     assert!(!reached_issued);
     // Determinism.
     assert_eq!(run(), (error, writes, reached_issued));

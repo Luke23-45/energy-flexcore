@@ -72,12 +72,7 @@ CREATE TABLE edge_device_registry (
     -- issuance instant.
     CONSTRAINT edge_device_registry_expiry_shape CHECK (
         expires_at_unix_millis IS NULL
-        OR expires_at_unix_millis > enrolled_at_unix_millis),
-    -- THE identity-uniqueness rule (ledger P6.06 acceptance: no two edges
-    -- share an identity): at most ONE ACTIVE identity term per
-    -- (device_id, tenant_id), enforced by the PARTIAL UNIQUE INDEX created
-    -- below (a unique constraint cannot carry a WHERE clause; rotation
-    -- after REVOKED/EXPIRED inserts legally under the partial index).
+        OR expires_at_unix_millis > enrolled_at_unix_millis)
 );
 
 CREATE INDEX edge_device_registry_current_idx

@@ -559,27 +559,29 @@ mod tests {
 
     #[test]
     fn every_error_renders_non_empty_prose() {
+        // Three different error types, so the prose is collected as
+        // Strings: one array cannot hold them together.
         let errors = [
-            PricePointError::NonFinitePrice,
-            PricePointError::InvertedInterval,
-            PriceSeriesError::EmptyReference { field: "source_ref" },
-            PriceSeriesError::EmptyAreaOrCurrency,
-            PriceSeriesError::NoPoints,
-            PriceSeriesError::UnsortedPoints { index: 1 },
+            PricePointError::NonFinitePrice.to_string(),
+            PricePointError::InvertedInterval.to_string(),
+            PriceSeriesError::EmptyReference { field: "source_ref" }.to_string(),
+            PriceSeriesError::EmptyAreaOrCurrency.to_string(),
+            PriceSeriesError::NoPoints.to_string(),
+            PriceSeriesError::UnsortedPoints { index: 1 }.to_string(),
             PriceSeriesError::PointInvalid {
                 index: 0,
                 reason: "fixture".to_string(),
-            },
+            }
+            .to_string(),
             PricePortError::SourceUnavailable {
                 code: "E-TEST".to_string(),
                 message: "fixture".to_string(),
-            },
-            PricePortError::UnknownArea {
-                area: "X".to_string(),
-            },
+            }
+            .to_string(),
+            PricePortError::UnknownArea { area: "X".to_string() }.to_string(),
         ];
         for error in errors {
-            assert!(!error.to_string().is_empty());
+            assert!(!error.is_empty());
         }
     }
 

@@ -66,7 +66,7 @@ use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 
 use crate::ids::FlexUuid;
-use crate::time_model::ValidityWindow;
+use crate::time_model::{EventTime, ValidityWindow};
 
 /// The schema version of the capability-model contract frozen by P3.01
 /// (report §10.5: breaking schema changes are deliberate and versioned).
@@ -313,23 +313,29 @@ impl ConstraintKind {
 /// up/down time, duration/recovery) are declared in seconds; ramp rate in MW
 /// per minute; mode indicators and availability factors are dimensionless.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ConstraintUnit {
     /// Active power in **MW**.
+    #[serde(rename = "MW")]
     Megawatt,
     /// Reactive power in **MVAr**.
+    #[serde(rename = "MVAr")]
     Megavar,
     /// Energy in **MWh**.
+    #[serde(rename = "MWh")]
     Megawatthour,
     /// State of charge as a **fraction in [0,1]** (§10.2; boundary-inclusive
     /// range enforced by the P3.04 validators).
+    #[serde(rename = "SOC_FRACTION")]
     SocFraction,
     /// Ramp rate in **MW per minute**.
+    #[serde(rename = "MW_PER_MINUTE")]
     MegawattPerMinute,
     /// Duration in **seconds** (minimum up/down time, duration/recovery).
+    #[serde(rename = "SECOND")]
     Second,
     /// Dimensionless quantities: mode indicators, counts, availability
     /// factors.
+    #[serde(rename = "DIMENSIONLESS")]
     Dimensionless,
 }
 
@@ -666,7 +672,7 @@ pub struct IntervalConstraints {
 pub struct TimeIndexedFeasibleSet {
     /// UTC start of the first interval (start-inclusive, §10.3: UTC
     /// internally; non-UTC offsets are rejected, never converted).
-    pub horizon_start: OffsetDateTime,
+    pub horizon_start: EventTime,
     /// Interval length in seconds — a per-model configuration value, not a
     /// hard-coded constant (P3.03; the scheduling-grid default of 15 minutes
     /// is a recorded recommendation, not a report requirement).
@@ -689,9 +695,10 @@ impl TimeIndexedFeasibleSet {
         interval_count: u32,
         slices: Vec<IntervalConstraints>,
     ) -> Result<Self, CapabilityModelError> {
-        if !horizon_start.offset().is_utc() {
-            return Err(CapabilityModelError::NonUtcHorizonStart);
-        }
+        // EventTime is UTC by construction; a non-UTC offset is rejected
+        // here so the constructor keeps its NonUtcHorizonStart contract.
+        let horizon_start = EventTime::new(horizon_start)
+            .map_err(|_| CapabilityModelError::NonUtcHorizonStart)?;
         if interval_seconds == 0 {
             return Err(CapabilityModelError::NonPositiveIntervalLength);
         }
@@ -743,7 +750,7 @@ impl TimeIndexedFeasibleSet {
             });
         }
         let offset_secs = i64::from(index) * i64::from(self.interval_seconds);
-        let start = self.horizon_start + Duration::seconds(offset_secs);
+        let start = self.horizon_start.timestamp() + Duration::seconds(offset_secs);
         let end = start + Duration::seconds(i64::from(self.interval_seconds));
         Ok((start, end))
     }
@@ -751,7 +758,7 @@ impl TimeIndexedFeasibleSet {
     /// The exclusive end of the horizon (equal to the start-inclusive start
     /// of a hypothetical interval `interval_count`).
     pub fn horizon_end(&self) -> OffsetDateTime {
-        self.horizon_start
+        self.horizon_start.timestamp()
             + Duration::seconds(i64::from(self.interval_count) * i64::from(self.interval_seconds))
     }
 }
@@ -761,7 +768,7 @@ impl TryFrom<TimeIndexedFeasibleSetDto> for TimeIndexedFeasibleSet {
 
     fn try_from(dto: TimeIndexedFeasibleSetDto) -> Result<Self, Self::Error> {
         Self::new(
-            dto.horizon_start,
+            dto.horizon_start.timestamp(),
             dto.interval_seconds,
             dto.interval_count,
             dto.slices,
@@ -771,7 +778,7 @@ impl TryFrom<TimeIndexedFeasibleSetDto> for TimeIndexedFeasibleSet {
 
 #[derive(Deserialize)]
 struct TimeIndexedFeasibleSetDto {
-    horizon_start: OffsetDateTime,
+    horizon_start: EventTime,
     interval_seconds: u32,
     interval_count: u32,
     slices: Vec<IntervalConstraints>,

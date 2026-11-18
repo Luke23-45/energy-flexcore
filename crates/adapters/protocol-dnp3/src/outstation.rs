@@ -98,7 +98,7 @@ impl From<ModelError> for OutstationError {
 }
 
 /// One assigned point of the outstation inventory.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PointAssignment {
     /// The DNP3 point index (from the utility's point list — authoritative,
     /// declared, never inferred).
@@ -408,8 +408,9 @@ mod tests {
             event_class: EventClass::Class1,
         });
         assert_eq!(
-            OutstationModel::new("dnp3-outstation", conflicting),
-            Err(OutstationError::PointIndexConflict { index: 0 })
+            OutstationModel::new("dnp3-outstation", conflicting)
+                .expect_err("a conflicting point index is refused"),
+            OutstationError::PointIndexConflict { index: 0 }
         );
     }
 

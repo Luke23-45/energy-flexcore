@@ -15,7 +15,7 @@
 // replay on an EMPTY database and the RLS/outbox/SOC/enum/audit slices):
 //
 // 1. STRUCTURAL enumeration of the whole migration set (no DB needed):
-//    the embedded migrator must carry EXACTLY versions 1..=25 in ascending
+//    the embedded migrator must carry EXACTLY versions 1..=26 in ascending
 //    order with the recorded descriptions, and every up file must have a
 //    down file (the include_str! enumeration below fails the build if a
 //    down file is missing — the "every migration is reversible or its
@@ -32,7 +32,7 @@
 //    registry chain (tenant → portfolio → site → asset) THROUGH THE
 //    REPOSITORIES (the application shape, not bare SQL) plus one audit row
 //    through the runtime INSERT grant, then apply the remaining chain
-//    (0009..0025) OVER the populated schema and prove the data survives with
+//    (0009..0026) OVER the populated schema and prove the data survives with
 //    its meaning intact (0009's ADD COLUMN ... DEFAULT backfills; 0012's PK
 //    extension still serves the duplicate classification and accepts
 //    versioned corrections without mutating the original row).
@@ -90,6 +90,7 @@ use flexcore_ports::repository::{
 };
 use flexcore_postgres_adapter::{FlexCoreStore, PgUnitOfWork};
 use sqlx::PgPool;
+use sqlx::Row;
 
 // --- The FULL migration set, enumerated (P10.13 ledger step 1) -------------------
 //
@@ -98,7 +99,7 @@ use sqlx::PgPool;
 // rot silently. The record §4 carries the per-migration compatibility
 // windows; this is the set the windows are recorded FOR.
 
-const UP_FILES: [&str; 25] = [
+const UP_FILES: [&str; 26] = [
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0001_quality_enum.up.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0002_tenants.up.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0003_portfolios.up.sql")),
@@ -171,6 +172,11 @@ const UP_FILES: [&str; 25] = [
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0025_dispatch_commands_tenant_idx_p4_10.up.sql"
     )),
+    // Patch B (2026-11-18): the source-signing-keys registry (P2.07).
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0026_source_signing_keys_p2_07.up.sql"
+    )),
 ];
 
 // The recorded down files (P1.12 §7: every migration has a down file or a
@@ -178,7 +184,7 @@ const UP_FILES: [&str; 25] = [
 // file itself). include_str! pins their presence at compile time. These are
 // REPLAY ARTIFACTS (dev/CI), never the runtime rollback path — see the
 // module header's downgrade statement.
-const DOWN_FILES: [&str; 25] = [
+const DOWN_FILES: [&str; 26] = [
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0001_quality_enum.down.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0002_tenants.down.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0003_portfolios.down.sql")),
@@ -249,36 +255,41 @@ const DOWN_FILES: [&str; 25] = [
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0025_dispatch_commands_tenant_idx_p4_10.down.sql"
     )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0026_source_signing_keys_p2_07.down.sql"
+    )),
 ];
 
 /// The recorded descriptions (sqlx derives them from the file names). Pinned
 /// so a rename or a re-order is a test failure, never a silent drift.
-const EXPECTED_DESCRIPTIONS: [&str; 25] = [
-    "quality_enum",
+const EXPECTED_DESCRIPTIONS: [&str; 26] = [
+    "quality enum",
     "tenants",
     "portfolios",
     "sites",
     "assets",
-    "asset_state",
+    "asset state",
     "outbox",
-    "audit_records",
-    "registry_lifecycle_p2_03",
-    "telemetry_storage_p2_06",
-    "telemetry_api_read_grant_p2_19",
-    "correction_versions_p2_31",
-    "optimization_results_p3_21",
-    "schedule_revisions_p3_22",
-    "envelopes_p3_28",
-    "commands_p4_10",
-    "feasibility_checks_p4_30",
-    "edge_device_registry_p6_06",
-    "audit_chain_p11_15",
-    "webhook_delivery_p13_09",
-    "interconnection_records_p15_15",
-    "market_records_p16_01",
-    "edge_fleet_registry_p18_12",
-    "worker_inbox_p1_16",
-    "dispatch_commands_tenant_idx_p4_10",
+    "audit records",
+    "registry lifecycle p2 03",
+    "telemetry storage p2 06",
+    "telemetry api read grant p2 19",
+    "correction versions p2 31",
+    "optimization results p3 21",
+    "schedule revisions p3 22",
+    "envelopes p3 28",
+    "commands p4 10",
+    "feasibility checks p4 30",
+    "edge device registry p6 06",
+    "audit chain p11 15",
+    "webhook delivery p13 09",
+    "interconnection records p15 15",
+    "market records p16 01",
+    "edge fleet registry p18 12",
+    "worker inbox p1 16",
+    "dispatch commands tenant idx p4 10",
+    "source signing keys p2 07",
 ];
 
 /// The append-only surfaces of the chain and the grants flexcore_app must
@@ -342,7 +353,7 @@ fn fixture_uuid(prefix: u8) -> FlexUuid {
     bytes[6] = (run_key() >> 24) as u8;
     bytes[7] = (run_key() >> 16) as u8;
     bytes[8] = (run_key() >> 8) as u8;
-    bytes[9] = run_key() as u8;
+    bytes[9] = *run_key() as u8;
     let counter = next_counter().to_be_bytes();
     bytes[10..16].copy_from_slice(&counter[2..8]);
     FlexUuid::from_bytes(bytes)
@@ -357,11 +368,21 @@ fn tenant_context(uuid: FlexUuid) -> TenantContext {
     ))
 }
 
-fn test_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("test runtime")
+/// One runtime for the whole test binary, shared by every helper (the
+/// recorded `test_runtime` pattern, fixed): a sqlx pool opened under a
+/// runtime keeps that runtime's I/O driver for its connections, so a pool
+/// created under a fresh per-call runtime dies with it — the next query
+/// on it fails with "A Tokio 1.x context was found, but it is being
+/// shutdown". A multi-thread runtime also allows concurrent `block_on`
+/// from the harness's parallel test threads.
+fn test_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+    })
 }
 
 /// Rewrites the credentials of an admin URL to connect as one of the
@@ -380,16 +401,32 @@ fn url_as(url: &str, user: &str, password: &str) -> String {
 /// migrations create (the recorded tests/corrections.rs helper).
 fn ensure_test_roles(pool: &PgPool) {
     let result = test_runtime().block_on(async {
+        // Concurrent ALTER ROLE on the same role fails with "tuple
+        // concurrently updated" (XX000): every test in every binary runs
+        // this helper against the one shared database. One advisory lock
+        // (one key, shared by every copy of this helper and by the
+        // partition setup) serializes the grant so it stays idempotent
+        // across processes; the lock is transaction-scoped and released
+        // by the commit below.
+        let mut tx = pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+            .execute(&mut *tx)
+            .await?;
         for (role, password) in [
             ("flexcore_app", "flexcore_app_test_only"),
             ("flexcore_migrator", "flexcore_migrator_test_only"),
             ("flexcore_ingest", "flexcore_ingest_test_only"),
             ("flexcore_query", "flexcore_query_test_only"),
         ] {
-            sqlx::query(&format!("ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"))
-                .execute(pool)
+            // AUDITED (Batch 32+): role/password are fixed test-only literals
+            // from the loop above; DDL identifiers cannot be bind parameters.
+            sqlx::query(sqlx::AssertSqlSafe(
+                format!("ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"),
+            ))
+                .execute(&mut *tx)
                 .await?;
         }
+        tx.commit().await?;
         Ok::<(), sqlx::Error>(())
     });
     result.expect("test roles must be grantable from the migration/admin connection");
@@ -425,8 +462,11 @@ fn execute_script(pool: &PgPool, script: &str) {
             if ch == ';' && !in_dollar_body {
                 let statement = current.trim().to_string();
                 if !statement.is_empty() {
+                    // AUDITED (Batch 32+): a ';' fragment of the repo's own SQL
+                    // script file (split outside dollar-quoted bodies); no
+                    // caller text reaches the query.
                     test_runtime()
-                        .block_on(sqlx::query(&statement).execute(pool))
+                        .block_on(sqlx::query(sqlx::AssertSqlSafe(statement)).execute(pool))
                         .expect("script statement must execute");
                 }
                 current.clear();
@@ -438,8 +478,10 @@ fn execute_script(pool: &PgPool, script: &str) {
     }
     let statement = current.trim().to_string();
     if !statement.is_empty() {
+        // AUDITED (Batch 32+): the final ';' fragment of the repo's own SQL
+        // script file; no caller text reaches the query.
         test_runtime()
-            .block_on(sqlx::query(&statement).execute(pool))
+            .block_on(sqlx::query(sqlx::AssertSqlSafe(statement)).execute(pool))
             .expect("final script statement must execute");
     }
 }
@@ -455,7 +497,10 @@ fn temp_database(admin_url: &str, label: &str) -> String {
         .block_on(PgPool::connect(admin_url))
         .expect("connect to the test database server");
     rt.block_on(async {
-        sqlx::query(format!("CREATE DATABASE {temp_db}").as_str())
+        // AUDITED (Batch 32+): temp_db is a test-generated identifier
+        // (`flexcore_p10_13_{label}_{hex}` from the fixed run key + a test
+        // counter); a database name cannot be a bind parameter.
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {temp_db}")))
             .execute(&base_pool)
             .await
     })
@@ -484,7 +529,12 @@ fn drop_database(admin_url: &str, temp_url: &str) {
     let rt = test_runtime();
     let base_pool = rt.block_on(PgPool::connect(admin_url)).expect("reconnect base");
     let _ = rt.block_on(async {
-        sqlx::query(format!("DROP DATABASE IF EXISTS {db_name} WITH (FORCE)").as_str())
+        // AUDITED (Batch 32+): db_name is parsed back from the test's own
+        // temp URL (the test-generated identifier above); a database name
+        // cannot be a bind parameter.
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP DATABASE IF EXISTS {db_name} WITH (FORCE)"
+        )))
             .execute(&base_pool)
             .await
     });
@@ -511,9 +561,12 @@ async fn table_exists(pool: &PgPool, table: &str) -> bool {
 
 /// Runs one statement inside a transaction with the tenant GUC set (the
 /// recorded command_store.rs `with_tenant` pattern); returns the outcome so
-/// the caller asserts refused-or-accepted. The transaction is rolled back
-/// either way, so a refused attempt leaves zero rows. NEVER call this from
-/// inside another runtime's block_on — it owns its own current-thread
+/// the caller asserts refused-or-accepted. A SUCCESSFUL statement COMMITS:
+/// seeds and positive-path steps must persist across calls (the audit row,
+/// the edge terms, the command chain), or later steps read zero rows and
+/// pass vacuously. A refused statement returns before the commit, so the
+/// transaction is rolled back and the attempt leaves zero rows. NEVER call
+/// this from inside another runtime's block_on — it uses the shared test
 /// runtime, like every other sync helper in this file.
 fn with_tenant(
     pool: &PgPool,
@@ -527,13 +580,20 @@ fn with_tenant(
             .bind(tenant_id)
             .execute(&mut *tx)
             .await?;
-        let mut query = sqlx::query(&statement);
+        // AUDITED (Batch 32+): the test's own literal SQL; values travel
+        // as $n binds below, never as interpolated text.
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(statement));
         for bind in &binds {
             query = query.bind(bind);
         }
         let result = query.execute(&mut *tx).await.map(|_| ());
-        let _ = tx.rollback().await;
-        result
+        match result {
+            Ok(()) => tx.commit().await.map(|_| ()),
+            Err(err) => {
+                let _ = tx.rollback().await;
+                Err(err)
+            }
+        }
     })
 }
 
@@ -551,7 +611,9 @@ async fn tenant_rows(
         .bind(tenant_id)
         .execute(&mut *tx)
         .await?;
-    let mut query = sqlx::query(&statement);
+    // AUDITED (Batch 32+): the test's own literal SQL; values travel
+    // as $n binds below, never as interpolated text.
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(statement));
     for bind in &binds {
         query = query.bind(bind);
     }
@@ -571,13 +633,21 @@ fn ensure_january_2030_partition(temp_url: &str) {
         )))
         .expect("connect as flexcore_migrator");
     test_runtime().block_on(async {
+        // Same race as the loop copies: IF NOT EXISTS is not
+        // concurrency-safe (see ensure_partitions).
+        let mut tx = migrator_pool.begin().await.expect("partition setup tx");
+        sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+            .execute(&mut *tx)
+            .await
+            .expect("partition setup lock");
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS telemetry_y2030m01 PARTITION OF telemetry \
              FOR VALUES FROM ('2030-01-01 00:00:00+00') TO ('2030-02-01 00:00:00+00')",
         )
-        .execute(&migrator_pool)
+        .execute(&mut *tx)
         .await
         .expect("partition DDL as the table owner");
+        tx.commit().await.expect("partition setup commit");
     });
 }
 
@@ -596,7 +666,7 @@ fn seed_registry_chain(
     let unit: PgUnitOfWork = store.begin(Some(&ctx)).expect("unit of work opens");
     let tenant = Tenant::try_new(
         TenantId::new(tenant_uuid),
-        "p10.13 tenant".to_string(),
+        format!("p10.13 tenant {tenant_uuid}"),
         None,
         format!("idp-{tenant_uuid}"),
         "default".to_string(),
@@ -653,23 +723,40 @@ fn seed_registry_chain(
 // --- 1. Structural enumeration (NO database needed) ------------------------------
 
 #[test]
-fn the_migration_set_is_exactly_25_paired_and_ordered() {
-    static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("migrations/");
+fn the_migration_set_is_exactly_26_paired_and_ordered() {
+    static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
-    // The embedded set is EXACTLY the enumerated 25, in ascending version
-    // order (sqlx sorts by version — the forward-apply order), with the
-    // recorded descriptions.
+    // sqlx 0.9 embeds BOTH files of each pair (ReversibleUp +
+    // ReversibleDown), interleaved per version — 26 pairs = 52 entries.
+    // The forward-apply set is the 26 ReversibleUp entries, in ascending
+    // version order (sqlx sorts by version), with the recorded descriptions
+    // (sqlx renders the filename's underscores as spaces). The pin was
+    // stale twice over: at 25 (0026 source_signing_keys_p2_07, Patch B,
+    // 2026-11-18, was missing) and at the embedded count (the old assert
+    // counted 25 entries where the migrator holds 52 — the test never ran
+    // against sqlx 0.9's paired embedding).
+    use sqlx::migrate::MigrationType;
     let migrations = &*MIGRATOR.migrations;
     assert_eq!(
         migrations.len(),
-        25,
-        "the v1.0.0 candidate carries exactly 25 migrations"
+        52,
+        "26 paired migrations embed as 52 entries (one up + one down each)"
     );
-    for (index, migration) in migrations.iter().enumerate() {
+    let ups: Vec<_> = migrations
+        .iter()
+        .filter(|m| matches!(m.migration_type, MigrationType::ReversibleUp))
+        .collect();
+    let downs: Vec<_> = migrations
+        .iter()
+        .filter(|m| matches!(m.migration_type, MigrationType::ReversibleDown))
+        .collect();
+    assert_eq!(ups.len(), 26, "the v1.0.0 candidate carries exactly 26 up migrations");
+    assert_eq!(downs.len(), 26, "every up migration has a paired down migration");
+    for (index, migration) in ups.iter().enumerate() {
         assert_eq!(
             migration.version,
             (index + 1) as i64,
-            "migration versions are dense 1..=25 in file order"
+            "migration versions are dense 1..=26 in file order"
         );
         assert_eq!(
             migration.description,
@@ -678,13 +765,35 @@ fn the_migration_set_is_exactly_25_paired_and_ordered() {
             index + 1
         );
         assert!(
-            !migration.sql.trim().is_empty(),
+            !migration.sql.as_str().trim().is_empty(),
             "migration {} carries non-empty up SQL",
             index + 1
         );
         assert!(
             !UP_FILES[index].trim().is_empty(),
             "the enumerated up file {} is non-empty",
+            index + 1
+        );
+        // Pairing: the down entry for the same version carries the same
+        // description and non-empty down SQL.
+        assert_eq!(
+            downs[index].version, migration.version,
+            "down migration {} pairs with up migration {}",
+            index + 1, index + 1
+        );
+        assert_eq!(
+            downs[index].description, migration.description,
+            "down migration {} carries the up migration's description",
+            index + 1
+        );
+        assert!(
+            !downs[index].sql.as_str().trim().is_empty(),
+            "migration {} carries non-empty down SQL",
+            index + 1
+        );
+        assert!(
+            !DOWN_FILES[index].trim().is_empty(),
+            "the enumerated down file {} is non-empty",
             index + 1
         );
     }
@@ -702,7 +811,7 @@ fn forward_apply_is_ordered_idempotent_and_drift_detecting() {
     else {
         return;
     };
-    static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("migrations/");
+    static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
     let temp_url = temp_database(&admin_url, "idem");
     let store = FlexCoreStore::connect(&temp_url).expect("connect");
     store
@@ -720,8 +829,8 @@ fn forward_apply_is_ordered_idempotent_and_drift_detecting() {
         .expect("bookkeeping query");
         assert_eq!(
             versions,
-            (1..=25).collect::<Vec<i64>>(),
-            "the bookkeeping records exactly versions 1..=25 applied"
+            (1..=26).collect::<Vec<i64>>(),
+            "the bookkeeping records exactly versions 1..=26 applied"
         );
         let failures: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM _sqlx_migrations WHERE success = false",
@@ -756,7 +865,7 @@ fn forward_apply_is_ordered_idempotent_and_drift_detecting() {
     test_runtime().block_on(async {
         assert_eq!(
             count_migrations(&pool).await,
-            25,
+            26,
             "the second run does not re-apply or duplicate bookkeeping rows"
         );
     });
@@ -809,12 +918,12 @@ fn forward_apply_is_ordered_idempotent_and_drift_detecting() {
         .run_migrations()
         .expect("the restored set applies as a no-op again");
     test_runtime().block_on(async {
-        assert_eq!(count_migrations(&pool).await, 25);
+        assert_eq!(count_migrations(&pool).await, 26);
     });
     drop_database(&admin_url, &temp_url);
 }
 
-// --- 3. Forward migration over PILOT-SHAPED data (0001..0008 seeded, then 0009..0025) ---
+// --- 3. Forward migration over PILOT-SHAPED data (0001..0008 seeded, then 0009..0026) ---
 
 #[test]
 fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
@@ -823,7 +932,7 @@ fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
     else {
         return;
     };
-    static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("migrations/");
+    static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
     let temp_url = temp_database(&admin_url, "shaped");
 
     // STAGE 1: apply 0001..0008 manually (the ledger's "copy of
@@ -882,24 +991,24 @@ fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
     )
     .expect("the audit row inserts through the INSERT grant");
 
-    // FORWARD MIGRATION: apply the REMAINING chain (0009..0025) over the
+    // FORWARD MIGRATION: apply the REMAINING chain (0009..0026) over the
     // populated schema. The framework skips the recorded stage-1 versions
     // and runs the rest — this is the compatibility exercise.
     store
         .run_migrations()
         .expect("the remaining chain applies over pilot-shaped data");
 
-    // (a) The full bookkeeping: exactly 25 versions, none re-applied.
+    // (a) The full bookkeeping: exactly 26 versions, none re-applied.
     let versions: Vec<i64> = test_runtime().block_on(async {
         sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&app_pool)
             .await
             .expect("bookkeeping query")
     });
-    assert_eq!(versions, (1..=25).collect::<Vec<i64>>());
+    assert_eq!(versions, (1..=26).collect::<Vec<i64>>());
 
     // (b) The seeded data SURVIVED with its meaning intact: the audit row
-    // is unchanged where it was written (0009..0025 are additive to the
+    // is unchanged where it was written (0009..0026 are additive to the
     // registry/telemetry/dispatch/edge surfaces; none touches
     // audit_records' content).
     let audit_rows = test_runtime().block_on(tenant_rows(
@@ -968,14 +1077,14 @@ fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
     let original_rows = test_runtime().block_on(tenant_rows(
         &app_pool,
         &tenant_text,
-        "SELECT telemetry_id FROM telemetry \
+        "SELECT telemetry_id::text AS telemetry_id FROM telemetry \
          WHERE asset_id = $1::uuid AND tenant_id = $2::uuid AND source_sequence = 7 \
            AND quantity = 'active_power' AND telemetry_version = 1"
             .to_string(),
         vec![asset_uuid.to_string(), tenant_text.clone()],
     ))
     .expect("the original telemetry row is readable back");
-    let original_id: sqlx::types::Uuid = original_rows[0]
+    let original_id: String = original_rows[0]
         .try_get("telemetry_id")
         .expect("telemetry_id column");
     with_tenant(
@@ -1002,7 +1111,7 @@ fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
     let original_state_rows = test_runtime().block_on(tenant_rows(
         &app_pool,
         &tenant_text,
-        "SELECT telemetry_version, value_num, correction_of FROM telemetry \
+        "SELECT telemetry_version, value_num, correction_of::text AS correction_of FROM telemetry \
          WHERE telemetry_id = $1::uuid AND asset_id = $2::uuid AND tenant_id = $3::uuid"
             .to_string(),
         vec![
@@ -1016,7 +1125,7 @@ fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
         .try_get("telemetry_version")
         .expect("version column");
     let original_value: f64 = original_state_rows[0].try_get("value_num").expect("value column");
-    let original_correction_of: Option<sqlx::types::Uuid> = original_state_rows[0]
+    let original_correction_of: Option<String> = original_state_rows[0]
         .try_get("correction_of")
         .expect("correction_of column");
     assert_eq!(original_version, 1, "the original row keeps version 1");

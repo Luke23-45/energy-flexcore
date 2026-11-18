@@ -146,39 +146,39 @@ fn step_to(lc: &mut CommandLifecycle, to: CommandState, clock: &mut ManualClock)
         Proposed => unreachable!("PROPOSED is the entry marker, never a drive step"),
         Validated => {
             lc.record_validation(gate_pass(), actor("svc:validator"), clock)
-                .expect("drive: validation passes")
+                .expect("drive: validation passes");
         }
         Feasible => {
             lc.record_feasibility(gate_pass(), actor("svc:feasibility"), clock)
-                .expect("drive: feasibility passes")
+                .expect("drive: feasibility passes");
         }
         Approved => {
             lc.record_authorization(authz_approve(), clock)
-                .expect("drive: authorization grants")
+                .expect("drive: authorization grants");
         }
         Issued => {
             lc.record_issue(evidence("sig:rc"), actor("svc:dispatch"), clock)
-                .expect("drive: issue records")
+                .expect("drive: issue records");
         }
         Acknowledged => {
             lc.record_acknowledgement(evidence("ack:rc"), actor("adapter:simulator"), clock)
-                .expect("drive: acknowledgement records")
+                .expect("drive: acknowledgement records");
         }
         Tracking => {
             lc.record_tracking_started(evidence("telemetry:rc"), actor("svc:tracking"), clock)
-                .expect("drive: tracking starts")
+                .expect("drive: tracking starts");
         }
         Completed => {
             lc.record_completion(evidence("criterion:rc"), actor("svc:tracking"), clock)
-                .expect("drive: completion records")
+                .expect("drive: completion records");
         }
         Rejected => {
             lc.record_validation(gate_fail("malformed_unsupported"), actor("svc:validator"), clock)
-                .expect("drive: validation rejection records")
+                .expect("drive: validation rejection records");
         }
         Failed => {
             lc.record_failure(FailureReason::Nack, actor("adapter:simulator"), clock)
-                .expect("drive: failure records")
+                .expect("drive: failure records");
         }
         Expired => {
             // The milestone must be the one the frozen table annotates for the
@@ -192,19 +192,19 @@ fn step_to(lc: &mut CommandLifecycle, to: CommandState, clock: &mut ManualClock)
             };
             clock.lapse();
             lc.record_expiry(milestone, actor("svc:expiry"), clock)
-                .expect("drive: expiry records")
+                .expect("drive: expiry records");
         }
         Cancelled => {
             lc.record_cancellation("operator hold", actor("op:operator"), clock)
-                .expect("drive: cancellation records")
+                .expect("drive: cancellation records");
         }
         Superseded => {
             lc.record_superseded_by(superseding_id(), actor("svc:scheduling"), clock)
-                .expect("drive: supersede records")
+                .expect("drive: supersede records");
         }
         Fallback => {
             lc.record_fallback(evidence("policy:rc"), actor("policy:site"), clock)
-                .expect("drive: fallback records")
+                .expect("drive: fallback records");
         }
     }
 }

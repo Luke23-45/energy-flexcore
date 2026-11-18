@@ -129,8 +129,8 @@ fn a_revoked_session_denies_at_the_resolver_while_the_token_still_verifies() {
         .revoke_session(&session.session_id)
         .expect("the revocation books");
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), Some(&session.session_id)),
-        Err(AuthError::InvalidCredentials),
+        fx.resolver.resolve_session(bearer(), Some(&session.session_id)).expect_err("the resolver must deny this request"),
+        AuthError::InvalidCredentials,
         "a revoked session denies at the RESOLVER, regardless of token validity — not at the UI"
     );
 }
@@ -146,8 +146,8 @@ fn the_bare_trait_path_fails_closed_total_denial_never_session_bypass() {
     // session-aware middleware) denies EVERY request — never silently
     // bypasses the session gate.
     assert_eq!(
-        IdentityResolver::resolve(&fx.resolver, bearer()),
-        Err(AuthError::MissingCredentials)
+        IdentityResolver::resolve(&fx.resolver, bearer()).expect_err("the resolver must deny this request"),
+        AuthError::MissingCredentials
     );
     let _ = session;
 }
@@ -170,8 +170,8 @@ fn the_inner_token_still_authenticates_independently_of_the_session_gate() {
     // the token — the ordering the module pins. An inner deny would be
     // indistinguishable to the caller, which is the point: both are 401.)
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), Some(&session.session_id)),
-        Err(AuthError::InvalidCredentials)
+        fx.resolver.resolve_session(bearer(), Some(&session.session_id)).expect_err("the resolver must deny this request"),
+        AuthError::InvalidCredentials
     );
 }
 
@@ -186,17 +186,27 @@ fn the_idle_timeout_denies_and_denials_never_extend_the_anchor() {
         .expect("the session creates");
     fx.clock.store(1_000 + 30 * 60 * 1000, Ordering::SeqCst);
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), Some(&session.session_id)),
-        Err(AuthError::InvalidCredentials),
+        fx.resolver.resolve_session(bearer(), Some(&session.session_id)).expect_err("the resolver must deny this request"),
+        AuthError::InvalidCredentials,
         "an idled-out session denies at the resolver"
     );
-    // Denied attempts never refresh the idle anchor: rolling back into
-    // the window still denies (the anchor is creation-time here).
-    fx.clock.store(1_100, Ordering::SeqCst);
+    // Denied attempts never refresh the idle anchor: one millisecond past
+    // the deadline still denies — had the denied attempt touched
+    // last_seen, the deadline would have moved and this would succeed.
+    fx.clock.store(1_000 + 30 * 60 * 1000 + 1, Ordering::SeqCst);
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), Some(&session.session_id)),
-        Err(AuthError::InvalidCredentials)
+        fx.resolver.resolve_session(bearer(), Some(&session.session_id)).expect_err("the resolver must deny this request"),
+        AuthError::InvalidCredentials,
+        "a denied request never extends the session"
     );
+    // And the denial did not terminate the session either: back inside
+    // the window (clock 1_100, anchor still 1_000) it resolves again —
+    // the lib session test pins the same property ("a denied session is
+    // not terminated; inside the window it resolves").
+    fx.clock.store(1_100, Ordering::SeqCst);
+    fx.resolver
+        .resolve_session(bearer(), Some(&session.session_id))
+        .expect("a denied session is not terminated; inside the window it resolves");
 }
 
 #[test]
@@ -206,16 +216,21 @@ fn the_absolute_lifetime_expires_an_actively_used_session() {
         .resolver
         .create_session(tenant(TENANT_A), "user:alice")
         .expect("the session creates");
-    for hour in [6u64, 11] {
-        fx.clock.store(1_000 + hour * 60 * 60 * 1000, Ordering::SeqCst);
+    // Heavy activity keeps the session alive — but each touch must land
+    // inside the 30-minute IDLE window (touching at 6h and 11h idles out
+    // first: no use between creation and 6h). Touch every 15 minutes up
+    // to 11h45m: inside the idle window every time, inside the 12h
+    // absolute window every time.
+    for step in 1..=47u64 {
+        fx.clock.store(1_000 + (step as i64) * 15 * 60 * 1000, Ordering::SeqCst);
         fx.resolver
             .resolve_session(bearer(), Some(&session.session_id))
             .expect("activity inside both windows keeps the session alive");
     }
     fx.clock.store(1_000 + 12 * 60 * 60 * 1000, Ordering::SeqCst);
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), Some(&session.session_id)),
-        Err(AuthError::InvalidCredentials),
+        fx.resolver.resolve_session(bearer(), Some(&session.session_id)).expect_err("the resolver must deny this request"),
+        AuthError::InvalidCredentials,
         "the absolute lifetime closes an actively-used session"
     );
 }
@@ -231,8 +246,8 @@ fn a_session_reference_never_rides_on_another_principals_token() {
         .expect("mallory's session creates");
     // Alice's token + Mallory's session reference: binding mismatch deny.
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), Some(&mallory.session_id)),
-        Err(AuthError::InvalidCredentials),
+        fx.resolver.resolve_session(bearer(), Some(&mallory.session_id)).expect_err("the resolver must deny this request"),
+        AuthError::InvalidCredentials,
         "the (tenant, subject) binding is enforced at every resolution"
     );
 }
@@ -244,16 +259,16 @@ fn missing_blank_and_unknown_references_deny_fail_closed() {
         .create_session(tenant(TENANT_A), "user:alice")
         .expect("the session creates");
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), None),
-        Err(AuthError::MissingCredentials)
+        fx.resolver.resolve_session(bearer(), None).expect_err("the resolver must deny this request"),
+        AuthError::MissingCredentials
     );
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), Some("   ")),
-        Err(AuthError::MissingCredentials)
+        fx.resolver.resolve_session(bearer(), Some("   ")).expect_err("the resolver must deny this request"),
+        AuthError::MissingCredentials
     );
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), Some("sess-unknown")),
-        Err(AuthError::InvalidCredentials)
+        fx.resolver.resolve_session(bearer(), Some("sess-unknown")).expect_err("the resolver must deny this request"),
+        AuthError::InvalidCredentials
     );
 }
 
@@ -280,8 +295,8 @@ fn the_tenant_wide_revocation_denies_every_tenant_session_and_only_those() {
         .expect("the tenant-wide revocation books");
     assert_eq!(revoked, 2, "exactly the two ACTIVE tenant-A sessions were revoked");
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), Some(&a1.session_id)),
-        Err(AuthError::InvalidCredentials)
+        fx.resolver.resolve_session(bearer(), Some(&a1.session_id)).expect_err("the resolver must deny this request"),
+        AuthError::InvalidCredentials
     );
     // Tenant B is untouched (a scoped revocation, never a global kill).
     let rows = fx
@@ -310,8 +325,8 @@ fn the_subject_scoped_revocation_matches_the_deprovisioning_path() {
         .expect("the subject-wide revocation books");
     assert_eq!(revoked, 1);
     assert_eq!(
-        fx.resolver.resolve_session(bearer(), Some(&alice.session_id)),
-        Err(AuthError::InvalidCredentials),
+        fx.resolver.resolve_session(bearer(), Some(&alice.session_id)).expect_err("the resolver must deny this request"),
+        AuthError::InvalidCredentials,
         "the deactivated subject's session denies at the resolver"
     );
 }

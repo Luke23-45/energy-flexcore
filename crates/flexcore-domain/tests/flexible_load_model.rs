@@ -123,7 +123,7 @@ fn no_dispatch_outside_availability_windows() {
     let evaluation = evaluate(reduction_events(&[(0, 4, 0.3)]));
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, LoadViolation::DispatchOutsideAvailabilityWindow { interval: 0, .. })),
-        Some(LoadViolation::DispatchOutsideAvailabilityWindow { interval_start_millis, .. } if *interval_start_millis == HORIZON_START_MILLIS)
+        Some(LoadViolation::DispatchOutsideAvailabilityWindow { interval_start_millis, .. }) if *interval_start_millis == HORIZON_START_MILLIS
     ));
 
     // The same reduction inside the window (06:00 UTC = interval 24) is not
@@ -197,7 +197,7 @@ fn event_exceeding_max_duration_is_flagged_and_excluded() {
             event_start_interval: 24,
             duration_seconds,
             max_event_duration_seconds: 7200.0,
-        } if approx(duration_seconds, 8100.0)
+        }) if approx(*duration_seconds, 8100.0)
     ));
     assert_approx(evaluation.declared_reduction_mwh, 0.675, "declared reduction");
     assert_approx(evaluation.credited_reduction_mwh, 0.0, "credited reduction (excluded)");
@@ -220,7 +220,7 @@ fn event_starting_before_recovery_completes_is_flagged_and_excluded() {
             event_start_interval: 29,
             gap_seconds,
             min_recovery_seconds: 3600.0,
-        } if approx(gap_seconds, 900.0)
+        }) if approx(*gap_seconds, 900.0)
     ));
     assert_approx(evaluation.declared_reduction_mwh, 0.6, "declared reduction");
     assert_approx(evaluation.credited_reduction_mwh, 0.3, "credited reduction (A only)");
@@ -282,10 +282,10 @@ fn unpaid_rebound_means_net_flexibility_never_overstates() {
     assert_approx(evaluation.net_flexibility_mwh, 0.3, "net flexibility");
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, LoadViolation::ReboundPaybackIncomplete { .. })),
-        Some(LoadViolation::ReboundPaybackIncomplete { rebound_owed_mwh, scheduled_increase_mwh, unpaid_mwh }
-            if approx(rebound_owed_mwh, 0.3)
-                && approx(scheduled_increase_mwh, 0.0)
-                && approx(unpaid_mwh, 0.3))
+        Some(LoadViolation::ReboundPaybackIncomplete { rebound_owed_mwh, scheduled_increase_mwh, unpaid_mwh })
+            if approx(*rebound_owed_mwh, 0.3)
+                && approx(*scheduled_increase_mwh, 0.0)
+                && approx(*unpaid_mwh, 0.3)
     ));
 }
 
@@ -410,8 +410,8 @@ fn unknown_provenance_range_narrows_to_zero_credit() {
         .unwrap();
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, LoadViolation::ReductionAboveRange { .. })),
-        Some(LoadViolation::ReductionAboveRange { reduction_mw, limit_mw, .. }
-            if approx(reduction_mw, 0.1) && approx(limit_mw, 0.0))
+        Some(LoadViolation::ReductionAboveRange { reduction_mw, limit_mw, .. })
+            if approx(*reduction_mw, 0.1) && approx(*limit_mw, 0.0)
     ));
 }
 
@@ -440,15 +440,15 @@ fn schedule_shape_and_value_errors_are_named() {
     let evaluation = evaluate(reduction_events(&[(24, 28, 0.4)]));
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, LoadViolation::ReductionAboveRange { .. })),
-        Some(LoadViolation::ReductionAboveRange { reduction_mw, limit_mw, .. }
-            if approx(reduction_mw, 0.4) && approx(limit_mw, 0.3))
+        Some(LoadViolation::ReductionAboveRange { reduction_mw, limit_mw, .. })
+            if approx(*reduction_mw, 0.4) && approx(*limit_mw, 0.3)
     ));
     let mut negative = reduction_events(&[]);
     negative[24] = LoadSetpoint { reduction_mw: -0.1, increase_mw: 0.0 };
     let evaluation = evaluate(negative);
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, LoadViolation::NegativeMagnitude { .. })),
-        Some(LoadViolation::NegativeMagnitude { field: "reduction_mw", value_mw, .. } if approx(value_mw, -0.1))
+        Some(LoadViolation::NegativeMagnitude { field: "reduction_mw", value_mw, .. }) if approx(*value_mw, -0.1)
     ));
 }
 

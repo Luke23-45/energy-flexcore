@@ -852,7 +852,7 @@ fn the_sweep_stamps_each_commands_own_scope_on_its_expired_event() {
     // The Debug payload renders each FlexUuid as its derived byte array —
     // 15 zero bytes with the tag byte last.
     let debug_bytes = |tag: u8| {
-        let mut parts: Vec<String> = vec!["0"; 15];
+        let mut parts: Vec<String> = vec!["0".to_string(); 15];
         parts.push(tag.to_string());
         format!("FlexUuid([{}])", parts.join(", "))
     };
@@ -1054,10 +1054,10 @@ fn supersede_links_bidirectionally_and_retains_the_record() {
 
 #[test]
 fn supersede_refuses_self_supersede_and_non_supersedeable_states() {
-    let harness = harness(10_000);
+    let harness_first = harness(10_000);
     let command = command_id(62);
-    harness.store.seed(command, 90_000, CommandState::Approved);
-    let error = harness
+    harness_first.store.seed(command, 90_000, CommandState::Approved);
+    let error = harness_first
         .service
         .supersede(&context(), scope(), command, command, &actor())
         .expect_err("self-supersede is refused");

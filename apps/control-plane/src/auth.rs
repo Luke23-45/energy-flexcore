@@ -182,7 +182,7 @@ impl axum::extract::FromRequestParts<crate::state::AppState> for CallerExtractor
     type Rejection = crate::error::ApiError;
 
     async fn from_request_parts(
-        parts: &mut axum::extract::request::Parts,
+        parts: &mut axum::http::request::Parts,
         state: &crate::state::AppState,
     ) -> Result<Self, Self::Rejection> {
         caller_from_parts(state.identity.as_ref(), parts).map(CallerExtractor)

@@ -1192,7 +1192,7 @@ mod tests {
     fn statements_pin_the_recorded_boundaries() {
         assert!(EXTERNAL_EVENTS_PROPOSED_ONLY_STATEMENT.contains("NEVER an issued command"));
         assert!(EXTERNAL_EVENTS_PROPOSED_ONLY_STATEMENT.contains("structurally PROPOSED"));
-        assert!(OPT_IN_IS_FAIL_CLOSED_STATEMENT.contains("no decision means NO candidate"));
+        assert!(OPT_IN_IS_FAIL_CLOSED_STATEMENT.contains("no decision recorded means NO candidate"));
         assert!(NO_EVENT_CONNECTED_STATEMENT.contains("No market or program event has ever"));
     }
 

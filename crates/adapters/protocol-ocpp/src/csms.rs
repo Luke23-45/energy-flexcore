@@ -132,7 +132,7 @@ pub struct ChargePointConnection {
 
 /// CSMS server errors. Every failure is named; nothing is silently
 /// repaired.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CsmsError {
     /// The manifest is not a manifest for THIS protocol adapter
     /// (composition error, fail-closed).
@@ -590,7 +590,12 @@ mod tests {
         // Wrong adapter id.
         let mut wrong = valid_manifest();
         wrong.adapter_id = "other".to_string();
-        let error = CsmsServer::new(wrong, limits(), security()).expect_err("refused");
+        // CsmsServer carries no Debug, so the refusal is extracted
+        // with a match, not expect_err.
+        let error = match CsmsServer::new(wrong, limits(), security()) {
+            Ok(_) => panic!("a mismatched manifest is refused"),
+            Err(error) => error,
+        };
         assert_eq!(
             error,
             CsmsError::ManifestMismatch {
@@ -668,7 +673,7 @@ mod tests {
         let mut server = CsmsServer::new(valid_manifest(), limits(), security()).expect("valid");
         // Inbound for an unknown charge point is named.
         let error = server
-            .handle_inbound_text(cp_id("ghost"), r#"[2,"id-1","Heartbeat",{}]"#)
+            .handle_inbound_text(&cp_id("ghost"), r#"[2,"id-1","Heartbeat",{}]"#)
             .expect_err("not connected");
         assert!(matches!(error, CsmsError::NotConnected { .. }));
 
@@ -678,7 +683,7 @@ mod tests {
 
         // A charge-point CALL decodes.
         let frame = server
-            .handle_inbound_text(cp_id("depot-cp-001"), r#"[2,"id-1","Heartbeat",{}]"#)
+            .handle_inbound_text(&cp_id("depot-cp-001"), r#"[2,"id-1","Heartbeat",{}]"#)
             .expect("decoded");
         match frame {
             OcppFrame::Call { action, .. } => assert_eq!(action, Action::Heartbeat),
@@ -687,25 +692,25 @@ mod tests {
 
         // A reply that matches no CSMS-initiated CALL is refused WHOLE.
         let error = server
-            .handle_inbound_text(cp_id("depot-cp-001"), r#"[3,"id-9",{}]"#)
+            .handle_inbound_text(&cp_id("depot-cp-001"), r#"[3,"id-9",{}]"#)
             .expect_err("unmatched reply refused");
         assert!(error.to_string().contains("matches no outstanding CALL"));
 
         // Frames are refused on an ended session.
         server
-            .connection_lost(cp_id("depot-cp-001"), "peer close".to_string())
+            .connection_lost(&cp_id("depot-cp-001"), "peer close".to_string())
             .expect("ended");
         let error = server
-            .handle_inbound_text(cp_id("depot-cp-001"), r#"[2,"id-2","Heartbeat",{}]"#)
+            .handle_inbound_text(&cp_id("depot-cp-001"), r#"[2,"id-2","Heartbeat",{}]"#)
             .expect_err("ended session");
         assert!(error.to_string().contains("session state ENDED"));
         // The honest report carries the degraded state with the named
         // reason (connection loss is a transport fact, never an asset
         // judgment).
-        let report = server.connection_report(cp_id("depot-cp-001")).expect("report");
+        let report = server.connection_report(&cp_id("depot-cp-001")).expect("report");
         assert!(matches!(report.state, ConnectionState::Degraded { .. }));
         server
-            .remove_connection(cp_id("depot-cp-001"))
+            .remove_connection(&cp_id("depot-cp-001"))
             .expect("removed");
         assert!(server.connection_snapshot().is_empty());
     }
@@ -720,19 +725,19 @@ mod tests {
         let payload = serde_json::json!({"probe": true});
         let first = UniqueId::new("csms-1".to_string()).expect("valid");
         server
-            .queue_outbound_call(cp_id("depot-cp-001"), Action::GetCompositeSchedule, payload.clone(), first.clone())
+            .queue_outbound_call(&cp_id("depot-cp-001"), Action::GetCompositeSchedule, payload.clone(), first.clone())
             .expect("queued");
 
         // A second CSMS-initiated CALL is refused while the first is
         // outstanding (one-outstanding-CALL per direction).
         let second = UniqueId::new("csms-2".to_string()).expect("valid");
         let error = server
-            .queue_outbound_call(cp_id("depot-cp-001"), Action::GetCompositeSchedule, payload.clone(), second.clone())
+            .queue_outbound_call(&cp_id("depot-cp-001"), Action::GetCompositeSchedule, payload.clone(), second.clone())
             .expect_err("one outstanding per direction");
         assert!(error.to_string().contains("one-outstanding-CALL"));
 
         // Drain preserves order.
-        let drained = server.drain_outbound(cp_id("depot-cp-001")).expect("drained");
+        let drained = server.drain_outbound(&cp_id("depot-cp-001")).expect("drained");
         assert_eq!(drained.len(), 1);
         match &drained[0] {
             OcppFrame::Call { unique_id, action, .. } => {
@@ -744,7 +749,7 @@ mod tests {
 
         // The station's reply matches the outbound tracker.
         server
-            .handle_inbound_text(cp_id("depot-cp-001"), r#"[3,"csms-1",{"status":"Accepted"}]"#)
+            .handle_inbound_text(&cp_id("depot-cp-001"), r#"[3,"csms-1",{"status":"Accepted"}]"#)
             .expect("matched reply");
     }
 
@@ -761,7 +766,7 @@ mod tests {
             .expect("accepted");
         let first = UniqueId::new("csms-1".to_string()).expect("valid");
         server
-            .queue_outbound_call(cp_id("depot-cp-001"), Action::SetChargingProfile, serde_json::json!({}), first)
+            .queue_outbound_call(&cp_id("depot-cp-001"), Action::SetChargingProfile, serde_json::json!({}), first)
             .expect("queued");
         // The queue cap is 1 and one frame is queued; because the
         // one-outstanding-CALL rule already refuses the second CALL, the
@@ -784,7 +789,7 @@ mod tests {
         server
             .accept_connection(cp_id("depot-cp-001"), Subprotocol::Ocpp21)
             .expect("accepted");
-        let report = server.connection_report(cp_id("depot-cp-001")).expect("report");
+        let report = server.connection_report(&cp_id("depot-cp-001")).expect("report");
         assert_eq!(report.state, ConnectionState::Connected);
         assert!(report.detail.contains("NEGOTIATED"));
         assert!(report.detail.contains("profile 3"));

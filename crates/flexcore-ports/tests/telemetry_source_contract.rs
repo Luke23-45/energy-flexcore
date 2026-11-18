@@ -140,7 +140,10 @@ impl Xorshift64Star {
     }
 
     fn next_f64_unit(&mut self) -> f64 {
-        f64::from((self.next_u64() >> 11) as u32) / f64::from(1u32 << 24)
+        // The truncated value is 32 bits wide, so the divisor is 2^32:
+        // dividing by 2^24 (as before) returned [0, 256), which the SOC
+        // decode then refused as outside [0,1].
+        f64::from((self.next_u64() >> 11) as u32) / (1u64 << 32) as f64
     }
 }
 
@@ -729,8 +732,9 @@ fn a_frame_off_the_provided_clock_is_flagged_as_an_event_time_violation() {
     );
     // The clock itself was never moved: the expected times stay the
     // provided scenario clock (the violation is the provider's, not the
-    // clock's).
-    assert_eq!(clock[3], event(BASE_EVENT_MILLIS + 3 * 60_000));
+    // clock's). Two frames per tick (one per asset), so tick 3's frames
+    // are at indices 6 and 7.
+    assert_eq!(clock[6], event(BASE_EVENT_MILLIS + 3 * 60_000));
 }
 
 #[test]

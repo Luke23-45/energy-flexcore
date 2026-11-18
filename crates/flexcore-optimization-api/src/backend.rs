@@ -5,9 +5,10 @@
 //
 // Decision summary (full rationale in the decision note):
 // - Tier 1 (LP / convex QP / MILP) solves execute in the Python optimization
-//   worker via the pinned Python binding (highspy 1.15.1, verified 2026-11-07,
-//   RESEARCH.md §1). This module deliberately contains **no** binding, no
-//   transport, and no solver-specific type.
+//   worker via the pinned Python binding (version 1.15.1, verified 2026-11-07,
+//   RESEARCH.md §1 — the binding is named there, not here: this module
+//   deliberately contains **no** binding, no transport, and no
+//   solver-specific type.
 // - The worker adapter implementing [`Tier1Backend`] lands with P3.19: an
 //   in-process bridge for tests, and the §15.1 gRPC/Protobuf path for
 //   deployment once the Phase 7 protobuf contracts exist. The trait is

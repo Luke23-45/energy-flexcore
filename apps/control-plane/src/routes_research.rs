@@ -447,7 +447,7 @@ fn compose_proposal_dto(proposal: &ResearchProposal) -> ResearchProposalDto {
         (status = 500, description = "The composed research-status source failed (infrastructure — honest, never a fake success)"),
     )
 )]
-async fn get_research_status(
+pub(crate) async fn get_research_status(
     State(state): State<AppState>,
     caller: CallerExtractor,
 ) -> Result<Json<DataEnvelope<ResearchStatusDto>>, ApiError> {
@@ -533,17 +533,19 @@ mod tests {
             .iter()
             .map(|m| m.module_id.as_str())
             .collect();
+        // Recorded order, not alphabetical: the vec is the phase
+        // records' contents recorded verbatim (admm-dmpc first).
         assert_eq!(
             ids,
             vec![
                 "admm-dmpc",
-                "baseline/clarabel-tier2-conic",
-                "baseline/highs-tier1-lp",
-                "baseline/rule-based-priority-list",
-                "dynamic-controller",
-                "gnn-screening",
                 "gnn-warm-start",
+                "gnn-screening",
                 "marl-policy",
+                "dynamic-controller",
+                "baseline/highs-tier1-lp",
+                "baseline/clarabel-tier2-conic",
+                "baseline/rule-based-priority-list",
             ]
         );
         // Every module's evaluation status is an honest gap: TEMPLATE_EMPTY
@@ -594,7 +596,10 @@ mod tests {
             !dynamic.provenance_note.contains("flexcore-research-benchmark-set-v1"),
             "the dynamic track cites the dynamic case reference, never a benchmark-set version (X-5)"
         );
-        assert!(dynamic.provenance_note.contains("dynamic case reference"));
+        // The note cites the field the rows carry ("dynamic_case_ref");
+        // the spaced phrase "dynamic case reference" lives in the
+        // module's open_blockers, not in the provenance note.
+        assert!(dynamic.provenance_note.contains("dynamic_case_ref"));
         let admm = snapshot
             .modules
             .iter()

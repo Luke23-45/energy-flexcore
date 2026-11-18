@@ -85,7 +85,7 @@ pub const ANTI_ROLLBACK_SEQUENCE_FLOOR: u64 = 1;
 pub const UPDATE_BUNDLE_STATEMENT: &str = "the flexcore-edge-update-manifest-v2 format is a \
      FlexCore SIGNED-MANIFEST format shaped by the SUIT manifest concepts (RFC 9019 [S-162]) \
      and the TUF role model (ADR-1801 [S-161]); it is NOT a SUIT CBOR encoding and no \
-     standards-conformance claim is made. No update bundle has ever been produced, signed, \
+     standards-conformance claim is made. An update bundle has never been produced, signed, \
      staged, or applied. The sequence-comparison semantics are the strictly-safer reading \
      and are UNVERIFIED against the TUF/SUIT spec texts. The P9.34 gate remains the \
      verification authority; nothing here bypasses it.";
@@ -517,6 +517,14 @@ impl ExtendedUpdateManifest {
                     } else {
                         format!("{} explicit id(s)", self.applicability.device_ids.len())
                     },
+                    // The fourth placeholder names the allowlist's contents;
+                    // the third named only its size/state.
+                    self.applicability
+                        .device_ids
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", "),
                 ),
             })
         }
@@ -801,6 +809,7 @@ impl AntiRollbackCounter {
 mod tests {
     use super::*;
     use crate::update_verification::TestOnlyFnv1a64UpdateVerifier;
+    use crate::update_verification::UpdateVerifier;
 
     /// A v1 base manifest that passes the P9.34 validation (test-grade
     /// FNV-1a-64 algorithm, the loudly-labelled test verifier).

@@ -118,7 +118,7 @@ impl std::error::Error for RepositoryError {
 /// Platform-level tenant administration is gated by application
 /// authorization (P1.11), not by a context parameter; this exception is
 /// recorded in the crate README and applies to this trait only.
-pub trait TenantRepository {
+pub trait TenantRepository: Send + Sync {
     /// Inserts a new tenant. Conflicts if the primary identifier or the
     /// identity-provider reference uniqueness rule (recorded assumption:
     /// one tenant per identity-provider reference) already has a row.
@@ -149,7 +149,7 @@ pub trait TenantRepository {
 
 /// The repository port for the **Portfolio** aggregate (P0.10 §1 row 2).
 /// Every method takes the caller's `TenantContext` (P0.16 rules 1 and 5).
-pub trait PortfolioRepository {
+pub trait PortfolioRepository: Send + Sync {
     /// Inserts a new portfolio. Refuses a portfolio whose tenant differs
     /// from the context (`TenantMismatch`); conflicts on the identifier or
     /// the tenant-scoped portfolio-name uniqueness rule (recorded
@@ -191,7 +191,7 @@ pub trait PortfolioRepository {
 /// The repository port for the **Site** aggregate (P0.10 §1 row 3). Every
 /// method takes the caller's `TenantContext` (P0.16 rules 1 and 5; rule 7
 /// keeps site edge identities tenant-scoped).
-pub trait SiteRepository {
+pub trait SiteRepository: Send + Sync {
     /// Inserts a new site. Refuses a site whose tenant differs from the
     /// context (`TenantMismatch`); conflicts on the identifier or the
     /// tenant-scoped edge-identity rule (P0.16 rule 7).
@@ -215,7 +215,7 @@ pub trait SiteRepository {
 
 /// The repository port for the **Asset** aggregate (P0.10 §1 row 4). Every
 /// method takes the caller's `TenantContext` (P0.16 rules 1 and 5).
-pub trait AssetRepository {
+pub trait AssetRepository: Send + Sync {
     /// Inserts a new asset. Refuses an asset whose tenant differs from the
     /// context (`TenantMismatch`); conflicts on the identifier or the
     /// asset-name-within-site uniqueness rule (recorded assumption).

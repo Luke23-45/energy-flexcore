@@ -16,14 +16,15 @@ use flexcore_application::error::{ApplicationError, AuthorizationError};
 use flexcore_ports::backend_error::BackendError;
 use flexcore_ports::repository::RepositoryError;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 /// The stable error envelope: `{"error": {"code": ..., "message": ...}}`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorEnvelope {
     pub error: ErrorBody,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorBody {
     pub code: String,
     pub message: String,

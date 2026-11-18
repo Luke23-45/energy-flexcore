@@ -90,6 +90,7 @@
 // hand-computed arithmetic stated in the test comments. The human
 // build/test gate (AGENTS.md rule 7) owns the compile/test evidence.
 
+use std::collections::BTreeMap;
 use serde::Serialize;
 
 /// The formulation version (a formulation change is a NEW version — the
@@ -1072,7 +1073,7 @@ mod tests {
         )
         .expect("valid problem");
         let value = serde_json::to_value(&problem).expect("serializes");
-        let keys: Vec<&str> = value["participants"].as_object().expect("object").keys().collect();
+        let keys: Vec<&str> = value["participants"].as_object().expect("object").keys().map(String::as_str).collect();
         assert_eq!(keys, vec!["alpha", "zeta"]);
         assert_eq!(value["coupling_bound"], serde_json::json!(-4.0));
         assert_eq!(value["interval_hours"], serde_json::json!(0.5));

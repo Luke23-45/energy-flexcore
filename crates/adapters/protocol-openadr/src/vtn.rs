@@ -312,13 +312,7 @@ mod tests {
     fn registration_update_and_deterministic_ordering() {
         let mut registry = VtnRegistry::new("openadr-vtn");
         registry
-            .register(Ven::new(
-                "ven-b".to_string(),
-                "B".to_string(),
-                None,
-                60_000,
-                true,
-            ))
+            .register(accepted_polling_ven("ven-b"))
             .expect("register b");
         registry.register(accepted_polling_ven("ven-a")).expect("register a");
         let ids: Vec<&str> = registry.all().map(|v| v.ven_id.as_str()).collect();
@@ -342,15 +336,11 @@ mod tests {
     #[test]
     fn invalid_ven_records_are_refused_at_registration() {
         let mut registry = VtnRegistry::new("openadr-vtn");
+        // Ven::new refuses the empty id at construction, before the
+        // registry ever sees it: the refusal point is the constructor.
         assert!(matches!(
-            registry.register(Ven::new(
-                String::new(),
-                "x".to_string(),
-                None,
-                60_000,
-                true,
-            )),
-            Err(VtnRegistryError::InvalidVen(ModelError::EmptyField("ven_id")))
+            Ven::new(String::new(), "x".to_string(), None, 60_000, true),
+            Err(ModelError::EmptyField("ven_id"))
         ));
     }
 
@@ -365,7 +355,8 @@ mod tests {
                 None,
                 60_000,
                 false,
-            ))
+            )
+            .expect("valid ven"))
             .expect("register pending");
         assert_eq!(
             registry.resolve_targets(&["ven-z".to_string()]),
@@ -395,7 +386,8 @@ mod tests {
                 Some("https://ven.example/push".to_string()),
                 60_000,
                 true,
-            ))
+            )
+            .expect("valid ven"))
             .expect("register push ven");
         let planner =
             DeliveryPlanner::new("openadr-vtn", vec![DeliveryMode::Push, DeliveryMode::Polling])

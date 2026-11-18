@@ -511,7 +511,7 @@ mod tests {
         assert!(DISPUTES_REFERENCE_THE_QUEUE_STATEMENT.contains("P16.09"));
         assert!(DISPUTES_REFERENCE_THE_QUEUE_STATEMENT.contains("unconstructable"));
         assert!(BUNDLES_INHERIT_THE_P11_CHAIN_STATEMENT.contains("P11 chain treatment"));
-        assert!(BUNDLES_INHERIT_THE_P11_CHAIN_STATEMENT.contains("64 hex"));
+        assert!(BUNDLES_INHERIT_THE_P11_CHAIN_STATEMENT.contains("64-hex"));
         assert!(NO_DISPUTE_EXISTS_STATEMENT.contains("No dispute exists"));
     }
 

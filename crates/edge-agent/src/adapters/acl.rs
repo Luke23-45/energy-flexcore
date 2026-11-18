@@ -931,13 +931,14 @@ mod tests {
             "edge:pilot-site-A:openems-rest",
             vec![],
         );
-        assert_eq!(
-            bad,
-            Err(AclError::UnitQuantityMismatch {
+        let error = bad.expect_err("W against Energy is a construction error");
+        assert!(matches!(
+            error,
+            AclError::UnitQuantityMismatch {
                 unit: NativeUnit::W,
                 quantity: TelemetryQuantity::Energy
-            })
-        );
+            }
+        ));
         // Reactive without a declared convention: refused (no default).
         let bad = AntiCorruptionLayer::new(
             vec![PointMapping {
@@ -951,7 +952,10 @@ mod tests {
             "edge:pilot-site-A:openems-rest",
             vec![],
         );
-        assert_eq!(bad, Err(AclError::ReactiveConventionNotDeclared));
+        assert!(matches!(
+            bad.expect_err("reactive without a declared convention is refused"),
+            AclError::ReactiveConventionNotDeclared
+        ));
         // Active without a declared native sign: refused (no default).
         let bad = AntiCorruptionLayer::new(
             vec![PointMapping {
@@ -965,13 +969,16 @@ mod tests {
             "edge:pilot-site-A:openems-rest",
             vec![],
         );
-        assert_eq!(bad, Err(AclError::ActiveSignNotDeclared));
+        assert!(matches!(
+            bad.expect_err("active without a declared native sign is refused"),
+            AclError::ActiveSignNotDeclared
+        ));
         // Reserved-namespace source prefix: refused.
         let bad = AntiCorruptionLayer::new(vec![], "flexcore:sneaky", vec![]);
-        assert_eq!(
-            bad,
-            Err(AclError::Sample(EdgeSampleError::ReservedSourceNamespace))
-        );
+        assert!(matches!(
+            bad.expect_err("a reserved-namespace source prefix is refused"),
+            AclError::Sample(EdgeSampleError::ReservedSourceNamespace)
+        ));
     }
 
     // --- Unmapped points and mismatched points ------------------------------

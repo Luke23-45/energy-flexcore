@@ -736,8 +736,14 @@ impl Drop for EdgeChainKey {
     fn drop(&mut self) {
         // Best-effort zeroization (volatile writes; compiler-made copies
         // are out of scope — the honest wording is best-effort).
+        // SAFETY: `byte` is a live `&mut u8` into `self.0`; the write is
+        // in-bounds and the pointer is valid for the write (the standard
+        // zeroize idiom; same shape as the audit-chain `Drop` in
+        // flexcore-audit).
         for byte in self.0.iter_mut() {
-            std::ptr::write_volatile(byte as *mut u8, 0);
+            unsafe {
+                std::ptr::write_volatile(byte as *mut u8, 0);
+            }
         }
     }
 }
@@ -1116,9 +1122,17 @@ mod tests {
         let mut edited = records.clone();
         edited[1].detail = "tampered".to_string();
         assert_ne!(recompute_chain_head(&edited).expect("computes"), head);
-        // A reorder changes the head.
+        // A reorder is refused outright: the reordered set is non-monotonic
+        // (3 then 2), and the chain never computes a head over a reordered
+        // set -- the tamper is detected by the refusal, not by a changed head.
         let reordered = vec![record(1, "a"), record(3, "c"), record(2, "b")];
-        assert_ne!(recompute_chain_head(&reordered).expect("computes"), head);
+        assert!(matches!(
+            recompute_chain_head(&reordered),
+            Err(AuditChainError::NonMonotonicSequence {
+                previous_sequence: 3,
+                found_sequence: 2
+            })
+        ));
         // A deletion changes the head AND the count.
         let deleted = vec![record(1, "a"), record(3, "c")];
         assert_ne!(recompute_chain_head(&deleted).expect("computes"), head);
@@ -1200,12 +1214,16 @@ mod tests {
             recompute_keyed_chain_head(&key, None, &kind_changed).expect("computes"),
             head
         );
-        // A reorder changes the head; a deletion too.
+        // A reorder is refused outright (the reordered set is non-monotonic:
+        // 3 then 2); a deletion changes the head.
         let reordered = vec![record(1, "a"), record(3, "c"), record(2, "b")];
-        assert_ne!(
-            recompute_keyed_chain_head(&key, None, &reordered).expect("computes"),
-            head
-        );
+        assert!(matches!(
+            recompute_keyed_chain_head(&key, None, &reordered),
+            Err(AuditChainError::NonMonotonicSequence {
+                previous_sequence: 3,
+                found_sequence: 2
+            })
+        ));
         let deleted = vec![record(1, "a"), record(3, "c")];
         assert_ne!(
             recompute_keyed_chain_head(&key, None, &deleted).expect("computes"),

@@ -54,7 +54,7 @@ use std::collections::BTreeMap;
 use flexcore_contracts::quality::TelemetryQuality;
 use flexcore_contracts::units::StateOfCharge;
 use flexcore_mqtt_adapter::model::{
-    BdSeq, EdgeNodeId, GroupId, SparkplugMessageKind, SparkplugPayload, SparkplugSeq,
+    BdSeq, SparkplugMessageKind, SparkplugPayload, SparkplugSeq,
 };
 use flexcore_mqtt_adapter::topic::ValidatedTopic;
 use flexcore_mqtt_adapter::transport::{
@@ -262,7 +262,11 @@ pub struct SparkplugUplinkChannel<'t> {
     /// The declared uplink identity (group + edge node).
     pub plan: SparkplugUplinkPlan,
     /// The injected wire seam transport (shipped default: refusing).
-    pub transport: &'t mut dyn MqttUplinkTransport,
+    /// `+ Send`: `UplinkChannel: Send` (ports.rs), and the channel holds
+    /// this reference — the transport itself declares no `Send` supertrait
+    /// (its implementors are Send; the bound lives at the object site, the
+    /// same shape as `Arc<dyn Clock + Send + Sync>` in the runner).
+    pub transport: &'t mut (dyn MqttUplinkTransport + Send),
     /// The declared fleet budget.
     pub budget: FleetUplinkBudget,
     /// The message-sequence state (continues per forward).
@@ -276,7 +280,7 @@ impl<'t> SparkplugUplinkChannel<'t> {
     /// Declares the channel over an identity, a transport, and a budget.
     pub fn new(
         plan: SparkplugUplinkPlan,
-        transport: &'t mut dyn MqttUplinkTransport,
+        transport: &'t mut (dyn MqttUplinkTransport + Send),
         budget: FleetUplinkBudget,
     ) -> Self {
         Self { plan, transport, budget, seq: 0, bd_seq: BdSeq::initial() }
@@ -498,10 +502,11 @@ mod tests {
     use crate::ports::EdgeTelemetrySampleParts;
     use flexcore_contracts::time_model::{EventTime, IngestTime};
     use flexcore_contracts::units::ActivePowerMW;
+    use flexcore_mqtt_adapter::model::{EdgeNodeId, GroupId};
     use flexcore_mqtt_adapter::transport::UnwiredUplinkTransport;
 
-    fn sample(quantity: TelemetryQuantity, value: QuantityValue) -> EdgeTelemetrySample {
-        EdgeTelemetrySample::new(EdgeTelemetrySampleParts {
+    fn sample_parts(quantity: TelemetryQuantity, value: QuantityValue) -> EdgeTelemetrySampleParts {
+        EdgeTelemetrySampleParts {
             asset_key: "ess-01".to_string(),
             quantity,
             value,
@@ -511,8 +516,11 @@ mod tests {
             ingest_time: IngestTime::from_unix_millis(2_000).expect("valid"),
             source_sequence: 1,
             source_id: "edge:pilot-site-A:openems-rest:ess-01:x".to_string(),
-        })
-        .expect("valid sample")
+        }
+    }
+
+    fn sample(quantity: TelemetryQuantity, value: QuantityValue) -> EdgeTelemetrySample {
+        EdgeTelemetrySample::new(sample_parts(quantity, value)).expect("valid sample")
     }
 
     fn budget() -> FleetUplinkBudget {
@@ -557,13 +565,24 @@ mod tests {
         ))
         .expect_err("unmapped");
         assert!(matches!(error, EdgeMappingError::QuantityNotMapped { quantity: "health" }));
-        // A mapped quantity with the wrong value kind (bad composition).
-        let error = uplink_point_for(&sample(
+        // A mapped quantity with the wrong value kind (bad composition) is
+        // refused at CONSTRUCTION: EdgeTelemetrySample::new enforces the
+        // frozen P2.04 pairing (quantity.accepts(value)), so such a sample
+        // can never reach the mapping layer. The mapping's ValueKindMismatch
+        // arm is defence-in-depth for that already-refused composition
+        // (MappedQuantity::ALL is exactly the four quantities, each
+        // accepting exactly one value kind, which the match arms accept).
+        let error = EdgeTelemetrySample::new(sample_parts(
             TelemetryQuantity::ActivePower,
             QuantityValue::Flag(true),
         ))
-        .expect_err("kind mismatch");
-        assert!(matches!(error, EdgeMappingError::ValueKindMismatch { .. }));
+        .expect_err("kind mismatch refused at construction");
+        assert!(matches!(
+            error,
+            crate::ports::EdgeSampleError::ValueQuantityMismatch {
+                quantity: TelemetryQuantity::ActivePower
+            }
+        ));
     }
 
     #[test]

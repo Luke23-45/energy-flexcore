@@ -945,7 +945,10 @@ fn run_exact_replay_end_to_end() -> Vec<String> {
         .expect_err("an exact replay of an issued command must not re-issue");
     match error {
         DispatchAdapterError::WrongState { current, operation } => {
-            assert_eq!(current, CommandState::Issued);
+            // The first issue already acknowledged (issue + acknowledgement
+            // is one adapter call), so the command is ACKNOWLEDGED, not
+            // ISSUED — the replay is still refused by state.
+            assert_eq!(current, CommandState::Acknowledged);
             assert_eq!(operation, "issue");
         }
         other => panic!("unexpected error: {other:?}"),
@@ -1193,7 +1196,9 @@ fn run_redelivered_event() -> Vec<String> {
     let error = adapter
         .issue(&context(), &command, &decision_record, &actor("svc:dispatcher"))
         .expect_err("a redelivered command cannot re-issue");
-    assert!(matches!(error, DispatchAdapterError::WrongState { current: CommandState::Issued, .. }));
+    // The first issue already acknowledged (issue + acknowledgement is
+    // one adapter call), so the command is ACKNOWLEDGED here.
+    assert!(matches!(error, DispatchAdapterError::WrongState { current: CommandState::Acknowledged, .. }));
     outcome.push("redelivered_command_refused_by_state".to_string());
 
     // Exactly one effective command per idempotency key; exactly one

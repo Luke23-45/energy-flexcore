@@ -465,15 +465,19 @@ fn uc_sc_03_reconciliation_is_like_with_like_and_mismatches_are_named() {
     let plan = composed_plan();
     let request = into_relay_request(&plan, CommandState::Issued, 1).expect("issued");
     let payload = serde_json::to_value(&request).expect("serializes");
-    // The matching composite reconciles Aligned.
+    // The matching composite reconciles Aligned. The composite is the
+    // station's OWN report (a GetCompositeSchedule response): the request
+    // carries the schedule flat under `chargingSchedule`, the response
+    // carries it as a top-level `schedule`.
+    let composite = serde_json::json!({ "schedule": payload["chargingSchedule"].clone() });
     let observation =
-        parse_composite_schedule_response(&payload, plan.rate_unit).expect("decoded");
+        parse_composite_schedule_response(&composite, plan.rate_unit).expect("decoded");
     assert_eq!(
         reconcile_composite_schedule(&plan, &observation),
         ReconciliationOutcome::Aligned
     );
     // A unit mismatch is refused (like-with-like only).
-    assert!(parse_composite_schedule_response(&payload, RateUnit::A).is_err());
+    assert!(parse_composite_schedule_response(&composite, RateUnit::A).is_err());
     // A drifted composite yields a NAMED mismatch — never a silent pass,
     // never an adapter-side retry.
     let drifted = serde_json::json!({

@@ -24,7 +24,8 @@
 use flexcore_application::bid_composition::{
     compose_bid, AssetBidInput, ComposedBidRecord, MarketBidGrant, MarketStructureDeclaration,
 };
-use flexcore_application::market_price_records::{MarketPriceRecord, PriceSourceClass};
+use flexcore_application::market_price_records::MarketPriceRecord;
+use flexcore_ports::price_signal::PriceSourceClass;
 use flexcore_application::settlement_models::{
     extract_pjm_m29_bli_csv, PjmBliLineItem,
 };
@@ -571,7 +572,7 @@ mod tests {
         // assets per interval, so the sums equal the single asset's
         // quantities exactly.
         match &record.bid {
-            ComposedBidRecord::PjmAggregationBid { intervals, contributing_assets, envelope_refs } => {
+            ComposedBidRecord::PjmAggregationBid { intervals, contributing_assets, envelope_refs, .. } => {
                 assert_eq!(intervals.len(), 4);
                 let sums: Vec<f64> = intervals.iter().map(|b: &BidInterval| b.quantity_mw).collect();
                 assert_eq!(sums, vec![1.5, 1.5, 2.0, 2.0]);

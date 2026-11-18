@@ -27,8 +27,8 @@ use flexcore_contracts::time_model::{EventTime, IngestTime};
 use flexcore_contracts::units::ActivePowerMW;
 use flexcore_edge_agent::config::{ConfigError, EdgeConfig};
 use flexcore_edge_agent::ports::{
-    EdgeError, EdgeTelemetrySample, EdgeTelemetrySampleParts, FailClosedEmsSource,
-    FailClosedUplink, InMemoryAuditSink, InMemoryLocalBuffer, LocalBuffer,
+    EdgeError, EdgeTelemetrySample, EdgeTelemetrySampleParts, EmsSource, FailClosedEmsSource,
+    FailClosedUplink, InMemoryAuditSink, InMemoryLocalBuffer, LocalBuffer, UplinkChannel,
 };
 use flexcore_edge_agent::runner::{EdgeRunner, RunnerParams, TickReport};
 use flexcore_ports::clock::Clock;
@@ -325,7 +325,10 @@ async fn runner_with_fail_closed_ports_keeps_buffering_and_audits() {
     assert_eq!(last.forwarded, 0);
     assert_eq!(last.polled, 0);
     assert!(last.poll_failed);
-    assert!(last.degraded);
+    // NOT degraded: degraded mode is entered ONLY on a forward failure
+    // (runner.rs) — a failing source polls nothing, so no forward is ever
+    // attempted and no batch is ever buffered to fail.
+    assert!(!last.degraded);
     let events = audit.events();
     assert!(
         events
@@ -364,6 +367,6 @@ fn clock_port_serves_both_timestamp_views() {
     let clock = FixedClock::at_unix_millis(BASE_MILLIS);
     let event: EventTime = clock.now_event_time();
     let ingest: IngestTime = clock.now_ingest_time();
-    assert_eq!(event.unix_millis(), BASE_MILLIS);
-    assert_eq!(ingest.unix_millis(), BASE_MILLIS);
+    assert_eq!(event.unix_millis(), BASE_MILLIS.into());
+    assert_eq!(ingest.unix_millis(), BASE_MILLIS.into());
 }

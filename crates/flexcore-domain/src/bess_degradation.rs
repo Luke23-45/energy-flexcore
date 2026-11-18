@@ -296,7 +296,15 @@ impl MonotonicCounter {
             return Err(DegradationLedgerError::CounterReversed { field: "counter_delta", delta });
         }
         self.value += delta;
-        self.provenance = weaker_provenance(self.provenance, provenance);
+        // A fresh counter's UNKNOWN means "no observations yet", not an
+        // observed UNKNOWN: the first observation sets the provenance.
+        // Later observations merge weakest-wins, so an observed UNKNOWN
+        // then sticks forever.
+        if self.observations == 0 {
+            self.provenance = provenance;
+        } else {
+            self.provenance = weaker_provenance(self.provenance, provenance);
+        }
         self.observations += 1;
         Ok(())
     }
@@ -345,13 +353,24 @@ pub struct DodMeanSocHistogram {
 
 impl DodMeanSocHistogram {
     /// Constructs a histogram from declared, strictly ascending bin edges.
-    /// Both edge tables must contain at least two edges in [0, 1]; DOD edges
-    /// must start at 0.0 (a cycle of depth zero is not a cycle) and the last
-    /// edge must be 1.0 for both tables so every value in [0, 1] resolves to
-    /// exactly one bin.
+    /// Both edge tables must contain at least two edges in [0, 1]; both
+    /// tables must start at 0.0 (a cycle of depth zero is not a cycle, and
+    /// a mean SOC below the first edge would otherwise resolve to no bin)
+    /// and the last edge must be 1.0 for both tables so every value in
+    /// [0, 1] resolves to exactly one bin.
     pub fn new(dod_bin_edges: Vec<f64>, mean_soc_bin_edges: Vec<f64>) -> Result<Self, DegradationLedgerError> {
-        validate_edges(&dod_bin_edges, "dod_bin_edges", true)?;
-        validate_edges(&mean_soc_bin_edges, "mean_soc_bin_edges", false)?;
+        validate_edges(
+            &dod_bin_edges,
+            "dod_bin_edges",
+            true,
+            "the first DOD edge must be 0.0 (a zero-depth cycle is not a cycle)",
+        )?;
+        validate_edges(
+            &mean_soc_bin_edges,
+            "mean_soc_bin_edges",
+            true,
+            "the first mean-SOC edge must be 0.0 so every value in [0,1] resolves to exactly one bin",
+        )?;
         let dod_bins = dod_bin_edges.len() - 1;
         let soc_bins = mean_soc_bin_edges.len() - 1;
         Ok(Self {
@@ -390,11 +409,17 @@ impl DodMeanSocHistogram {
         }
         let dod_bin = bin_index(&self.dod_bin_edges, dod);
         let soc_bin = bin_index(&self.mean_soc_bin_edges, mean_soc);
-        let dod_bins = self.dod_bin_edges.len() - 1;
+        let _dod_bins = self.dod_bin_edges.len() - 1;
         let soc_bins = self.mean_soc_bin_edges.len() - 1;
         let index = dod_bin * soc_bins + soc_bin;
         self.counts[index] += 1;
-        self.provenance = weaker_provenance(self.provenance, provenance);
+        // As in MonotonicCounter::record: a fresh histogram's UNKNOWN means
+        // "no cycles yet"; the first recorded cycle sets the provenance.
+        if self.total_cycles() == 1 {
+            self.provenance = provenance;
+        } else {
+            self.provenance = weaker_provenance(self.provenance, provenance);
+        }
         Ok(())
     }
 
@@ -426,8 +451,14 @@ impl DodMeanSocHistogram {
 
 /// Validates a bin-edge table: at least two edges, finite, strictly
 /// ascending, within [0, 1]; `must_start_at_zero` pins the first edge to 0.0
-/// (DOD) and every table's last edge to 1.0 (total coverage).
-fn validate_edges(edges: &[f64], field: &'static str, must_start_at_zero: bool) -> Result<(), DegradationLedgerError> {
+/// and every table's last edge to 1.0 (total coverage: every value in [0, 1]
+/// resolves to exactly one bin).
+fn validate_edges(
+    edges: &[f64],
+    field: &'static str,
+    must_start_at_zero: bool,
+    first_edge_reason: &'static str,
+) -> Result<(), DegradationLedgerError> {
     if edges.len() < 2 {
         return Err(DegradationLedgerError::InvalidBinEdges {
             field,
@@ -456,7 +487,7 @@ fn validate_edges(edges: &[f64], field: &'static str, must_start_at_zero: bool) 
     if must_start_at_zero && edges[0] != 0.0 {
         return Err(DegradationLedgerError::InvalidBinEdges {
             field,
-            reason: "the first DOD edge must be 0.0 (a zero-depth cycle is not a cycle)",
+            reason: first_edge_reason,
         });
     }
     if edges[edges.len() - 1] != 1.0 {
@@ -491,6 +522,7 @@ pub struct TemperatureExposure {
     band_edges_c: Vec<f64>,
     seconds_per_band: Vec<u64>,
     provenance: Provenance,
+    observations: u64,
 }
 
 impl TemperatureExposure {
@@ -519,6 +551,7 @@ impl TemperatureExposure {
             seconds_per_band: vec![0u64; band_edges_c.len() - 1],
             band_edges_c,
             provenance: Provenance::Unknown,
+            observations: 0,
         })
     }
 
@@ -545,7 +578,12 @@ impl TemperatureExposure {
         }
         let band = bin_index(&self.band_edges_c, temperature_c);
         self.seconds_per_band[band] += seconds;
-        self.provenance = weaker_provenance(self.provenance, provenance);
+        if self.observations == 0 {
+            self.provenance = provenance;
+        } else {
+            self.provenance = weaker_provenance(self.provenance, provenance);
+        }
+        self.observations += 1;
         Ok(())
     }
 
@@ -568,6 +606,11 @@ impl TemperatureExposure {
     pub fn total_seconds(&self) -> u64 {
         self.seconds_per_band.iter().sum()
     }
+
+    /// The number of recorded exposure observations.
+    pub fn observations(&self) -> u64 {
+        self.observations
+    }
 }
 
 // --- High-SOC dwell -------------------------------------------------------------
@@ -580,6 +623,7 @@ pub struct HighSocDwell {
     soc_threshold: f64,
     dwell_seconds: u64,
     provenance: Provenance,
+    observations: u64,
 }
 
 impl HighSocDwell {
@@ -604,6 +648,7 @@ impl HighSocDwell {
             soc_threshold,
             dwell_seconds: 0,
             provenance: Provenance::Unknown,
+            observations: 0,
         })
     }
 
@@ -627,7 +672,12 @@ impl HighSocDwell {
         if soc >= self.soc_threshold {
             self.dwell_seconds += seconds;
         }
-        self.provenance = weaker_provenance(self.provenance, provenance);
+        if self.observations == 0 {
+            self.provenance = provenance;
+        } else {
+            self.provenance = weaker_provenance(self.provenance, provenance);
+        }
+        self.observations += 1;
         Ok(())
     }
 
@@ -644,6 +694,12 @@ impl HighSocDwell {
     /// The merged provenance (the weakest observed).
     pub fn provenance(&self) -> Provenance {
         self.provenance
+    }
+
+    /// The number of recorded dwell observations (including below-threshold
+    /// zero-contribution ones).
+    pub fn observations(&self) -> u64 {
+        self.observations
     }
 }
 
@@ -941,10 +997,12 @@ mod tests {
             counter.record(-0.5, Provenance::Measured),
             Err(DegradationLedgerError::CounterReversed { field: "counter_delta", delta: -0.5 })
         );
-        assert_eq!(
+        // NaN never equals NaN, so assert_eq cannot compare two
+        // NonFiniteValue errors carrying NaN; match the variant instead.
+        assert!(matches!(
             counter.record(f64::NAN, Provenance::Measured),
-            Err(DegradationLedgerError::NonFiniteValue { field: "counter_delta", value: f64::NAN })
-        );
+            Err(DegradationLedgerError::NonFiniteValue { field: "counter_delta", .. })
+        ));
         // Refused deltas change nothing.
         assert_eq!(counter.value(), 1.0);
     }
@@ -957,7 +1015,8 @@ mod tests {
             DodMeanSocHistogram::new(vec![0.0, 0.25, 0.5, 1.0], vec![0.0, 0.5, 1.0]).unwrap();
         // DOD 0.3 -> bin 1; mean SOC 0.4 -> bin 0.
         histogram.record_cycle(0.3, 0.4, Provenance::Measured).unwrap();
-        // DOD 0.6 -> bin 2; mean SOC exactly 0.5 -> bin 0 (lower edge inclusive).
+        // DOD 0.6 -> bin 2; mean SOC exactly 0.5 -> bin 1 (lower edge
+        // inclusive: 0.5 is the lower edge of the [0.5, 1.0] bin).
         histogram.record_cycle(0.6, 0.5, Provenance::Measured).unwrap();
         // DOD exactly 1.0 -> last bin; mean SOC 1.0 -> last bin.
         histogram.record_cycle(1.0, 1.0, Provenance::Measured).unwrap();
@@ -965,8 +1024,8 @@ mod tests {
         let soc_bins = 2;
         assert_eq!(histogram.counts().len(), dod_bins * soc_bins);
         assert_eq!(histogram.counts()[1 * soc_bins + 0], 1);
-        assert_eq!(histogram.counts()[2 * soc_bins + 0], 1);
-        assert_eq!(histogram.counts()[2 * soc_bins + 1], 1);
+        assert_eq!(histogram.counts()[2 * soc_bins + 0], 0);
+        assert_eq!(histogram.counts()[2 * soc_bins + 1], 2);
         assert_eq!(histogram.total_cycles(), 3);
         assert_eq!(histogram.provenance(), Provenance::Measured);
     }
@@ -990,7 +1049,7 @@ mod tests {
     fn histogram_edges_are_validated() {
         assert!(matches!(
             DodMeanSocHistogram::new(vec![0.0, 0.5, 1.0], vec![0.2, 1.0]),
-            Err(DegradationLedgerError::InvalidBinEdges { field: "dod_bin_edges", .. })
+            Err(DegradationLedgerError::InvalidBinEdges { field: "mean_soc_bin_edges", .. })
         ));
         assert!(matches!(
             DodMeanSocHistogram::new(vec![0.0, 0.5, 0.9], vec![0.0, 1.0]),
@@ -1012,10 +1071,12 @@ mod tests {
     fn temperature_exposure_accumulates_declared_bands() {
         let mut exposure = TemperatureExposure::new(vec![0.0, 25.0, 45.0]).unwrap();
         exposure.record_exposure(10.0, 3600, Provenance::Measured).unwrap();
-        // Exactly on an upper edge resolves to that band (lower-inclusive).
+        // Exactly on an interior edge resolves to the band it opens
+        // (lower-inclusive); the last edge closes the last band, so 45.0
+        // also lands in band 1. Three edges declare two bands.
         exposure.record_exposure(25.0, 120, Provenance::Measured).unwrap();
         exposure.record_exposure(45.0, 60, Provenance::Measured).unwrap();
-        assert_eq!(exposure.seconds_per_band(), &[3600, 120, 60]);
+        assert_eq!(exposure.seconds_per_band(), &[3600, 180]);
         assert_eq!(exposure.total_seconds(), 3780);
     }
 
@@ -1108,7 +1169,7 @@ mod tests {
         // UNKNOWN-provenance usable energy carries a NaN value and is
         // refused at construction: non-finite model parameters are refused
         // everywhere, per the P3.05 `require_finite` posture.)
-        let zero_energy = BessDegradationLedger::new(
+        let mut zero_energy = BessDegradationLedger::new(
             asset(),
             DegradationChemistry::Nmc,
             ProvenancedValue::configured(0.0),

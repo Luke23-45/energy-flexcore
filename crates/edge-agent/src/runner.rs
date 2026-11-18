@@ -113,7 +113,7 @@ pub struct EdgeRunner {
     source: Box<dyn EmsSource>,
     uplink: Box<dyn UplinkChannel>,
     buffer: Box<dyn LocalBuffer>,
-    audit: Arc<dyn AuditSinkAlias>,
+    audit: Arc<AuditSinkAlias>,
     // The P1.07 `Clock` trait declares no Send/Sync supertrait, so the
     // trait object carries them explicitly — the runner is spawned on the
     // tokio runtime and must be Send. (`FixedClock` and [`crate::clock::WallClock`]
@@ -137,7 +137,7 @@ impl EdgeRunner {
         source: Box<dyn EmsSource>,
         uplink: Box<dyn UplinkChannel>,
         buffer: Box<dyn LocalBuffer>,
-        audit: Arc<dyn AuditSinkAlias>,
+        audit: Arc<AuditSinkAlias>,
         clock: Arc<dyn Clock + Send + Sync>,
     ) -> Self {
         Self {
@@ -438,7 +438,7 @@ mod tests {
             Box::new(ScriptedSource::serving(vec![1, 2, 3, 4], false)),
             Box::new(FlakyUplink::failing_first(0)),
             Box::new(InMemoryLocalBuffer::new(100)),
-            Arc::clone(&sink) as Arc<dyn AuditSinkAlias>,
+            Arc::clone(&sink) as Arc<AuditSinkAlias>,
             Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)),
         );
         let report = runner.tick();
@@ -459,7 +459,7 @@ mod tests {
             Box::new(ScriptedSource::serving(vec![1, 2, 3, 4, 5], false)),
             Box::new(FlakyUplink::failing_first(2)),
             Box::new(InMemoryLocalBuffer::new(100)),
-            Arc::clone(&sink) as Arc<dyn AuditSinkAlias>,
+            Arc::clone(&sink) as Arc<AuditSinkAlias>,
             Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)),
         );
         // Tick 1: poll 5, buffer 5, forward batch of 2 FAILS → degraded,
@@ -505,7 +505,7 @@ mod tests {
             Box::new(ScriptedSource::serving(vec![1, 2, 3, 4, 5, 6], false)),
             Box::new(FailClosedUplink),
             Box::new(InMemoryLocalBuffer::new(3)),
-            Arc::clone(&sink) as Arc<dyn AuditSinkAlias>,
+            Arc::clone(&sink) as Arc<AuditSinkAlias>,
             Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)),
         );
         let _ = runner.tick(); // polls 3 (capacity), forward fails, buffer 3
@@ -531,7 +531,7 @@ mod tests {
             Box::new(FailClosedEmsSource),
             Box::new(FlakyUplink::failing_first(0)),
             Box::new(InMemoryLocalBuffer::new(100)),
-            Arc::clone(&sink) as Arc<dyn AuditSinkAlias>,
+            Arc::clone(&sink) as Arc<AuditSinkAlias>,
             Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)),
         );
         let report = runner.tick();

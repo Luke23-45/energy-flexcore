@@ -235,6 +235,23 @@ fn a_command_that_never_reached_acknowledgement_yields_no_latency_sample() {
             &clock,
         )
         .expect("validation");
+    clock.advance_to(1_500);
+    lifecycle
+        .record_feasibility(
+            GateOutcome::pass(EvidenceReference::new("feasibility:sim").expect("evidence")),
+            actor.clone(),
+            &clock,
+        )
+        .expect("feasibility");
+    lifecycle
+        .record_authorization(
+            AuthorizationOutcome::approve(
+                EvidenceReference::new("authz:sim").expect("evidence"),
+                actor.clone(),
+            ),
+            &clock,
+        )
+        .expect("authorization");
     clock.advance_to(2_000);
     lifecycle
         .record_issue(

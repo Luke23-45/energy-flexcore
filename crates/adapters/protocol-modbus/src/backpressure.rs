@@ -23,7 +23,7 @@
 // stays so).
 
 use flexcore_protocol_ports::observability::{
-    BoundedQueuePolicy, BudgetError, MessageRateBudget, QueueOverflowPolicy, RateRefusal,
+    BoundedQueuePolicy, BudgetError, MessageRateBudget, RateRefusal,
 };
 
 use crate::polling::GatewayPollingBudget;
@@ -36,12 +36,22 @@ pub enum ModbusBackpressureError {
     /// reason so the refusal maps 1:1 onto the
     /// `flexcore_protocol_adapter_messages_refused_total` label values).
     Budget(BudgetError),
+    /// The gateway polling budget refused a planned read/scan, carried
+    /// under the adapter's closed refusal vocabulary
+    /// ([`map_budget_error`]). The shared `BudgetError` has no faithful
+    /// spelling for "read too large" / "device budget exceeded" /
+    /// "interval too fast", so the refusal keeps its own name rather than
+    /// being mislabelled as a rate refusal.
+    Refusal(ModbusReadRefusal),
 }
 
 impl std::fmt::Display for ModbusBackpressureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ModbusBackpressureError::Budget(error) => write!(f, "{error}"),
+            ModbusBackpressureError::Refusal(refusal) => {
+                write!(f, "the gateway polling budget refused the plan: {}", refusal.name())
+            }
         }
     }
 }
@@ -51,6 +61,16 @@ impl std::error::Error for ModbusBackpressureError {}
 impl From<BudgetError> for ModbusBackpressureError {
     fn from(error: BudgetError) -> Self {
         ModbusBackpressureError::Budget(error)
+    }
+}
+
+impl From<crate::polling::BudgetError> for ModbusBackpressureError {
+    fn from(error: crate::polling::BudgetError) -> Self {
+        // The file's own total mapping (`map_budget_error`); only
+        // ReadTooLarge / DeviceBudgetExceeded / IntervalTooFast can arise
+        // from the `assert_*` calls (polling.rs), so the Undeclared arm of
+        // that mapping never fires on this path.
+        ModbusBackpressureError::Refusal(map_budget_error(&error))
     }
 }
 
@@ -194,6 +214,7 @@ impl GatewayBackpressure {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flexcore_protocol_ports::observability::QueueOverflowPolicy;
 
     fn budget() -> GatewayPollingBudget {
         GatewayPollingBudget::new(100, 4, 2_000).expect("valid gateway budget")
@@ -218,24 +239,29 @@ mod tests {
     #[test]
     fn refused_reads_and_scans_surface_the_owning_budgets_errors() {
         let bp = GatewayBackpressure::new(budget(), queue()).expect("valid posture");
+        // The polling budget's refusals surface under the ADAPTER's closed
+        // vocabulary (`map_budget_error`), NOT as the shared `Budget`
+        // variant: the shared `BudgetError` has no faithful spelling for
+        // "read too large" / "device budget exceeded" / "interval too
+        // fast", so the refusal keeps its own name rather than being
+        // mislabelled as a rate refusal (the `Refusal` variant's doc;
+        // `budget_error_mapping_is_total_and_constant` pins the mapping).
+        // The `Budget` variant is for the SHARED vocabulary refusals
+        // (message-rate / queue admission) — see `admit_plan` below.
         assert_eq!(
             bp.assert_read_fits(101),
-            Err(ModbusBackpressureError::Budget(BudgetError::Refused(
-                RateRefusal::RateExceeded
-            )))
+            Err(ModbusBackpressureError::Refusal(ModbusReadRefusal::ReadTooLarge))
         );
         assert!(bp.assert_read_fits(100).is_ok());
         assert_eq!(
             bp.assert_scan_fits(5, 2_000),
-            Err(ModbusBackpressureError::Budget(BudgetError::Refused(
-                RateRefusal::RateExceeded
-            )))
+            Err(ModbusBackpressureError::Refusal(
+                ModbusReadRefusal::DeviceBudgetExceeded
+            ))
         );
         assert_eq!(
             bp.assert_scan_fits(4, 1_999),
-            Err(ModbusBackpressureError::Budget(BudgetError::Refused(
-                RateRefusal::RateExceeded
-            )))
+            Err(ModbusBackpressureError::Refusal(ModbusReadRefusal::IntervalTooFast))
         );
     }
 

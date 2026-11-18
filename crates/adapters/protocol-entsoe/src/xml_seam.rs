@@ -405,7 +405,10 @@ mod tests {
     #[test]
     fn a_missing_required_element_refuses_the_whole_extraction() {
         let mut tree = fixture_tree();
-        let series = tree.children[0]
+        // The TimeSeries IS the document's first child (fixture_tree);
+        // searching among ITS children finds no TimeSeries (its children
+        // are in/out-domain, currency, period).
+        let series = tree
             .children
             .iter_mut()
             .find(|c| c.tag == A44_ELEMENT_TIME_SERIES)
@@ -418,7 +421,10 @@ mod tests {
     #[test]
     fn a_non_contiguous_position_refuses_the_whole_extraction() {
         let mut tree = fixture_tree();
-        let series = tree.children[0]
+        // The TimeSeries IS the document's first child (fixture_tree);
+        // searching among ITS children finds no TimeSeries (its children
+        // are in/out-domain, currency, period).
+        let series = tree
             .children
             .iter_mut()
             .find(|c| c.tag == A44_ELEMENT_TIME_SERIES)
@@ -441,7 +447,10 @@ mod tests {
     #[test]
     fn an_unparseable_amount_refuses_the_whole_extraction() {
         let mut tree = fixture_tree();
-        let series = tree.children[0]
+        // The TimeSeries IS the document's first child (fixture_tree);
+        // searching among ITS children finds no TimeSeries (its children
+        // are in/out-domain, currency, period).
+        let series = tree
             .children
             .iter_mut()
             .find(|c| c.tag == A44_ELEMENT_TIME_SERIES)
@@ -464,7 +473,10 @@ mod tests {
     #[test]
     fn an_unknown_resolution_refuses_the_whole_extraction() {
         let mut tree = fixture_tree();
-        let series = tree.children[0]
+        // The TimeSeries IS the document's first child (fixture_tree);
+        // searching among ITS children finds no TimeSeries (its children
+        // are in/out-domain, currency, period).
+        let series = tree
             .children
             .iter_mut()
             .find(|c| c.tag == A44_ELEMENT_TIME_SERIES)

@@ -400,14 +400,21 @@ pub fn check_before_update_authorization(
     if evidence.device_id != device_id {
         return Ok(AttestationDecision::RefuseEvidenceDeviceMismatch);
     }
-    // 3. Freshness (injected instant).
-    let age = now_unix_millis
-        .checked_sub(evidence.reported_at_unix_millis)
-        .ok_or(AttestationError::InvalidEvidence {
-            reason: "the evidence reports a future instant (after the verification clock) — \
-                     refused rather than negated into a fake freshness"
-                .to_string(),
-        })?;
+    // 3. Freshness (injected instant). `checked_sub` alone only catches
+    // overflow: a 1 ms future instant computes age -1 without overflowing,
+    // and a negative age would then read as "fresh". A future-dated
+    // evidence instant is refused outright (its own error text says so),
+    // never negated into a fake freshness.
+    let age = match now_unix_millis.checked_sub(evidence.reported_at_unix_millis) {
+        Some(age) if age >= 0 => age,
+        _ => {
+            return Err(AttestationError::InvalidEvidence {
+                reason: "the evidence reports a future instant (after the verification clock) — \
+                         refused rather than negated into a fake freshness"
+                    .to_string(),
+            });
+        }
+    };
     if age > policy.max_evidence_age_millis {
         return Ok(AttestationDecision::RefuseEvidenceStale);
     }
@@ -459,7 +466,7 @@ pub fn check_before_update_authorization(
                         let expected = expected_digest.as_str();
                         match expected.split_once(':') {
                             Some((expected_scheme, expected_digest)) => {
-                                if scheme != expected_scheme || digest != expected_digest {
+                                if *scheme != expected_scheme || *digest != expected_digest {
                                     return Ok(AttestationDecision::RefuseMeasurementMismatch);
                                 }
                             }
@@ -660,10 +667,10 @@ mod tests {
             AttestationDecision::RefuseEvidenceDeviceMismatch
         );
         // Stale evidence (older than the 24 h ceiling).
-        let evidence = evidence("edge-01");
+        let evidence_valid = evidence("edge-01");
         assert_eq!(
             check_before_update_authorization(
-                &policy, Some(&evidence), "edge-01", false, None, &baseline(), BASE + DAY + 1
+                &policy, Some(&evidence_valid), "edge-01", false, None, &baseline(), BASE + DAY + 1
             )
             .expect("pure check"),
             AttestationDecision::RefuseEvidenceStale
@@ -671,7 +678,7 @@ mod tests {
         // Counter regression (reported 7, last seen 8).
         assert_eq!(
             check_before_update_authorization(
-                &policy, Some(&evidence), "edge-01", false, Some(8), &baseline(), BASE + 1_000
+                &policy, Some(&evidence_valid), "edge-01", false, Some(8), &baseline(), BASE + 1_000
             )
             .expect("pure check"),
             AttestationDecision::RefuseCounterRegression
@@ -703,7 +710,7 @@ mod tests {
         // The happy path: everything checks.
         assert_eq!(
             check_before_update_authorization(
-                &policy, Some(&evidence), "edge-01", false, Some(7), &baseline(), BASE + 1_000
+                &policy, Some(&evidence_valid), "edge-01", false, Some(7), &baseline(), BASE + 1_000
             )
             .expect("pure check"),
             AttestationDecision::AuthorizeUpdate
@@ -774,10 +781,10 @@ mod tests {
         let expectations = MeasurementExpectations {
             expected_digests: register,
         };
-        let evidence = evidence("edge-01");
+        let evidence_valid = evidence("edge-01");
         assert_eq!(
             check_before_update_authorization(
-                &policy, Some(&evidence), "edge-01", false, None, &expectations, BASE + 1_000
+                &policy, Some(&evidence_valid), "edge-01", false, None, &expectations, BASE + 1_000
             )
             .expect("pure check"),
             AttestationDecision::AuthorizeUpdate

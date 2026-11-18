@@ -76,6 +76,10 @@ fn scratch_dir(label: &str) -> std::path::PathBuf {
     dir
 }
 
+fn cleanup(dir: &std::path::Path) {
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 fn clock_at(millis: i64) -> Arc<dyn Clock + Send + Sync> {
     Arc::new(FixedClock::at_unix_millis(millis))
 }

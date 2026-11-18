@@ -289,7 +289,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 /// over their concatenation). The scope binding is MUTATION-SENSITIVE:
 /// mutating the inner envelope's public fields after wrapping breaks the
 /// binding ([`ScopedRequestEnvelope::verify_binding`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ScopedRequestEnvelope {
     inner: PluginRequestEnvelope,
     scope: TenantScope,
@@ -450,7 +450,7 @@ impl MemoryTenantScopeAuditSink {
 
     /// The records in emission order (append-only; the borrow is brief
     /// and single-threaded).
-    pub fn records(&self) -> std::cell::Ref<Vec<TenantScopeAuditRecord>> {
+    pub fn records(&self) -> std::cell::Ref<'_, Vec<TenantScopeAuditRecord>> {
         self.records.borrow()
     }
 }

@@ -56,7 +56,7 @@ use flexcore_control_plane::routes_live::LiveEventBus;
 use flexcore_control_plane::state::AppState;
 use flexcore_domain::ids::{AssetId, SiteId, TenantId};
 use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
-use flexcore_events::{DomainEvent, TelemetryQualityChangedPayload, TelemetryReceivedPayload};
+use flexcore_events::events::{DomainEvent, TelemetryQualityChangedPayload, TelemetryReceivedPayload};
 use flexcore_ports::fakes::{
     CountingIdGenerator, FakeAssetRepository, FakeEventOutbox, FakePortfolioRepository,
     FakeSiteRepository, FakeTenantRepository, FakeWriteJournal, FixedClock,
@@ -292,7 +292,7 @@ async fn openapi_spec(router: &Router) -> Value {
 /// Unauthenticated: 401 before any stream exists.
 #[tokio::test]
 async fn unauthenticated_request_is_rejected() {
-    let (router, _bus) = composed_router_with_state_bus();
+    let router = composed_router_with_state_bus();
     let (status, body) = call(&router, get("/api/v1/live", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body["error"]["code"], "unauthenticated");
@@ -303,7 +303,7 @@ async fn unauthenticated_request_is_rejected() {
 /// explicit-grant surface — nothing matches by default).
 #[tokio::test]
 async fn empty_policy_set_denies_with_403() {
-    let (router, _bus) = stream_fixture_with_policies(PolicySet::new());
+    let (_bus, router) = stream_fixture_with_policies(PolicySet::new());
     let (status, body) = call(&router, get("/api/v1/live", Some("caller-a"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(body["error"]["code"], "forbidden");
@@ -486,7 +486,7 @@ async fn a_lagged_stream_emits_resync_required_and_keeps_streaming() {
 /// surface: no POST/PUT/PATCH/DELETE exists anywhere on it, §15.2).
 #[tokio::test]
 async fn openapi_registers_the_live_route_get_only() {
-    let (router, _bus) = composed_router_with_state_bus();
+    let router = composed_router_with_state_bus();
     let spec = openapi_spec(&router).await;
     let live = &spec["paths"]["/api/v1/live"];
     assert!(

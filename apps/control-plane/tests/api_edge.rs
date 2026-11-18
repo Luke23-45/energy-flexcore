@@ -91,7 +91,7 @@ fn base_state() -> AppState {
         Arc::new(FakeTenantRepository::new(journal.clone())),
         Arc::new(FakePortfolioRepository::new(journal.clone())),
         Arc::new(FakeSiteRepository::new(journal.clone())),
-        Arc::new(FakeAssetRepository::new(journal)),
+        Arc::new(FakeAssetRepository::new(journal.clone())),
         Arc::new(FakeEventOutbox::new(journal.clone())),
         Arc::new(CountingIdGenerator::new()),
         Arc::new(FixedClock::at_unix_millis(1_700_000_000_000)),
@@ -300,7 +300,13 @@ async fn a_site_not_approved_in_the_tenant_is_403_and_journaled() {
 
 #[tokio::test]
 async fn a_duplicate_active_identity_is_409_and_journaled() {
-    let (router, store) = composed_router(vec![("t-1".to_string(), approved_scope_a())]);
+    // The second token must be REGISTERED too (the old form posted with
+    // "t-2" while only "t-1" was registered, so the duplicate attempt
+    // died at the token gate with 401 instead of reaching the 409).
+    let (router, store) = composed_router(vec![
+        ("t-1".to_string(), approved_scope_a()),
+        ("t-2".to_string(), approved_scope_a()),
+    ]);
     let (first, _) = post_enroll(
         router.clone(),
         Some("t-1"),

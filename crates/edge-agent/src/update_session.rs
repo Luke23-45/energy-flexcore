@@ -725,6 +725,14 @@ impl ExtendedUpdateGate {
         self.counter.last_seen()
     }
 
+    /// The anti-rollback counter (diagnostics: how many corrupt tail
+    /// records the counter's open at composition truncated — the loss
+    /// counted at boot, never silent; the count belongs to the instance
+    /// that opened the file, so a later direct open sees a clean file).
+    pub fn corrupt_tail_truncated(&self) -> u64 {
+        self.counter.corrupt_tail_truncated()
+    }
+
     /// Verifies ONE fleet-update bundle against its v2 manifest, BEFORE
     /// anything is written (the P9.34 ordering rule carried through:
     /// this function takes no path and touches no device file). See the
@@ -1050,26 +1058,26 @@ mod tests {
 
     #[test]
     fn failure_states_are_explicit_and_named() {
-        let mut session = session();
-        session.begin_download(0, 1_100).expect("ok");
-        session.download_failed(1_150).expect("failed");
-        assert_eq!(session.failure_state(), Some(UPDATE_FAILURE_DOWNLOAD_FAILED));
-        let notification = session.status_notification();
+        let mut session_download_failed = session();
+        session_download_failed.begin_download(0, 1_100).expect("ok");
+        session_download_failed.download_failed(1_150).expect("failed");
+        assert_eq!(session_download_failed.failure_state(), Some(UPDATE_FAILURE_DOWNLOAD_FAILED));
+        let notification = session_download_failed.status_notification();
         assert!(notification.summary().contains(UPDATE_FAILURE_DOWNLOAD_FAILED));
 
-        let mut session = session();
-        session.begin_download(0, 1_100).expect("ok");
-        session.download_complete(1_200).expect("ok");
-        session.verify_refused(1_300).expect("failed");
-        assert_eq!(session.failure_state(), Some(UPDATE_FAILURE_VERIFICATION_REFUSED));
+        let mut session_verify_refused = session();
+        session_verify_refused.begin_download(0, 1_100).expect("ok");
+        session_verify_refused.download_complete(1_200).expect("ok");
+        session_verify_refused.verify_refused(1_300).expect("failed");
+        assert_eq!(session_verify_refused.failure_state(), Some(UPDATE_FAILURE_VERIFICATION_REFUSED));
 
-        let mut session = session();
-        session.begin_download(0, 1_100).expect("ok");
-        session.download_complete(1_200).expect("ok");
-        session.verify_passed(1_300).expect("ok");
-        session.begin_install(1_400).expect("ok");
-        session.install_failed(1_450).expect("failed");
-        assert_eq!(session.failure_state(), Some(UPDATE_FAILURE_INSTALL_FAILED));
+        let mut session_install_failed = session();
+        session_install_failed.begin_download(0, 1_100).expect("ok");
+        session_install_failed.download_complete(1_200).expect("ok");
+        session_install_failed.verify_passed(1_300).expect("ok");
+        session_install_failed.begin_install(1_400).expect("ok");
+        session_install_failed.install_failed(1_450).expect("failed");
+        assert_eq!(session_install_failed.failure_state(), Some(UPDATE_FAILURE_INSTALL_FAILED));
 
         let mut session = session();
         session.begin_download(0, 1_100).expect("ok");
@@ -1098,16 +1106,16 @@ mod tests {
 
     #[test]
     fn cancel_is_only_legal_before_install() {
-        let mut session = session();
-        session.begin_download(0, 1_100).expect("ok");
-        session.cancel(1_150).expect("cancel from Downloading");
-        assert_eq!(session.failure_state(), Some(UPDATE_FAILURE_CANCELLED));
+        let mut session_cancel_downloading = session();
+        session_cancel_downloading.begin_download(0, 1_100).expect("ok");
+        session_cancel_downloading.cancel(1_150).expect("cancel from Downloading");
+        assert_eq!(session_cancel_downloading.failure_state(), Some(UPDATE_FAILURE_CANCELLED));
 
-        let mut session = session();
-        session.begin_download(0, 1_100).expect("ok");
-        session.download_complete(1_200).expect("ok");
-        session.verify_passed(1_300).expect("ok");
-        session.cancel(1_350).expect("cancel from VerifiedPendingInstall");
+        let mut session_cancel_verified = session();
+        session_cancel_verified.begin_download(0, 1_100).expect("ok");
+        session_cancel_verified.download_complete(1_200).expect("ok");
+        session_cancel_verified.verify_passed(1_300).expect("ok");
+        session_cancel_verified.cancel(1_350).expect("cancel from VerifiedPendingInstall");
 
         let mut session = session();
         session.begin_download(0, 1_100).expect("ok");
@@ -1238,10 +1246,26 @@ mod tests {
             .expect_err("refused");
         match error {
             UpdateBundleError::BaseVerificationRefused { code, reason } => {
-                assert_eq!(code, "UPDATE_VERIFIER_REFUSED");
-                assert!(reason.contains("fail-closed"), "{reason}");
+                // The P9.34 gate order is present -> valid -> ALGORITHM
+                // (step 3) -> signer -> floor -> verifier verdict (step 6):
+                // NoUpdateVerifier computes "none" while the manifest
+                // declares "fnv1a64-test", so the algorithm mismatch fires
+                // before the verifier is ever consulted -- the refusal is
+                // still the fail-closed default, at the earlier step.
+                assert_eq!(code, "UPDATE_DIGEST_ALGORITHM_MISMATCH");
+                assert!(reason.contains("fnv1a64-test"), "{reason}");
+                assert!(reason.contains("'none'"), "{reason}");
             }
             other => panic!("expected BaseVerificationRefused, got {other:?}"),
+        }
+        // The verifier-level refusal itself is pinned by a direct call
+        // (the branch the gate's algorithm step shadows): the default
+        // refuses every bundle, with the fail-closed reason.
+        match NoUpdateVerifier.verify(BUNDLE, "deadbeef") {
+            UpdateDigestVerdict::Refused { reason } => {
+                assert!(reason.contains("fail-closed"), "{reason}");
+            }
+            other => panic!("expected the default verifier to refuse, got {other:?}"),
         }
         // The counter did NOT advance (a refused verdict records nothing).
         assert_eq!(gate.last_seen_sequence(), 0);

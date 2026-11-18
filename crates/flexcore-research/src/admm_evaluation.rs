@@ -931,9 +931,9 @@ pub fn results_digest(case_rows: &[AdmmCaseEvaluation]) -> Result<String, Evalua
 mod tests {
     use super::*;
     use crate::admm::{CoupledProblem, Participant};
-    use crate::baselines::PriorityListFallback;
+    use crate::dmpc::PriorityListFallback;
     use crate::dmpc::{
-        AdmmCoordination, ClosedFormLocalWorker, DmpcHorizonInput, TerminationCriteria,
+        AdmmCoordination, ClosedFormLocalWorker, TerminationCriteria,
     };
 
     /// Demand-floor participant: a_k = −1 (its export counts toward
@@ -1361,7 +1361,9 @@ mod tests {
         // objective 1.0e-15 < 1.0e-12 → None (never a division artifact).
         let tiny = tier1_injection(1.0e-15);
         let gap = objective_gap(2.0, &tiny).expect("meaningful");
-        assert_eq!(gap.gap, 2.0);
+        // 2.0 − 1.0e-15 is one ulp below 2.0 in f64 — the gap is exact
+        // arithmetic, so it is asserted within tolerance, not exactly.
+        assert!((gap.gap - 2.0).abs() < 1e-12);
         assert_eq!(gap.relative_gap, None);
     }
 

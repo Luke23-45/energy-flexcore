@@ -31,6 +31,7 @@
 // `schedule_store.rs`, and `feasibility_check.rs` modules use for their
 // `impl` blocks.
 
+use sqlx::Row;
 use crate::error::{is_unique_violation, map_backend};
 use crate::store::FlexCoreStore;
 use crate::unit_of_work::tx_ref;
@@ -177,7 +178,7 @@ impl EdgeEnrollmentStore for FlexCoreStore {
     ) -> Result<(), EdgeEnrollmentStoreError> {
         let tenant = uuid_text(ctx.tenant_id().uuid());
         let device_id = row.device_id.clone();
-        let mut unit = self.begin(Some(ctx)).map_err(map_backend_error_of)?;
+        let unit = self.begin(Some(ctx)).map_err(map_backend_error_of)?;
         let outcome: Result<(), EdgeEnrollmentStoreError> = unit.runtime.block_on(async {
             let mut guard = unit.tx.lock().await;
             let tx = tx_ref(&mut guard)
@@ -200,13 +201,17 @@ impl EdgeEnrollmentStore for FlexCoreStore {
             .bind(row.approved_asset_scope.as_deref())
             .bind(row.enrolled_at_unix_millis)
             .bind(row.expires_at_unix_millis)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map(|_| ())
             .map_err(|err| map_insert_error(err, &device_id))
         });
         match outcome {
-            Ok(()) => unit.commit().map_err(map_backend_error_of)?,
+            // `commit` returns the finalized handle; the match is a
+            // statement, so the handle is discarded inside a block arm.
+            Ok(()) => {
+                unit.commit().map_err(map_backend_error_of)?;
+            }
             Err(error) => {
                 // Drop the unfinalized unit of work → native rollback.
                 drop(unit);
@@ -246,7 +251,7 @@ impl EdgeEnrollmentStore for FlexCoreStore {
                 )
                 .bind(&tenant)
                 .bind(&device_id)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await
                 .map_err(map_select_error)?;
                 match row {
@@ -287,7 +292,7 @@ impl EdgeEnrollmentStore for FlexCoreStore {
             )
             .bind(&site_id)
             .bind(&tenant)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await
             .map_err(map_select_error)?;
             Ok(exists.0)
@@ -302,7 +307,7 @@ impl EdgeEnrollmentStore for FlexCoreStore {
         event: &EdgeEnrollmentEventRow,
     ) -> Result<(), EdgeEnrollmentStoreError> {
         let tenant = uuid_text(ctx.tenant_id().uuid());
-        let mut unit = self.begin(Some(ctx)).map_err(map_backend_error_of)?;
+        let unit = self.begin(Some(ctx)).map_err(map_backend_error_of)?;
         let outcome: Result<(), EdgeEnrollmentStoreError> = unit.runtime.block_on(async {
             let mut guard = unit.tx.lock().await;
             let tx = tx_ref(&mut guard)
@@ -325,13 +330,17 @@ impl EdgeEnrollmentStore for FlexCoreStore {
             .bind(event.reason.as_deref())
             .bind(&event.correlation_id)
             .bind(event.occurred_at_unix_millis)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map(|_| ())
             .map_err(map_select_error)
         });
         match outcome {
-            Ok(()) => unit.commit().map_err(map_backend_error_of)?,
+            // `commit` returns the finalized handle; the match is a
+            // statement, so the handle is discarded inside a block arm.
+            Ok(()) => {
+                unit.commit().map_err(map_backend_error_of)?;
+            }
             Err(error) => {
                 drop(unit);
                 return Err(error);
@@ -372,7 +381,7 @@ impl EdgeEnrollmentStore for FlexCoreStore {
                 .bind(&tenant)
                 .bind(&device_id)
                 .bind(limit)
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut **tx)
                 .await
                 .map_err(map_select_error)?;
                 rows.iter()

@@ -178,11 +178,27 @@ mod tests {
     use crate::scope::TenantScope;
     use flexcore_contracts::ids::FlexUuid;
     use flexcore_domain::ids::TenantId;
+    use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
 
     const UUID_TENANT: &str = "0192a5e0-0000-7e2f-9a1b-3c4d5e6f8d01";
 
     fn tenant() -> TenantId {
         TenantId::new(FlexUuid::parse(UUID_TENANT).unwrap())
+    }
+
+    /// A test tenant context, built through the single public verified
+    /// path (tenant_context.rs: tests construct `VerifiedClaims` directly);
+    /// the subject is a fixed test identity, never a real principal.
+    /// Passing `None` for the context would deny with `MissingContext`
+    /// before any rule is reached (policy.rs step 3), so the grant tests
+    /// below evaluate against this context.
+    fn context() -> TenantContext {
+        TenantContext::from_authenticated_claims(AuthenticatedClaims::from_verified(
+            VerifiedClaims {
+                tenant_id: tenant(),
+                subject: "test".to_string(),
+            },
+        ))
     }
 
     fn tenant_scope() -> crate::scope::Scope {
@@ -192,6 +208,7 @@ mod tests {
     #[test]
     fn market_read_actions_are_granted_to_the_four_data_visible_roles() {
         let set = phase16_market_policies();
+        let context = context();
         for action in [Action::MarketPriceRead, Action::MarketSettlementRead] {
             for role in [
                 Role::PlatformAdmin,
@@ -199,7 +216,7 @@ mod tests {
                 Role::Operator,
                 Role::Viewer,
             ] {
-                let decision = set.evaluate(role, action, Some(&tenant_scope()), None);
+                let decision = set.evaluate(role, action, Some(&tenant_scope()), Some(&context));
                 assert!(
                     decision.is_allowed(),
                     "{role:?} must be able to read {} at tenant scope",
@@ -212,14 +229,15 @@ mod tests {
     #[test]
     fn bid_compose_is_granted_only_to_operator_and_tenant_admin() {
         let set = phase16_market_policies();
+        let context = context();
         for role in [Role::Operator, Role::TenantAdmin] {
             assert!(set
-                .evaluate(role, Action::MarketBidCompose, Some(&tenant_scope()), None)
+                .evaluate(role, Action::MarketBidCompose, Some(&tenant_scope()), Some(&context))
                 .is_allowed());
         }
         for role in [Role::PlatformAdmin, Role::Viewer, Role::SiteApprover] {
             assert_eq!(
-                set.evaluate(role, Action::MarketBidCompose, Some(&tenant_scope()), None)
+                set.evaluate(role, Action::MarketBidCompose, Some(&tenant_scope()), Some(&context))
                     .deny_reason(),
                 Some(DenyReason::NoMatchingRule),
                 "{role:?} must have no market.bid.compose grant",
@@ -230,6 +248,7 @@ mod tests {
     #[test]
     fn grant_administration_is_administrative_only() {
         let set = phase16_market_policies();
+        let context = context();
         let grant_actions = [
             Action::MarketGrantIssue,
             Action::MarketGrantRevoke,
@@ -238,12 +257,12 @@ mod tests {
         for action in grant_actions {
             for role in [Role::PlatformAdmin, Role::TenantAdmin] {
                 assert!(set
-                    .evaluate(role, action, Some(&tenant_scope()), None)
+                    .evaluate(role, action, Some(&tenant_scope()), Some(&context))
                     .is_allowed());
             }
             for role in [Role::Operator, Role::Viewer, Role::SiteApprover] {
                 assert_eq!(
-                    set.evaluate(role, action, Some(&tenant_scope()), None)
+                    set.evaluate(role, action, Some(&tenant_scope()), Some(&context))
                         .deny_reason(),
                     Some(DenyReason::NoMatchingRule),
                     "{role:?} must have no grant for {}",
@@ -258,6 +277,7 @@ mod tests {
         // The P13.05 separation carries forward: the approval-duty role has
         // no market authority of any kind.
         let set = phase16_market_policies();
+        let context = context();
         let market_actions = [
             Action::MarketPriceRead,
             Action::MarketBidCompose,
@@ -268,7 +288,7 @@ mod tests {
         ];
         for action in market_actions {
             assert_eq!(
-                set.evaluate(Role::SiteApprover, action, Some(&tenant_scope()), None)
+                set.evaluate(Role::SiteApprover, action, Some(&tenant_scope()), Some(&context))
                     .deny_reason(),
                 Some(DenyReason::NoMatchingRule),
                 "SiteApprover must have no grant for {}",
@@ -316,11 +336,12 @@ mod tests {
     #[test]
     fn every_allow_decision_carries_the_stable_rule_reference() {
         let set = phase16_market_policies();
+        let context = context();
         let decision = set.evaluate(
             Role::TenantAdmin,
             Action::MarketBidCompose,
             Some(&tenant_scope()),
-            None,
+            Some(&context),
         );
         assert!(decision.is_allowed());
         assert_eq!(

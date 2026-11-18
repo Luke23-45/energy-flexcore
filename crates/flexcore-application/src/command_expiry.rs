@@ -224,6 +224,12 @@ impl From<CommandGateStoreError> for CommandExpiryError {
     }
 }
 
+impl From<LifecycleError> for CommandExpiryError {
+    fn from(error: LifecycleError) -> Self {
+        CommandExpiryError::Lifecycle(error)
+    }
+}
+
 // --- The pure validity-window sweep ---------------------------------------------------
 
 /// One command view the sweep scans: the store's authoritative state and

@@ -363,6 +363,10 @@ mod json {
                 let key = self.string()?;
                 self.skip_ws();
                 self.expect(b':', "':' after an object key")?;
+                // Whitespace may follow the colon (JSON allows it between
+                // any two tokens); without this every normally-spaced
+                // document failed at the first space after a key.
+                self.skip_ws();
                 let value = self.value()?;
                 members.push((key, value));
                 self.skip_ws();
@@ -383,6 +387,9 @@ mod json {
                 return Ok(Json::Array(items));
             }
             loop {
+                // Whitespace may follow a comma, as after the opening
+                // bracket (skipped above for the first element).
+                self.skip_ws();
                 let value = self.value()?;
                 items.push(value);
                 self.skip_ws();
@@ -992,9 +999,14 @@ fn unit_family(unit: NativeUnit) -> &'static str {
 
 /// Whether an id can be embedded verbatim in a REST path (no separators,
 /// no whitespace, no control characters — the ids come from the Edge's
-/// JSON, which is untrusted input).
+/// JSON, which is untrusted input). The traversal shapes "." and ".."
+/// pass the charset check ('.' is allowed, for dotted component names),
+/// so they are refused explicitly: embedding ".." would walk the path
+/// out of the component.
 fn is_rest_path_safe(id: &str) -> bool {
     !id.is_empty()
+        && id != "."
+        && id != ".."
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
@@ -1595,7 +1607,11 @@ impl EmsAdapter for OpenEmsRestAdapter {
         // to canonical STALE by the ACL). A FRESH reading carries the
         // entry's DECLARED quality code; an entry with no declaration
         // yields NO code — the ACL refuses it (no default quality).
-        let now = self.clock.now_ingest_time().unix_millis();
+        // `IngestTime::unix_millis` is i128 by contract; the edge treats
+        // millis as i64 — the crate-wide `try_from(...).unwrap_or(i64::MAX)`
+        // clamp (command_forward, update_session, and six other files).
+        let now = i64::try_from(self.clock.now_ingest_time().unix_millis())
+            .unwrap_or(i64::MAX);
         let fresh = now.saturating_sub(timestamp_millis)
             <= self.profile.stale_after().as_millis() as i64;
         let quality_code = if fresh {
@@ -1751,7 +1767,7 @@ mod tests {
         ));
         // Missing required field.
         let missing = minimal_profile_json()
-            .replacen("\"cadence_millis\": 5000,", "");
+            .replacen("\"cadence_millis\": 5000,", "", 1);
         assert!(matches!(
             OpenemsMappingProfile::from_json_str(&missing),
             Err(OpenemsError::ProfileEnvelope { .. })

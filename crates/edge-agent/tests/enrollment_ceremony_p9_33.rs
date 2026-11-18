@@ -692,7 +692,7 @@ fn compromise_revocation_and_re_enrollment_never_trusts_the_old_identity() {
     // old identity authorized nothing).
     let re_enroll = register
         .history()
-        .iter()
+        .into_iter()
         .find(|e| e.kind == IdentityEventKind::ReEnrollmentOpened)
         .expect("the re-enrollment event exists");
     assert_eq!(re_enroll.reference, "pilot-re-enroll-ticket-001");
@@ -789,9 +789,21 @@ fn ceremony_refusals_are_durably_audited_by_the_edge_audit_buffer() {
     ceremony
         .begin_request(&token("tok-001"), short_lived_token("tok-001"), &mut single_use)
         .expect("the first consumption succeeds");
-    let _ = ceremony
-        .begin_request(&token("tok-001"), short_lived_token("tok-001"), &mut single_use);
     drop(ceremony);
+    // The reuse attempt is a FRESH ceremony (UNENROLLED): a second request
+    // on the SAME ceremony is refused as an InvalidTransition before the
+    // token is even consulted, so it can never reach the spent-token guard.
+    let mut second = EnrollmentCeremony::new(
+        "edge-01".to_string(),
+        binding(),
+        None,
+        Arc::clone(&audit) as Arc<dyn AuditSink>,
+        Arc::clone(&clock),
+    )
+    .expect("second ceremony composes");
+    let _ = second
+        .begin_request(&token("tok-001"), short_lived_token("tok-001"), &mut single_use);
+    drop(second);
     drop(audit);
 
     // The edge RESTARTS: the refusal evidence is still on disk.

@@ -223,7 +223,9 @@ impl ProtocolAdapterManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scope::{ControlScope, NotModelled, ProtocolRole, ResourceClass};
+    use crate::scope::{
+        ControlScope, NotModelled, ProtocolRole, ProtocolScopeError, ResourceClass,
+    };
 
     fn scope() -> ProtocolScopeDeclaration {
         ProtocolScopeDeclaration::new(

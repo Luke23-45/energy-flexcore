@@ -282,7 +282,7 @@ impl std::error::Error for EventOutboxError {
 ///    insertion order; `mark_delivered` is written only after broker
 ///    acknowledgement (P1.15); `mark_failed` keeps the entry in the store
 ///    for investigation — a failed entry is never silently dropped.
-pub trait EventOutbox {
+pub trait EventOutbox: Send + Sync {
     /// Appends one complete transactional write (state change + outbox
     /// record) inside the caller's unit of work.
     fn append(&self, write: OutboxWrite) -> Result<(), EventOutboxError>;

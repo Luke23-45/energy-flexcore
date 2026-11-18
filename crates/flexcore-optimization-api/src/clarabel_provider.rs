@@ -84,11 +84,11 @@ use crate::port::{
 };
 use crate::problem::{
     ObjectiveSense, OptimizationProblem, ProblemClass, ProblemError, RowBounds, SecondOrderCone,
-    VariableKind, VariableValue,
+    VariableKind,
 };
 use crate::result::{
     DeterminismRecord, Diagnostics, DualDiagnostics, InfeasibilityEvidence, OptimizationResult,
-    PrimalDiagnostics, ResidualReport, SolveStatus,
+    PrimalDiagnostics, ResidualReport, SolveStatus, VariableValue,
 };
 use clarabel::algebra::CscMatrix;
 use clarabel::solver::{DefaultSettings, DefaultSolver, IPSolver, SolverStatus, SupportedConeT};
@@ -951,7 +951,7 @@ impl Optimizer for ClarabelTier2Provider {
 fn build_settings(config: &SolverConfig) -> DefaultSettings<f64> {
     let mut settings = DefaultSettings::<f64>::default();
     settings.verbose = false;
-    settings.max_threads = config.thread_count as usize;
+    settings.max_threads = config.thread_count;
     if let Some(limit) = config.time_limit {
         settings.time_limit = limit.as_secs_f64();
     }
@@ -989,14 +989,14 @@ struct ClarabelData {
 /// (VERIFY-BUILD items 3 and 4). Translation conventions:
 /// - maximisation is solved as the negated minimisation; the sign (and the
 ///   constant offset) is re-applied when reporting the objective;
-/// - `Equality` rows → zero cone; `Lower` rows → nonnegative cone with the
-///   coefficients as-is; `Upper` rows → nonnegative cone with negated
-///   coefficients; `Range` rows → two nonnegative rows;
-/// - each second-order cone `‖diag(a)·x + b‖₂ ≤ cᵀx + d` becomes one zero-cone
-///   row for the scalar `t` (`t = cᵀx + d`) followed by a
+/// - `Equality` rows → zero cone; `Lower` rows → nonnegative cone with
+///   NEGATED coefficients and `b = −lower` (`s = cᵀx − lower ≥ 0`);
+///   `Upper` rows → nonnegative cone with coefficients as-is and `b = upper`
+///   (`s = upper − cᵀx ≥ 0`); `Range` rows → two nonnegative rows;
+/// - each second-order cone `‖diag(a)·x + b‖₂ ≤ cᵀx + d` becomes a
 ///   `SecondOrderConeT(1 + k)` block over `(t, norm member 1, …, norm member
 ///   k)` — the scalar is the FIRST element of the block (VERIFY-BUILD item 2,
-///   per the crate's `example_socp.rs`);
+///   per the crate's `example_socp.rs`); `t` has no cone entry of its own;
 /// - column bounds become anonymous nonnegative rows (the solver has no
 ///   variable-bound concept).
 /// Named IR rows are emitted first, then bound rows, then cones, so the
@@ -1062,6 +1062,23 @@ fn build_clarabel_data(model: &ConicModel) -> Result<ClarabelData, OptimizerErro
                 row_z_index.push(Some(index));
             }
             RowBounds::Lower(value) => {
+                // Clarabel is `A·x + s = b, s ≥ 0`, i.e. `s = b − A·x`.
+                // A lower row `cᵀx ≥ L` needs `s = cᵀx − L ≥ 0`, so the
+                // A-row is NEGATED and `b = −L`. (As written before, with
+                // the coefficients as-is and `b = L`, the row encoded
+                // `cᵀx ≤ L` — the bound was inverted.)
+                let index = b.len();
+                for (variable, coefficient) in &row.coefficients {
+                    triplets.push((index, *variable, -*coefficient));
+                }
+                b.push(-value);
+                cones.push(SupportedConeT::NonnegativeConeT(1));
+                row_z_index.push(Some(index));
+            }
+            RowBounds::Upper(value) => {
+                // An upper row `cᵀx ≤ U` needs `s = U − cᵀx ≥ 0`, so the
+                // A-row is as-is and `b = U`. (As written before, with
+                // negated coefficients, the row encoded `cᵀx ≥ −U`.)
                 let index = b.len();
                 for (variable, coefficient) in &row.coefficients {
                     triplets.push((index, *variable, *coefficient));
@@ -1070,28 +1087,21 @@ fn build_clarabel_data(model: &ConicModel) -> Result<ClarabelData, OptimizerErro
                 cones.push(SupportedConeT::NonnegativeConeT(1));
                 row_z_index.push(Some(index));
             }
-            RowBounds::Upper(value) => {
-                let index = b.len();
-                for (variable, coefficient) in &row.coefficients {
-                    triplets.push((index, *variable, -coefficient));
-                }
-                b.push(value);
-                cones.push(SupportedConeT::NonnegativeConeT(1));
-                row_z_index.push(Some(index));
-            }
             RowBounds::Range { lower, upper } => {
                 // Two conic rows; the per-row dual recombination is a
                 // VERIFY-BUILD item, so this row is marked None.
+                // Lower half `cᵀx ≥ L`: negated coefficients, `b = −L`.
                 let lower_index = b.len();
                 for (variable, coefficient) in &row.coefficients {
-                    triplets.push((lower_index, *variable, *coefficient));
+                    triplets.push((lower_index, *variable, -*coefficient));
                 }
-                b.push(lower);
+                b.push(-lower);
                 cones.push(SupportedConeT::NonnegativeConeT(1));
 
+                // Upper half `cᵀx ≤ U`: coefficients as-is, `b = U`.
                 let upper_index = b.len();
                 for (variable, coefficient) in &row.coefficients {
-                    triplets.push((upper_index, *variable, -coefficient));
+                    triplets.push((upper_index, *variable, *coefficient));
                 }
                 b.push(upper);
                 cones.push(SupportedConeT::NonnegativeConeT(1));
@@ -1102,33 +1112,41 @@ fn build_clarabel_data(model: &ConicModel) -> Result<ClarabelData, OptimizerErro
     }
 
     // Variable bounds: the pinned solver has no variable-bound concept, so
-    // every declared column bound becomes an anonymous nonnegative row (x ≥ L
-    // as `+1·x ≥ L`; x ≤ U as `−1·x ≥ −U`). They are appended after the named
-    // IR rows and before the cones, so `row_z_index` (recorded above) is
-    // unaffected; a bound that is unbounded on a side contributes no row.
+    // every declared column bound becomes an anonymous nonnegative row.
+    // Clarabel is `A·x + s = b, s ≥ 0`, i.e. `s = b − A·x`: `x ≥ L` needs
+    // the row `−x` with `b = −L` (so `s = x − L ≥ 0`), and `x ≤ U` needs
+    // the row `+x` with `b = U` (so `s = U − x ≥ 0`). They are appended
+    // after the named IR rows and before the cones, so `row_z_index`
+    // (recorded above) is unaffected; a bound that is unbounded on a side
+    // contributes no row.
     for (variable, column) in model.columns.iter().enumerate() {
         if let Some(lower) = column.lower_bound {
             let index = b.len();
-            triplets.push((index, variable, 1.0));
-            b.push(lower);
+            triplets.push((index, variable, -1.0));
+            b.push(-lower);
             cones.push(SupportedConeT::NonnegativeConeT(1));
         }
         if let Some(upper) = column.upper_bound {
             let index = b.len();
-            triplets.push((index, variable, -1.0));
-            b.push(-upper);
+            triplets.push((index, variable, 1.0));
+            b.push(upper);
             cones.push(SupportedConeT::NonnegativeConeT(1));
         }
     }
 
     for cone in &model.cones {
-        // The scalar t: equality row `t − cᵀx = d`, so s_t = cᵀx + d = rhs(x).
+        // The scalar t is the FIRST element of the second-order-cone
+        // block (Clarabel `example_socp.rs`: `SecondOrderConeT(dim)` is
+        // `(t, u_1, …, u_{dim-1})`). Its row is `t − cᵀx = d`, so
+        // s_t = cᵀx + d = rhs(x). t gets NO cone entry of its own: the
+        // block below covers (t, norm members), and a zero-cone row for
+        // t as well would claim one row too many per cone ("Constraint
+        // dimensions inconsistent with size of cones").
         let t_index = b.len();
         for (variable, coefficient) in &cone.rhs_members {
             triplets.push((t_index, *variable, -coefficient));
         }
         b.push(cone.rhs_offset);
-        cones.push(SupportedConeT::ZeroConeT(1));
 
         // The norm members: row `−aᵢ·xᵢ + sᵢ = b_offset`, so
         // sᵢ = aᵢ·xᵢ + b_offset (the norm argument).
@@ -1571,20 +1589,36 @@ mod tests {
     #[test]
     fn distflow_formula_and_canonical_encoding_agree() {
         // Canonical encoding: ‖(2P, 2Q, v − l)‖₂ ≤ v + l ⇒
-        // slack = 4·(v·l − P² − Q²) = 4·g_ij (foundations §7.8).
+        // slack = 4·(v·l − P² − Q²) = 4·g_ij (foundations §7.8). The IR's
+        // norm side is one entry per variable, so the combined (v − l)
+        // component is expressed as √2·v and −√2·l with the rhs scaled
+        // by √2 to match (same feasible set, same slack) — see
+        // conic_fixture::distflow_branch_socp.
         let (v, l, p, q) = (1.0_f64, 4.5_f64, 2.0_f64, 0.5_f64);
         let cone = SecondOrderCone {
             name: "branch_cone".to_string(),
             norm_members: vec![
                 crate::problem::Coefficient { variable: 2, coefficient: 2.0 },
                 crate::problem::Coefficient { variable: 3, coefficient: 2.0 },
-                crate::problem::Coefficient { variable: 0, coefficient: 1.0 },
-                crate::problem::Coefficient { variable: 1, coefficient: -1.0 },
+                crate::problem::Coefficient {
+                    variable: 0,
+                    coefficient: std::f64::consts::SQRT_2,
+                },
+                crate::problem::Coefficient {
+                    variable: 1,
+                    coefficient: -std::f64::consts::SQRT_2,
+                },
             ],
             norm_offset: 0.0,
             rhs_members: vec![
-                crate::problem::Coefficient { variable: 0, coefficient: 1.0 },
-                crate::problem::Coefficient { variable: 1, coefficient: 1.0 },
+                crate::problem::Coefficient {
+                    variable: 0,
+                    coefficient: std::f64::consts::SQRT_2,
+                },
+                crate::problem::Coefficient {
+                    variable: 1,
+                    coefficient: std::f64::consts::SQRT_2,
+                },
             ],
             rhs_offset: 0.0,
         };

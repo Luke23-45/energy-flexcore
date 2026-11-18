@@ -221,8 +221,13 @@ fn candidate() -> FeasibilityCandidate {
         result_record_snapshot_ref: "schedule_input_snapshot:env-v1".to_string(),
         created_at_millis: NOW - 100,
         valid_from_millis: NOW,
-        valid_until_millis: NOW + 3_000,
-        stated_duration_millis: 3_000,
+        // A 3-minute candidate (180_000 ms): with the 10 MW/min ramp
+        // rate the limit is 30 MW over 3 min, so the 2.5 MW setpoint
+        // passes step 2 and the tests reach the limit checks they pin.
+        // 3_000 ms is 3 seconds (0.05 min), which made every test die
+        // at RAMP_EXCEEDED in step 2 (same defect as feasibility_gate.rs).
+        valid_until_millis: NOW + 180_000,
+        stated_duration_millis: 180_000,
         setpoints: vec![CandidateSetpoint {
             setpoint_id: "sp-1".to_string(),
             asset_id: "asset-1".to_string(),

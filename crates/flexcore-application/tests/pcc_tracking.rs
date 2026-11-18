@@ -370,10 +370,12 @@ fn config_validation_rejects_invalid_parameters() {
         TrackingPoint::new(pcc.clone(), -1.0, LossModel::None).unwrap_err(),
         PccTrackingError::InvalidLambdaTrack { value: -1.0 }
     );
-    assert_eq!(
+    // NaN never equals NaN, so assert_eq! on the NaN-carrying error can
+    // never pass — match the variant and assert the payload is NaN.
+    assert!(matches!(
         TrackingPoint::new(pcc.clone(), f64::NAN, LossModel::None).unwrap_err(),
-        PccTrackingError::InvalidLambdaTrack { value: f64::NAN }
-    );
+        PccTrackingError::InvalidLambdaTrack { value } if value.is_nan()
+    ));
     assert_eq!(
         TrackingPoint::new(pcc.clone(), 1.0, LossModel::NetExportFraction { fraction: 1.0 })
             .unwrap_err(),

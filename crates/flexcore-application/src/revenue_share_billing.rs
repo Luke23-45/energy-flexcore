@@ -212,7 +212,7 @@ impl BillingError {
             BillingError::MixedCurrencies { .. } => "BILLING_MIXED_CURRENCIES",
             BillingError::ShareScaleOverflow => "BILLING_SHARE_SCALE_OVERFLOW",
             BillingError::ShareMantissaOverflow => "BILLING_SHARE_MANTISSA_OVERFLOW",
-            BillingError::DisaggregationDoesNotSum => "BILLING_DISAGGREGATION_DOES_NOT_SUM",
+            BillingError::DisaggregationDoesNotSum { .. } => "BILLING_DISAGGREGATION_DOES_NOT_SUM",
             BillingError::Decimal(_) => "BILLING_DECIMAL_ERROR",
             BillingError::Domain(_) => "BILLING_DOMAIN_ERROR",
             BillingError::IllegalStatementTransition { .. } => "BILLING_ILLEGAL_STATEMENT_TRANSITION",
@@ -1214,6 +1214,14 @@ impl BillingRecordStore {
         }
         if let Some(superseded) = configuration.supersedes_configuration_id() {
             let target_key = (configuration.tenant_id().to_string(), superseded.to_string());
+            if self.superseded_configurations.contains_key(&target_key) {
+                // The target was already superseded: there is exactly one
+                // current version, and a second successor to the same
+                // superseded record is refused, never silently chained.
+                return Err(BillingError::RecordSuperseded {
+                    record_id: superseded.to_string(),
+                });
+            }
             if !self.configurations.contains_key(&target_key) {
                 return Err(BillingError::RecordNotFound {
                     record_id: superseded.to_string(),
@@ -1451,28 +1459,42 @@ mod tests {
         let mut shares = BTreeMap::new();
         shares.insert("asset-a".to_string(), "60".to_string());
         shares.insert("asset-b".to_string(), "41".to_string());
-        assert_eq!(
-            config(shares).err().expect("101% refused").name(),
-            "BILLING_SHARES_DO_NOT_SUM_TO_100"
-        );
+        // The config() helper panics on invalid input (it unwraps
+        // `new`), so the refusal case calls `new` directly.
+        let error = RevenueShareConfiguration::new(
+            "cfg-1".to_string(),
+            "tenant-1".to_string(),
+            "contract-1".to_string(),
+            "availability-pool".to_string(),
+            shares,
+            None,
+            link(),
+            1_700_000_000_000,
+            "recorder".to_string(),
+        )
+        .expect_err("101% refused");
+        assert_eq!(error.name(), "BILLING_SHARES_DO_NOT_SUM_TO_100");
         let mut thirds = BTreeMap::new();
         thirds.insert("asset-a".to_string(), "33.33".to_string());
         thirds.insert("asset-b".to_string(), "33.33".to_string());
         thirds.insert("asset-c".to_string(), "33.34".to_string());
-        // 33.33 + 33.33 + 33.34 = 100.00 EXACTLY: accepted.
-        config(thirds).expect("exact 100 accepted");
+        // 33.33 + 33.33 + 33.34 = 100.00 EXACTLY: accepted (config()
+        // panics on invalid input, so returning is the acceptance).
+        let _accepted = config(thirds);
         let mut padded = BTreeMap::new();
         padded.insert("asset-a".to_string(), "99.99".to_string());
         padded.insert("asset-b".to_string(), "0.01".to_string());
-        config(padded).expect("exact 100.00 accepted at scale 2");
+        let _accepted = config(padded);
     }
 
     #[test]
     fn disaggregation_is_exact_and_sums_back() {
         let (statement, _iso) = statement_and_iso();
-        // 1000.00 GBP: 60% = 600.00 (scale 2+0+2 = 4 → 600.0000), 40% =
-        // 400.0000; the sum returns to exactly 1000.00 at the common
-        // scale.
+        // 1000.00 GBP: 60% = 600.00 (scale 2+0+2 = 4 → 600.0000 GBP), 40% =
+        // 400.0000 GBP; the sum returns to exactly 1000.00 at the common
+        // scale. `MoneyAmount::canonical_string` always carries the
+        // currency code (see fixed_decimal.rs), as the reconciliation
+        // test below also pins ("400.0000 GBP").
         let total = MoneyAmount::parse("1000.00", "GBP".to_string()).expect("t");
         let mut shares = BTreeMap::new();
         shares.insert("asset-a".to_string(), "60".to_string());
@@ -1491,8 +1513,8 @@ mod tests {
             "recorder".to_string(),
         )
         .expect("disaggregation");
-        assert_eq!(dis.per_asset()["asset-a"].canonical_string(), "600.0000");
-        assert_eq!(dis.per_asset()["asset-b"].canonical_string(), "400.0000");
+        assert_eq!(dis.per_asset()["asset-a"].canonical_string(), "600.0000 GBP");
+        assert_eq!(dis.per_asset()["asset-b"].canonical_string(), "400.0000 GBP");
         // Value equality ignores scale: 600.0000 == 600.00.
         assert_eq!(dis.per_asset()["asset-a"], statement.lines()["asset-a"]);
     }

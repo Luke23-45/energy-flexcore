@@ -260,14 +260,16 @@ mod tests {
 
     #[test]
     fn the_sqmd_rows_round_trip_through_the_caiso_grammar() {
-        let rows = simulated_caiso_sqmd_rows(1_700_000_000_000, 3, 425, "kWh", "ESTIMATED");
+        // Quantities are INTEGER TENTHS (the generator's documented unit):
+        // 4250 tenths round-trips as 425.0, and each row adds one tenth.
+        let rows = simulated_caiso_sqmd_rows(1_700_000_000_000, 3, 4250, "kWh", "ESTIMATED");
         assert_eq!(rows.len(), 3);
         let first = extract_caiso_sqmd_row(&rows[0]).expect("valid row");
         assert_eq!(first.quantity_basis, "kWh");
         assert_eq!(first.quality_flag, "ESTIMATED");
         assert_eq!(first.meter_quantity.canonical_string(), "425.0");
         let third = extract_caiso_sqmd_row(&rows[2]).expect("valid row");
-        assert_eq!(third.meter_quantity.canonical_string(), "427.0");
+        assert_eq!(third.meter_quantity.canonical_string(), "425.2");
         // The interval length is EXACTLY the declared 5 minutes.
         assert_eq!(
             third.interval_end.unix_millis() - third.interval_start.unix_millis(),
@@ -277,12 +279,14 @@ mod tests {
 
     #[test]
     fn the_isp_rows_round_trip_through_the_ebgl_grammar() {
-        let rows = simulated_ebgl_isp_rows(1_700_000_000_000, 4, 900);
+        // Imbalances are INTEGER TENTHS: 9000 tenths round-trips as 900.0,
+        // and the alternating sign pattern adds one tenth per row.
+        let rows = simulated_ebgl_isp_rows(1_700_000_000_000, 4, 9000);
         assert_eq!(rows.len(), 4);
         let first = extract_ebgl_isp_row(&rows[0]).expect("valid row");
         assert_eq!(first.imbalance_energy_mwh.canonical_string(), "900.0");
         let second = extract_ebgl_isp_row(&rows[1]).expect("valid row");
-        assert_eq!(second.imbalance_energy_mwh.canonical_string(), "-901.0");
+        assert_eq!(second.imbalance_energy_mwh.canonical_string(), "-900.1");
         // The ISP length is EXACTLY the declared 15 minutes.
         assert_eq!(
             second.isp_end.unix_millis() - second.isp_start.unix_millis(),

@@ -245,8 +245,10 @@ fn pjm_m29_csv_fixture_refusals_are_named() {
     let err = extract_pjm_m29_bli_csv("statement_ref,charge_type\n").expect_err("header-only refused");
     assert_eq!(err.name(), "SETTLEMENT_PARSE_STRUCTURE_UNRECOGNIZED");
     // A bad decimal: named.
-    let err = extract_pjm_m29_bli_csv(&format!("{SYNTHETIC_STATEMENT_REF},X,not-a-decimal,USD"))
-        .expect_err("bad decimal refused");
+    let err = extract_pjm_m29_bli_csv(&format!(
+        "statement_ref,charge_type\n{SYNTHETIC_STATEMENT_REF},X,not-a-decimal,USD"
+    ))
+    .expect_err("bad decimal refused");
     assert_eq!(err.name(), "SETTLEMENT_PARSE_DECIMAL_INVALID");
 }
 
@@ -294,7 +296,7 @@ fn pjm_m29_xml_fixture_extracts_and_refuses() {
 fn caiso_sqmd_fixture_validates_the_interval_exactly() {
     // Exactly 5 minutes: the record constructs.
     let record =
-        extract_caiso_sqmd_row("1000,300100,425.0,kWh,ESTIMATED").expect("valid SQMD row");
+        extract_caiso_sqmd_row("1000,301000,425.0,kWh,ESTIMATED").expect("valid SQMD row");
     assert_eq!(record.quantity_basis, "kWh");
     assert_eq!(record.quality_flag, "ESTIMATED");
     assert_eq!(record.meter_quantity.canonical_string(), "425.0");
@@ -310,7 +312,7 @@ fn ebgl_isp_fixture_validates_the_interval_exactly_and_derives_direction() {
     // DEFICIT under the DECLARED sign convention.
     let surplus = extract_ebgl_isp_row("1000,901000,900.0").expect("valid ISP row");
     assert_eq!(surplus.imbalance_energy_mwh.canonical_string(), "900.0");
-    let deficit = extract_ebgl_isp_row("901000,1802000,-125.5").expect("valid ISP row");
+    let deficit = extract_ebgl_isp_row("901000,1801000,-125.5").expect("valid ISP row");
     assert_eq!(
         deficit.imbalance_energy_mwh.canonical_string(),
         "-125.5"
@@ -389,7 +391,7 @@ fn reconciliation_outcomes_cover_all_four_kinds() {
 fn reconciliation_amount_mismatch_carries_both_values_verbatim() {
     let expected = expected_lines(&[100_00]);
     let items = extract_pjm_m29_bli_csv(&format!(
-        "statement_ref,charge_type\n{SYTHETIC_STATEMENT_REF},ENERGY_CHARGE,101.25,USD\n"
+        "statement_ref,charge_type\n{SYNTHETIC_STATEMENT_REF},ENERGY_CHARGE,101.25,USD\n"
     ))
     .expect("valid statement");
     let report = reconcile_bli_statement(SYNTHETIC_STATEMENT_REF, &expected, &items, Tolerance::Exact)
@@ -517,7 +519,7 @@ fn dispute_negative_chain_digest_rules() {
         "e1".to_string(),
         "evidence://1".to_string(),
         "market".to_string(),
-        &format!("{FIXTURE_DIGEST}g"), // 64 chars, but 'g' is not hex
+        format!("{FIXTURE_DIGEST}g"), // 64 chars, but 'g' is not hex
     )
     .expect_err("a non-hex digest refuses");
     assert_eq!(err.name(), "DISPUTE_INVALID_CHAIN_DIGEST_REF");
@@ -609,7 +611,7 @@ fn opt_in_path_composes_the_record_and_never_submits() {
     }
     // NO_BID_SUBMITTED: the output is an internal record — none can be.
     assert!(NO_BID_SUBMITTED_STATEMENT.contains("none can be"));
-    assert!(OPERATOR_GRANT_REQUIRED_STATEMENT.contains("operator-approved"));
+    assert!(OPERATOR_GRANT_REQUIRED_STATEMENT.contains("Operator-approved"));
 }
 
 #[test]
@@ -928,7 +930,7 @@ fn payment_lifecycle_negatives_are_all_named() {
 
 use flexcore_application::jurisdiction_register::{
     JurisdictionEntry, MarketJurisdictionRegister, MarketPosture, RegisterError,
-    TenantMarketEnablement, NONE_ENABLED_BY_DEFAULT_STATEMENT,
+    TenantMarketEnablement, TimelineEntry, NONE_ENABLED_BY_DEFAULT_STATEMENT,
 };
 use flexcore_application::capacity_market_records::SourcedDate;
 

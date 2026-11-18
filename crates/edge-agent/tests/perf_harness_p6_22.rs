@@ -183,10 +183,25 @@ impl Drop for TempJournalDir {
 struct Harness {
     runner: EdgeRunner,
     control: flexcore_edge_agent::adapters::simulated::SimControl,
+    /// The ONE shared edge clock (source ingest stamp, buffer retention,
+    /// runner audit stamps): it must advance with the scenario, or the
+    /// event clock overtakes the fixed ingest instant and the P0.09 rule
+    /// refuses every sample past tick 5.
+    clock: Arc<FixedClock>,
     uplink: SwitchableUplink,
     healthy_flag: Arc<AtomicBool>,
     buffer: Arc<Mutex<FileLocalBuffer>>,
     _journal: TempJournalDir,
+}
+
+impl Harness {
+    /// Advances the scenario one tick AND the shared edge clock by the
+    /// fixture step (1 000 ms), keeping ingest 5 s after event throughout
+    /// the run (ingest starts at BASE+5_000; events at BASE+tick*1_000).
+    fn advance(&mut self) {
+        self.control.advance_tick();
+        self.clock.advance_millis(1_000);
+    }
 }
 
 /// Composes the REAL read-path stack at the given profile size.
@@ -231,11 +246,12 @@ fn compose(profile: &LoadProfile) -> Harness {
         vec![],
     )
     .expect("the mapping table is valid");
+    let clock = Arc::new(FixedClock::at_unix_millis(INGEST_MILLIS));
     let source = AdapterIngestSource::new(
         Box::new(sim),
         acl,
         mappings,
-        Arc::new(FixedClock::at_unix_millis(INGEST_MILLIS)),
+        Arc::clone(&clock) as Arc<dyn flexcore_ports::clock::Clock + Send + Sync>,
         4096,
     )
     .expect("the read path composes");
@@ -245,7 +261,7 @@ fn compose(profile: &LoadProfile) -> Harness {
         journal.dir.join("telemetry-journal"),
         profile.buffer_depth,
         Some(Duration::from_secs(3_600)),
-        Arc::new(FixedClock::at_unix_millis(INGEST_MILLIS)),
+        Arc::clone(&clock) as Arc<dyn flexcore_ports::clock::Clock + Send + Sync>,
     )
     .expect("the durable buffer opens");
     let buffer = Arc::new(Mutex::new(buffer));
@@ -266,15 +282,16 @@ fn compose(profile: &LoadProfile) -> Harness {
             100,
             profile.buffer_depth,
         ),
-        source,
+        Box::new(source),
         Box::new(uplink.clone()),
         Box::new(runner_buffer),
         Arc::new(InMemoryAuditSink::new()),
-        Arc::new(FixedClock::at_unix_millis(INGEST_MILLIS)),
+        Arc::clone(&clock) as Arc<dyn flexcore_ports::clock::Clock + Send + Sync>,
     );
     Harness {
         runner,
         control,
+        clock,
         uplink,
         healthy_flag,
         buffer,
@@ -340,7 +357,7 @@ fn the_load_harness_records_measured_timings_for_the_recorded_composition() {
     let mut steady_tick_micros: Vec<u128> = Vec::new();
     let mut steady_forwarded: u64 = 0;
     for _ in 0..profile.steady_polls {
-        harness.control.advance_tick();
+        harness.advance();
         let started = Instant::now();
         let report = harness.runner.tick();
         steady_tick_micros.push(started.elapsed().as_micros());
@@ -363,7 +380,7 @@ fn the_load_harness_records_measured_timings_for_the_recorded_composition() {
     let mut burst_buffered_total: u64 = 0;
     let mut buffer_engagement_tick: Option<usize> = None;
     for tick in 0..profile.burst_factor {
-        harness.control.advance_tick();
+        harness.advance();
         let started = Instant::now();
         let report = harness.runner.tick();
         burst_tick_micros.push(started.elapsed().as_micros());
@@ -385,7 +402,7 @@ fn the_load_harness_records_measured_timings_for_the_recorded_composition() {
     let mut recovery_forwarded: u64 = 0;
     let mut drain_ticks = 0usize;
     loop {
-        harness.control.advance_tick();
+        harness.advance();
         let report = harness.runner.tick();
         recovery_forwarded += report.forwarded as u64;
         drain_ticks += 1;
@@ -479,35 +496,51 @@ fn the_load_profile_parameters_are_exercised_not_assumed() {
     let mut harness = compose(&profile);
     assert_eq!(profile.total_points(), 4);
     for _ in 0..profile.steady_polls {
-        harness.control.advance_tick();
+        harness.advance();
         let report = harness.runner.tick();
         assert!(!report.poll_failed);
         assert!(!report.forward_failed);
     }
     // Burst: 10 polls of 4 samples against a DOWN uplink with a buffer
-    // depth of 8 — the drop-oldest policy MUST engage and be audited (the
-    // P6.22 buffer-engagement acceptance item under stress).
+    // depth of 8. The runner polls at most the buffer's HEADROOM (P6.05
+    // backpressure first), so the buffer fills to exactly 8 and polling
+    // then PAUSES — the drop-oldest policy is the LAST resort and never
+    // fires through the runner. The ledger's structural bound is that
+    // drops never EXCEED what was buffered, not that drops must occur;
+    // engagement is observed as the buffer filling + the pause.
     harness.healthy_flag.store(false, Ordering::SeqCst);
     let mut last_len = 0usize;
+    let mut saw_backpressure_pause = false;
     for _ in 0..profile.burst_factor {
-        harness.control.advance_tick();
+        harness.advance();
         let report = harness.runner.tick();
         assert!(report.degraded);
+        if report.poll_paused_backpressure {
+            saw_backpressure_pause = true;
+        }
         last_len = report.buffered_len_after;
         assert!(
             last_len <= profile.buffer_depth,
             "the buffer never exceeds its bound (got {last_len})"
         );
     }
-    let dropped = harness.buffer.lock().expect("buffer mutex").dropped_oldest();
+    assert_eq!(
+        last_len, profile.buffer_depth,
+        "the burst fills the buffer to its bound"
+    );
     assert!(
-        dropped > 0,
-        "the burst exceeds the depth-8 buffer: the audited drop-oldest policy must have fired"
+        saw_backpressure_pause,
+        "polling paused once the buffer was full (backpressure first)"
+    );
+    let dropped = harness.buffer.lock().expect("buffer mutex").dropped_oldest();
+    assert_eq!(
+        dropped, 0,
+        "backpressure-first held: nothing dropped while polling pauses"
     );
     // Recovery: the drain completes, the buffer empties.
     harness.healthy_flag.store(true, Ordering::SeqCst);
     for _ in 0..(profile.burst_factor + 16) {
-        harness.control.advance_tick();
+        harness.advance();
         let _ = harness.runner.tick();
         if harness.runner.buffered_len() == 0 {
             break;

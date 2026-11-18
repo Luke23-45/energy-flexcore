@@ -76,9 +76,11 @@ use flexcore_contracts::units::ReactiveSignConvention;
 use flexcore_domain::ids::{AssetId, TenantId};
 use flexcore_domain::tenant_context::TenantContext;
 use flexcore_ports::backend_error::BackendError;
+use flexcore_ports::telemetry_read::TelemetryCursor;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 
+use crate::corrections::NOT_SUPERSEDED_AT_AS_OF;
 use crate::enum_map::{quality_from_text, quality_text};
 use crate::error::{codes, map_backend};
 use crate::unit_of_work::{tx_ref, PgUnitOfWork, Tx};
@@ -668,13 +670,29 @@ fn is_no_partition_error(err: &sqlx::Error) -> bool {
 /// duplicate signal; constraint classification, never text matching).
 /// P2.31: shared with `corrections.rs` (a concurrent correction of the same
 /// identity collides on the same PK).
+///
+/// The parent constraint is `telemetry_pkey`, but a violation detected
+/// after routing reports the PARTITION's primary key: PostgreSQL names the
+/// cloned PK on each monthly partition `<partition>_pkey` (e.g.
+/// `telemetry_y2030m01_pkey`), so the parent name alone never matches a
+/// routed insert. Both spellings are the same logical PK — and the
+/// colliding-row lookup below fails closed (no row, or a non-identical
+/// row, classifies as conflicting, never acknowledged).
 pub(crate) fn is_telemetry_pkey_violation(err: &sqlx::Error) -> bool {
-    matches!(
-        err,
+    match err {
         sqlx::Error::Database(db)
-            if matches!(db.kind(), sqlx::error::DatabaseErrorKind::UniqueViolation)
-                && db.constraint() == Some("telemetry_pkey")
-    )
+            if matches!(db.kind(), sqlx::error::ErrorKind::UniqueViolation) =>
+        {
+            match db.constraint() {
+                Some(name) => {
+                    name == "telemetry_pkey"
+                        || (name.starts_with("telemetry_y") && name.ends_with("_pkey"))
+                }
+                None => false,
+            }
+        }
+        _ => false,
+    }
 }
 
 /// One INSERT attempt inside the savepoint.
@@ -702,7 +720,7 @@ async fn insert_attempt(tx: &mut Tx, binds: &InsertBinds, record: &NormalizedTel
     .bind(binds.unit_text)
     .bind(binds.q_sign_text)
     .bind(clock_quality_text(record.clock_quality))
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map(|_| ())
 }
@@ -731,7 +749,7 @@ async fn colliding_row_is_exact_duplicate(
     .bind(record.event_time.timestamp())
     .bind(record.source_sequence)
     .bind(binds.quantity_text)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(map_backend)
     .map_err(TelemetryError::Backend)?;
@@ -824,15 +842,17 @@ async fn insert_one(
 ) -> Result<TelemetryInsertOutcome, TelemetryError> {
     let binds = insert_binds(record);
     let savepoint = format!("telemetry_insert_{}", SAVEPOINT_COUNTER.fetch_add(1, Ordering::SeqCst));
-    sqlx::query(&format!("SAVEPOINT {savepoint}"))
-        .execute(&mut *tx)
+    // sqlx 0.9 audit: the savepoint name is counter-generated
+    // (`telemetry_insert_<u64>`), never user input.
+    sqlx::query(sqlx::AssertSqlSafe(format!("SAVEPOINT {savepoint}")))
+        .execute(&mut **tx)
         .await
         .map_err(map_backend)
         .map_err(TelemetryError::Backend)?;
     match insert_attempt(tx, &binds, record).await {
         Ok(()) => {
-            sqlx::query(&format!("RELEASE SAVEPOINT {savepoint}"))
-                .execute(&mut *tx)
+            sqlx::query(sqlx::AssertSqlSafe(format!("RELEASE SAVEPOINT {savepoint}")))
+                .execute(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(TelemetryError::Backend)?;
@@ -841,15 +861,15 @@ async fn insert_one(
         Err(err) => {
             // Roll the failed statement back so the surrounding
             // transaction stays usable regardless of the classification.
-            sqlx::query(&format!("ROLLBACK TO SAVEPOINT {savepoint}"))
-                .execute(&mut *tx)
+            sqlx::query(sqlx::AssertSqlSafe(format!("ROLLBACK TO SAVEPOINT {savepoint}")))
+                .execute(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(TelemetryError::Backend)?;
             if is_telemetry_pkey_violation(&err) {
                 let exact = colliding_row_is_exact_duplicate(tx, &binds, record).await?;
-                sqlx::query(&format!("RELEASE SAVEPOINT {savepoint}"))
-                    .execute(&mut *tx)
+                sqlx::query(sqlx::AssertSqlSafe(format!("RELEASE SAVEPOINT {savepoint}")))
+                    .execute(&mut **tx)
                     .await
                     .map_err(map_backend)
                     .map_err(TelemetryError::Backend)?;
@@ -859,15 +879,15 @@ async fn insert_one(
                     Err(TelemetryError::ConflictingDuplicate)
                 }
             } else if is_no_partition_error(&err) {
-                sqlx::query(&format!("RELEASE SAVEPOINT {savepoint}"))
-                    .execute(&mut *tx)
+                sqlx::query(sqlx::AssertSqlSafe(format!("RELEASE SAVEPOINT {savepoint}")))
+                    .execute(&mut **tx)
                     .await
                     .map_err(map_backend)
                     .map_err(TelemetryError::Backend)?;
                 Err(TelemetryError::OutOfRangeEventTime)
             } else {
-                sqlx::query(&format!("RELEASE SAVEPOINT {savepoint}"))
-                    .execute(&mut *tx)
+                sqlx::query(sqlx::AssertSqlSafe(format!("RELEASE SAVEPOINT {savepoint}")))
+                    .execute(&mut **tx)
                     .await
                     .map_err(map_backend)
                     .map_err(TelemetryError::Backend)?;
@@ -1009,7 +1029,7 @@ impl PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(TelemetryError::Backend)?;
-            let mut query = sqlx::query(&sql)
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(&tenant_text)
                 .bind(&asset_texts)
                 .bind(from.timestamp())
@@ -1018,7 +1038,7 @@ impl PgUnitOfWork {
                 query = query.bind(texts);
             }
             let rows = query
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(TelemetryError::Backend)?;
@@ -1082,14 +1102,14 @@ impl PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(TelemetryError::Backend)?;
-            let mut query = sqlx::query(&sql)
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(&tenant_text)
                 .bind(&asset_texts);
             if let Some(texts) = &quantity_texts {
                 query = query.bind(texts);
             }
             let rows = query
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(TelemetryError::Backend)?;
@@ -1134,7 +1154,7 @@ impl PgUnitOfWork {
             .bind(&entry.reason)
             .bind(payload)
             .bind(entry.attempt_count)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(map_backend)
             .map_err(TelemetryError::Backend)?;
@@ -1153,13 +1173,13 @@ impl PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(TelemetryError::Backend)?;
-            let rows = sqlx::query(&format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{QUARANTINE_COLUMNS} WHERE tenant_id = $1::uuid \
                  ORDER BY quarantined_at DESC, quarantine_id LIMIT $2"
-            ))
+            )))
             .bind(&tenant_text)
             .bind(i64::from(limit))
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(map_backend)
             .map_err(TelemetryError::Backend)?;
@@ -1303,7 +1323,7 @@ impl HistoryCursor {
     /// Builds the cursor for the last record of a page (the strictly-after
     /// key of the next page).
     pub fn for_record(record: &StoredTelemetry) -> Self {
-        let millis = record.event_time.timestamp().unix_millis();
+        let millis = record.event_time.unix_millis();
         Self {
             event_time_millis: i64::try_from(millis)
                 .expect("event_time milliseconds fit i64 (the recorded non-negative epoch assumption)"),
@@ -1362,6 +1382,53 @@ pub struct TelemetryBucket {
     pub mean: f64,
     pub min: f64,
     pub max: f64,
+}
+
+/// Parses the P2.12 port cursor's legs (millisecond event time, asset,
+/// quantity) for the port query's keyset predicate. Strict, mirroring
+/// `TelemetryCursor::parse` in the ports crate: the `v1:` prefix, a
+/// 15-digit millisecond leg, a hyphenated asset UUID, and a frozen
+/// quantity key. The asset leg must name the queried asset (the port
+/// query is single-asset); anything malformed or naming another asset is
+/// a decode failure — never silently treated as "first page".
+fn parse_port_cursor(
+    cursor: &TelemetryCursor,
+    asset: AssetId,
+) -> Result<(time::OffsetDateTime, Quantity), TelemetryError> {
+    let rest = cursor
+        .key()
+        .strip_prefix("v1:")
+        .ok_or_else(|| decode_failure("telemetry.cursor"))?;
+    let mut parts = rest.splitn(3, ':');
+    let millis = parts
+        .next()
+        .ok_or_else(|| decode_failure("telemetry.cursor"))?;
+    let asset_text = parts
+        .next()
+        .ok_or_else(|| decode_failure("telemetry.cursor"))?;
+    let quantity_text = parts
+        .next()
+        .ok_or_else(|| decode_failure("telemetry.cursor"))?;
+    if millis.len() != 15 || !millis.chars().all(|c| c.is_ascii_digit()) {
+        return Err(decode_failure("telemetry.cursor"));
+    }
+    let millis = millis
+        .parse::<i64>()
+        .map_err(|_| decode_failure("telemetry.cursor"))?;
+    let cursor_time = time::OffsetDateTime::from_unix_timestamp_nanos(
+        // `time` 0.3 has no `from_unix_timestamp_millis`; the nanos
+        // constructor is exact (i128 cannot overflow here).
+        millis as i128 * 1_000_000,
+    )
+    .map_err(|_| decode_failure("telemetry.cursor"))?;
+    let cursor_asset =
+        uuid_from_text(asset_text).map_err(|_| decode_failure("telemetry.cursor"))?;
+    if cursor_asset != asset.uuid() {
+        return Err(decode_failure("telemetry.cursor"));
+    }
+    let quantity =
+        Quantity::from_db_text(quantity_text).map_err(TelemetryError::Backend)?;
+    Ok((cursor_time, quantity))
 }
 
 impl PgUnitOfWork {
@@ -1444,7 +1511,7 @@ impl PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(TelemetryError::Backend)?;
-            let mut query = sqlx::query(&sql)
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(&tenant_text)
                 .bind(&asset_text)
                 .bind(from.timestamp())
@@ -1456,8 +1523,10 @@ impl PgUnitOfWork {
                 query = query.bind(text);
             }
             if let Some(cursor) = &cursor {
-                let cursor_time = time::OffsetDateTime::from_unix_timestamp_millis(
-                    cursor.event_time_millis,
+                let cursor_time = time::OffsetDateTime::from_unix_timestamp_nanos(
+                    // `time` 0.3 has no `from_unix_timestamp_millis`; the
+                    // nanos constructor is exact (i128 cannot overflow here).
+                    cursor.event_time_millis as i128 * 1_000_000,
                 )
                 .map_err(|_| decode_failure("telemetry.cursor"))?;
                 query = query
@@ -1467,7 +1536,7 @@ impl PgUnitOfWork {
             }
             query = query.bind(fetch);
             let rows = query
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(TelemetryError::Backend)?;
@@ -1483,6 +1552,151 @@ impl PgUnitOfWork {
                 None
             };
             Ok((records, next_cursor))
+        })
+    }
+
+    /// The P2.12 port query (keyset-paginated, ascending sort-key order):
+    /// the single-asset, time-range read the `TelemetryReader` port
+    /// serves, over the same stored rows as
+    /// [`query_telemetry_history`] but with the port's cursor and the
+    /// latest-version visibility rule. Returns up to `limit + 1` rows
+    /// (lookahead — the caller decides `next_cursor` from whether the
+    /// extra row exists). Both bounds are inclusive over `event_time`;
+    /// `quantities == None` is the port's read-side wildcard (the full
+    /// frozen vocabulary).
+    ///
+    /// Version visibility (P2.31 D-C4): the `NOT_SUPERSEDED` predicate
+    /// is applied with a NULL as-of binding, so every strictly-newer
+    /// version supersedes and the query returns the latest version per
+    /// storage identity — matching the history route's raw-mode
+    /// semantics. The current-state view needs no such predicate: its
+    /// `DISTINCT ON` already carries the `telemetry_version DESC`
+    /// tiebreak (see [`latest_telemetry_per_asset`]).
+    ///
+    /// Cursor (P2.12, DECIDED ONCE): the keyset predicate mirrors the
+    /// in-crate fake's `sort_key(r) > cursor.key()` comparison exactly
+    /// — `(date_trunc('milliseconds', event_time), quantity)` strictly
+    /// after the cursor's legs. The port cursor is millisecond-granular
+    /// by contract, so rows sharing one sort key (same millisecond
+    /// `event_time` + same quantity for this asset, differing only in
+    /// `source_sequence` or sub-millisecond time) sit at one sort-key
+    /// position; a page boundary inside such a group can omit the
+    /// group's later rows from later pages. Within one millisecond the
+    /// SQL order refines by full `event_time` before `quantity`, while
+    /// the keyset predicate orders by (millisecond, quantity), so a
+    /// page boundary inside one millisecond can likewise omit a row
+    /// whose sort key is greater but whose sub-millisecond time sorts
+    /// earlier — the same millisecond-granularity limit. The
+    /// precise-pagination path is the history route, whose
+    /// `HistoryCursor` carries `source_sequence`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn query_telemetry_port(
+        &self,
+        ctx: &TenantContext,
+        asset: AssetId,
+        from: EventTime,
+        until: EventTime,
+        quantities: Option<&[Quantity]>,
+        quality: Option<TelemetryQuality>,
+        limit: u32,
+        cursor: Option<TelemetryCursor>,
+    ) -> Result<Vec<StoredTelemetry>, TelemetryError> {
+        if from.timestamp() > until.timestamp() {
+            return Err(backend_rejected(
+                "the query time range is inverted (from after until)",
+            ));
+        }
+        if limit == 0 {
+            return Err(backend_rejected(
+                "a page must request at least one record",
+            ));
+        }
+        if let Some(quantities) = quantities {
+            if quantities.is_empty() {
+                return Err(backend_rejected(
+                    "a telemetry query must name at least one quantity (no implicit wildcard)",
+                ));
+            }
+        }
+        // The cursor legs, parsed strictly before any SQL runs (a
+        // malformed cursor, or one naming another asset, is a decode
+        // failure — never silently treated as "first page").
+        let cursor_legs = cursor
+            .as_ref()
+            .map(|cursor| parse_port_cursor(cursor, asset))
+            .transpose()?;
+        let tenant_text = uuid_text(ctx.tenant_id().uuid());
+        let asset_text = uuid_text(asset.uuid());
+        let quantity_texts: Option<Vec<&'static str>> =
+            quantities.map(|set| set.iter().map(|q| q.db_text()).collect());
+        let quality_text = quality.map(quality_text);
+
+        // Parameter indices are assigned as clauses are appended (the
+        // recorded `query_telemetry_history` pattern): 1 tenant, 2 asset,
+        // 3 from, 4 until, 5 as_of (always bound — NULL here, so every
+        // newer version supersedes and the port query reads the latest
+        // version per identity); optional quantity, quality, and cursor
+        // legs, then LIMIT, follow.
+        let mut next_param = 6usize;
+        let mut sql = format!(
+            "{TELEMETRY_COLUMNS} WHERE tenant_id = $1::uuid \
+             AND asset_id = $2::uuid \
+             AND event_time >= $3 AND event_time <= $4 {}",
+            NOT_SUPERSEDED_AT_AS_OF.replace("$SUPERSEDED", "$5")
+        );
+        if quantity_texts.is_some() {
+            sql.push_str(&format!(" AND quantity = ANY(${next_param}::text[])"));
+            next_param += 1;
+        }
+        if quality_text.is_some() {
+            sql.push_str(&format!(" AND quality::text = ${next_param}"));
+            next_param += 1;
+        }
+        if cursor_legs.is_some() {
+            let (p, q) = (next_param, next_param + 1);
+            next_param += 2;
+            // Row-wise strictly-after keyset comparison over the port
+            // sort key's varying legs (P2.12). Explicit casts so the
+            // parameter types are fixed regardless of the planner's
+            // inference; the event_time leg is truncated to milliseconds
+            // because the sort key is millisecond-granular.
+            sql.push_str(&format!(
+                " AND (date_trunc('milliseconds', event_time), quantity) > \
+                 (${p}::timestamptz, ${q}::text)"
+            ));
+        }
+        sql.push_str(" ORDER BY event_time ASC, quantity ASC, source_sequence ASC, \
+             telemetry_version ASC LIMIT $");
+        sql.push_str(&next_param.to_string());
+
+        let fetch = i64::from(limit) + 1; // one extra row detects a next page
+        self.runtime.block_on(async {
+            let mut guard = self.tx.lock().await;
+            let tx = tx_ref(&mut guard).await.map_err(TelemetryError::Backend)?;
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(&tenant_text)
+                .bind(&asset_text)
+                .bind(from.timestamp())
+                .bind(until.timestamp())
+                .bind(Option::<time::OffsetDateTime>::None);
+            if let Some(texts) = &quantity_texts {
+                query = query.bind(texts);
+            }
+            if let Some(text) = &quality_text {
+                query = query.bind(text);
+            }
+            if let Some((cursor_time, cursor_quantity)) = &cursor_legs {
+                query = query
+                    .bind(*cursor_time)
+                    .bind(cursor_quantity.db_text());
+            }
+            query = query.bind(fetch);
+            let rows = query
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(map_backend)
+                .map_err(TelemetryError::Backend)?;
+            rows.iter().map(decode_stored_telemetry).collect()
         })
     }
 
@@ -1538,7 +1752,7 @@ impl PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(TelemetryError::Backend)?;
-            let mut query = sqlx::query(&sql)
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(bucket.sql_interval())
                 .bind(from.timestamp())
                 .bind(&tenant_text)
@@ -1550,7 +1764,7 @@ impl PgUnitOfWork {
                 query = query.bind(text);
             }
             let rows = query
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(TelemetryError::Backend)?;

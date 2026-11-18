@@ -665,6 +665,12 @@ impl BrokerAuditSink for InMemoryBrokerAuditSink {
     }
 }
 
+impl BrokerAuditSink for std::sync::Arc<InMemoryBrokerAuditSink> {
+    fn record(&self, event: BrokerAuditEvent) -> Result<(), BrokerError> {
+        (**self).record(event)
+    }
+}
+
 // --- The broker ------------------------------------------------------------------
 
 struct BrokerState {

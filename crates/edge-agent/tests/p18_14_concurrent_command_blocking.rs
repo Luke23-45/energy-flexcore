@@ -335,7 +335,7 @@ fn after_activation_the_next_update_is_blocked_until_a_clean_recheck_is_recorded
     let refusal = interlock.authorize_update_attempt().expect_err("blocked");
     assert!(matches!(
         refusal,
-        UpdateBlockRefusal::ConformanceRecheckOutstanding { attempt_id } if attempt_id == "attempt-r1"
+        UpdateBlockRefusal::ConformanceRecheckOutstanding { ref attempt_id } if attempt_id == "attempt-r1"
     ));
     assert_eq!(refusal.name(), "UPDATE_CONFORMANCE_RECHECK_OUTSTANDING");
     assert_eq!(device.last_seen_sequence(), 5, "the blocked attempt verified nothing new");

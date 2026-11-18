@@ -28,7 +28,13 @@
 // | Attempt | Result |
 // |---|---|
 // | missing/invalid provisioning token | 401 |
-// | binding (tenant/site) ≠ token's approved scope | 403 |
+// | binding tenant ≠ token's approved scope | 403 (unjournaled: the
+// |   requested tenant is untrusted, so no tenant-scoped audit context
+// |   exists) |
+// | binding site ≠ token's approved scope, tenant matches | 403 (+ REJECTED
+// |   journal event: the tenant IS the token's, so the refusal is a
+// |   tenant-scoped §17.3 audit event — the site is not an approved site
+// |   of this tenant) |
 // | site not approved in the tenant | 403 (+ REJECTED journal event) |
 // | duplicate identity (existing ACTIVE term) | 409 (+ REJECTED journal event) |
 // | re-enrollment of a REVOKED identity | 403 (+ REJECTED journal event) |
@@ -193,11 +199,18 @@ impl EdgeEnrollmentStore for FakeEdgeEnrollmentStore {
                 field: "enrollment_seq",
             });
         }
-        let duplicate_active = inner.devices.iter().any(|d| {
-            d.tenant_id == ctx.tenant_id()
-                && d.device_id == row.device_id
-                && d.status == "ACTIVE"
-        });
+        // The one-active-term rule is the migration 0018 PARTIAL
+        // unique index: it constrains ACTIVE rows only. Appending a
+        // REVOKED/EXPIRED term while an ACTIVE term exists is legal
+        // (rotation after REVOKED/EXPIRED inserts legally under the
+        // partial index) — the old form refused ANY append while an
+        // ACTIVE row existed, which made decommission unrepresentable.
+        let duplicate_active = row.status == "ACTIVE"
+            && inner.devices.iter().any(|d| {
+                d.tenant_id == ctx.tenant_id()
+                    && d.device_id == row.device_id
+                    && d.status == "ACTIVE"
+            });
         if duplicate_active {
             return Err(EdgeEnrollmentStoreError::Conflict {
                 device_id: row.device_id.clone(),
@@ -425,7 +438,7 @@ fn record_rejection(
     reason: &str,
     correlation_id: &str,
 ) {
-    let event = EdgeEnrollmentEventRow::new(
+    let event = match EdgeEnrollmentEventRow::new(
         ctx.tenant_id(),
         next_event_id(),
         device_id.to_string(),
@@ -434,7 +447,17 @@ fn record_rejection(
         Some(reason.to_string()),
         correlation_id.to_string(),
         now_unix_millis(),
-    );
+    ) {
+        Ok(event) => event,
+        Err(error) => {
+            tracing::error!(
+                %error,
+                device_id,
+                "EDGE ENROLLMENT REJECTION AUDIT FAILED — the refusal event could not even be built; the refusal is NOT journaled"
+            );
+            return;
+        }
+    };
     if let Err(error) = store.append_event(ctx, &event) {
         tracing::error!(
             %error,
@@ -459,7 +482,7 @@ fn record_rejection(
         (status = 422, description = "Malformed device id / tenant / site, or an expiry term before the issuance instant", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn enroll_edge_device(
+pub(crate) async fn enroll_edge_device(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<EnrollRequestBody>,
@@ -488,16 +511,9 @@ async fn enroll_edge_device(
     let site_uuid = FlexUuid::parse(&body.site_id)
         .map_err(|_| ApiError::validation(format!("'site_id' is not a valid UUID: '{}'", body.site_id)))?;
 
-    // 3. The binding must MATCH the token's approved scope (§16.2: an edge
-    //    cannot enroll for a tenant/site it is not approved for).
-    if tenant_uuid != scope.tenant_id || site_uuid != scope.site_id {
-        return Err(ApiError::forbidden(
-            "the requested tenant/site binding does not match the provisioning token's \
-             approved scope (§16.2)",
-        ));
-    }
-
-    // 4. The persistence store must be composed (fail closed otherwise).
+    // 3. The persistence store must be composed (fail closed otherwise).
+    //    (Moved above the binding check so a within-tenant site refusal
+    //    can be journaled; the store fetch is fail-closed either way.)
     let store = state
         .edge_enrollment
         .as_ref()
@@ -515,6 +531,32 @@ async fn enroll_edge_device(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("edge-enroll:{}", body.device_id.trim()));
+
+    // 4. The binding must MATCH the token's approved scope (§16.2: an edge
+    //    cannot enroll for a tenant/site it is not approved for). The two
+    //    halves refuse differently: a TENANT mismatch is unjournaled (the
+    //    requested tenant is untrusted — no tenant-scoped audit context
+    //    exists), while a SITE mismatch inside the token's own tenant IS
+    //    journaled (§17.3: the tenant is established, and the site is
+    //    simply not an approved site of this tenant).
+    if tenant_uuid != scope.tenant_id {
+        return Err(ApiError::forbidden(
+            "the requested tenant does not match the provisioning token's \
+             approved scope (§16.2)",
+        ));
+    }
+    if site_uuid != scope.site_id {
+        record_rejection(
+            store.as_ref(),
+            &ctx,
+            body.device_id.trim(),
+            "the requested site is not an approved site of this tenant (§16.2)",
+            &correlation_id,
+        );
+        return Err(ApiError::forbidden(
+            "the requested site is not an approved site of this tenant (§16.2)",
+        ));
+    }
     let enrolled_at = now_unix_millis();
     if let Some(expires_at) = body.expires_at_unix_millis {
         if expires_at <= enrolled_at {
@@ -553,7 +595,9 @@ async fn enroll_edge_device(
                 store.as_ref(),
                 &ctx,
                 &device_id,
-                "revoked identity: re-enrollment is refused",
+                // The frozen state spelling (the response carries it too):
+                // the denial names the REVOKED state, not a lowercase word.
+                "REVOKED identity: re-enrollment is refused",
                 &correlation_id,
             );
             return Err(ApiError::forbidden(
@@ -640,7 +684,7 @@ fn next_event_id() -> String {
     let mut bytes = [0u8; 16];
     bytes[..8].copy_from_slice(&now_unix_millis().to_be_bytes());
     bytes[8..16].copy_from_slice(&COUNTER.fetch_add(1, Ordering::SeqCst).to_be_bytes());
-    FlexUuid::from_bytes(u128::from_be_bytes(bytes))
+    FlexUuid::from_bytes(bytes)
         .to_hyphenated()
         .to_string()
 }
@@ -874,7 +918,7 @@ fn compose_edge_status(
         (status = 503, description = "No enrollment store composed, or the status reporter failed (infrastructure — honest, never a fake success)"),
     )
 )]
-async fn get_edge_status(
+pub(crate) async fn get_edge_status(
     State(state): State<AppState>,
     caller: CallerExtractor,
     Query(params): Query<EdgeStatusParams>,
@@ -997,7 +1041,7 @@ fn decommission_confirmation_reason(
         (status = 503, description = "No enrollment store composed (infrastructure — honest, never a fake success)"),
     )
 )]
-async fn decommission_edge_device(
+pub(crate) async fn decommission_edge_device(
     State(state): State<AppState>,
     caller: CallerExtractor,
     Json(body): Json<DecommissionRequestBody>,

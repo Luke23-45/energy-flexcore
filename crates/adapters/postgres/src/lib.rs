@@ -12,7 +12,7 @@
 // | `flexcore_audit::sink::AuditSink` (append-only) | [`unit_of_work::PgUnitOfWork`] (inside the transaction) and [`store::FlexCoreStore`] (self-scoping autocommit append) |
 // | `flexcore_ports::clock::Clock` | [`clock::SystemClock`] |
 // | `flexcore_ports::id_generator::IdGenerator` | [`id_generator::PostgresIdGenerator`] — `SELECT uuidv7()`, sharing the D-S1 PK version policy |
-// | Telemetry repository (P2.06; no port trait — the P2.11 contract is being implemented concurrently) | [`telemetry`] on [`unit_of_work::PgUnitOfWork`]: insert (single + batch), time-range query, latest-per-asset, quarantine write/list, all tenant-scoped through the same unit-of-work transaction |
+// | Telemetry repository (P2.06) + `flexcore_ports::telemetry_read::TelemetryReader` (P2.12) | [`telemetry`] on [`unit_of_work::PgUnitOfWork`]: insert (single + batch), time-range query, latest-per-asset, quarantine write/list, all tenant-scoped through the same unit-of-work transaction; [`telemetry_reader::PgTelemetryReader`] implements the port over [`store::FlexCoreStore`], opening its own tenant-scoped unit of work per call (the reader is pool-held, not bound to the request's unit of work — see that module) |
 // | Versioned corrections + as-of reads (P2.31, foundations §6.4; no port trait — same recorded status) | [`corrections`] on [`unit_of_work::PgUnitOfWork`]: correction insert (new versioned row, original intact), per-identity version listing, as-of range/history reads |
 // | `flexcore_storage::schedule_store::ScheduleRecordStore` (P3.21; storage-side contract, recorded home deviation) | [`schedule_store`] on [`unit_of_work::PgUnitOfWork`]: §12.6 schedule-result record insert + tenant-scoped find (migration 0013), inside the caller's transaction so the record and the `ScheduleProposed` outbox row are atomic (§15.5) |
 // | `flexcore_storage::command_store::CommandRecordStore` + `flexcore_storage::feasibility_check::FeasibilityCheckStore` (P4.10/P4.30; storage-side contracts, same recorded home deviation) | [`command_store`] / [`feasibility_check`] on [`unit_of_work::PgUnitOfWork`]: command records + the compare-and-swap state transition + immutable journal rows (migration 0016) and the append-only feasibility-check evidence records (migration 0017), all inside the caller's transaction so each state change and its paired outbox rows are atomic (§15.5) |
@@ -89,6 +89,11 @@ pub mod partition_maintenance;
 // on the PgUnitOfWork transaction pattern (record + ScheduleProposed
 // outbox row in ONE transaction, §15.5).
 pub mod schedule_store;
+// Patch B (P2.07) — the signed-envelope source authenticator plus the
+// signing-key registry and sequence-watermark repository methods on
+// `PgUnitOfWork` (migration 0026). Public keys only; no private-key
+// material is ever stored.
+pub mod source_keys;
 // P15.15 — the interconnection-record store (migration 0021): the
 // PostgreSQL implementation of flexcore-storage's
 // InterconnectionRecordStore, on the PgUnitOfWork transaction pattern.
@@ -119,6 +124,10 @@ pub mod market_records_store;
 pub mod webhook_delivery;
 pub mod store;
 pub mod telemetry;
+// P2.12 — the `TelemetryReader` port implementation (pool-held on the
+// store; each call opens its own tenant-scoped unit of work — see the
+// module header for the design decision).
+pub mod telemetry_reader;
 pub mod unit_of_work;
 
 pub use clock::SystemClock;
@@ -130,12 +139,14 @@ pub use id_generator::PostgresIdGenerator;
 pub use partition_maintenance::{
     MaintenanceError, PartitionAuditContext, PartitionBounds, PartitionEntry, PartitionCreateOutcome,
 };
+pub use source_keys::{AdvanceOutcome, PgSourceAuthenticator, SourceKeyRow};
 pub use store::FlexCoreStore;
 pub use telemetry::{
     HistoryBucketWidth, HistoryCursor, NormalizedTelemetryRecord, Quantity, StoredQuarantineEntry,
     StoredTelemetry, TelemetryBatchItem, TelemetryBatchOutcome, TelemetryBucket, TelemetryError,
     TelemetryInsertOutcome, TelemetryQuarantineEntry, TelemetryValue,
 };
+pub use telemetry_reader::PgTelemetryReader;
 pub use unit_of_work::PgUnitOfWork;
 
 #[cfg(test)]

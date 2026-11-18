@@ -133,7 +133,7 @@ pub const PLUGIN_PATH_DIGEST_ALG: &str = DIGEST_ALGORITHM_FNV1A64_TEST;
 /// reviewable).
 pub const PLUGIN_PATH_PROTECTION_STATEMENT: &str = "the P7.36 plugin-path protection is the \
      P4.28/P6.15 discipline adapted to the plugin path: payload-bound request identity \
-     (correlation id + FNV-1a-64 digest — the recorded TEST-GRADE binding; a production \
+     (correlation id + FNV-1a-64 digest `fnv1a64-test` — the recorded TEST-GRADE binding; a production \
      digest is a DEPLOYMENT REQUIREMENT), monotonic per-plugin sequence with distinct \
      duplicate/out-of-sequence refusals that survive process restart through a file \
      checkpoint, and an enforced validity window against an injected clock. Plugin \
@@ -680,6 +680,13 @@ impl FilePluginSequenceCheckpoint {
             });
         }
         let magic = Self::magic();
+        // Counters known to THIS instance: the corrupt tail truncated and
+        // the records replayed at open (a reopened instance must report
+        // what the file holds, not only what it has written since open —
+        // the replay test reopens and counts, and the truncation counter
+        // is the audited loss record, never silent).
+        let mut corrupt_tail_truncated: u64 = 0;
+        let mut records_replayed: u64 = 0;
         let (file, replayed) = match std::fs::OpenOptions::new().read(true).write(true).open(path) {
             Ok(mut existing) => {
                 let mut contents = Vec::new();
@@ -703,7 +710,6 @@ impl FilePluginSequenceCheckpoint {
                     }
                     let mut state = BTreeMap::new();
                     let mut offset = magic.len();
-                    let mut corrupt_tail_truncated: u64 = 0;
                     while offset + 8 <= contents.len() {
                         let len_bytes = match contents
                             .get(offset..offset + 4)
@@ -748,6 +754,7 @@ impl FilePluginSequenceCheckpoint {
                         match decode_checkpoint_payload(payload) {
                             Some((channel, sequence)) => {
                                 state.insert(channel, sequence);
+                                records_replayed += 1;
                                 offset += 8 + len as usize;
                             }
                             None => {
@@ -811,8 +818,8 @@ impl FilePluginSequenceCheckpoint {
             path: path.to_path_buf(),
             file: Mutex::new(file),
             state: Mutex::new(replayed),
-            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(0),
-            records_written: std::sync::atomic::AtomicU64::new(0),
+            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(corrupt_tail_truncated),
+            records_written: std::sync::atomic::AtomicU64::new(records_replayed),
         })
     }
 
@@ -829,7 +836,9 @@ impl FilePluginSequenceCheckpoint {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// How many records this instance has written (diagnostics).
+    /// How many records this instance knows: replayed at open plus
+    /// written since (diagnostics — a reopened instance reports what the
+    /// file holds, so the durable advance is countable after a restart).
     pub fn records_written(&self) -> u64 {
         self.records_written
             .load(std::sync::atomic::Ordering::SeqCst)

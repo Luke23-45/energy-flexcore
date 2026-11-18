@@ -397,8 +397,8 @@ fn the_clean_switch_is_reproducible_and_the_diff_is_deterministic() {
         ControlAuthorityPosture::SimulationShadow, ControlAuthorityPosture::SimulationShadow);
     assert_eq!(ra, rb);
     assert_eq!(executor_a.providers, executor_b.providers);
-    let reasons_a: Vec<&str> = audit_a.records().iter().map(|r| r.reason.as_str()).collect();
-    let reasons_b: Vec<&str> = audit_b.records().iter().map(|r| r.reason.as_str()).collect();
+    let reasons_a: Vec<String> = audit_a.records().iter().map(|r| r.reason.clone()).collect();
+    let reasons_b: Vec<String> = audit_b.records().iter().map(|r| r.reason.clone()).collect();
     assert_eq!(reasons_a, reasons_b, "same clock + same steps → identical audit trail");
     assert_eq!(diff_a, expected_diff());
 }

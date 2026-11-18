@@ -22,6 +22,7 @@
 // exactly the pattern the existing `command_store.rs`, `telemetry.rs`, and
 // `schedule_store.rs` modules use for their `impl PgUnitOfWork` blocks.
 
+use sqlx::Row;
 use crate::error::{is_unique_violation, map_backend};
 use crate::unit_of_work::{tx_ref, PgUnitOfWork};
 use crate::uuid_map::{uuid_from_text, uuid_text};
@@ -199,7 +200,7 @@ impl FeasibilityCheckStore for PgUnitOfWork {
             .bind(&row.actor)
             .bind(&row.correlation_id)
             .bind(row.checked_at_unix_millis)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_backend_error(err, &row.check_id))?;
             Ok(())
@@ -222,12 +223,14 @@ impl FeasibilityCheckStore for PgUnitOfWork {
                     code: err.code().to_string(),
                     message: err.message().to_string(),
                 })?;
-            let row = sqlx::query(&format!(
+            // sqlx 0.9 audit: this statement interpolates only the
+            // FEASIBILITY_CHECK_SELECT const fragment; every value is a $n bind.
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{FEASIBILITY_CHECK_SELECT} WHERE check_id = $1 AND tenant_id = $2::uuid"
-            ))
+            )))
             .bind(check_id)
             .bind(uuid_text(ctx.tenant_id().uuid()))
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_backend_error(err, check_id))?;
             match row {
@@ -290,13 +293,13 @@ impl FeasibilityCheckStore for PgUnitOfWork {
                 " ORDER BY checked_at_unix_millis ASC, check_id ASC LIMIT ${}",
                 binds.len() + 2
             ));
-            let mut query = sqlx::query(&statement).bind(uuid_text(ctx.tenant_id().uuid()));
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(statement.as_str())).bind(uuid_text(ctx.tenant_id().uuid()));
             for bind in &binds {
                 query = query.bind(bind);
             }
             let rows = query
                 .bind(limit)
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut **tx)
                 .await
                 .map_err(|err| map_backend_error(err, "listing"))?;
             rows.iter().map(decode_feasibility_check_row).collect()

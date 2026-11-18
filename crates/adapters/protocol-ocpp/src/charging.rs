@@ -441,9 +441,16 @@ mod tests {
         assert!(statement.contains("GetCompositeSchedule reconciliation"));
 
         // The station's composite matches: aligned (application evidence
-        // CONSISTENT — never a delivery guarantee).
+        // CONSISTENT — never a delivery guarantee). The composite is the
+        // station's OWN report (a GetCompositeSchedule response), NOT the
+        // relayed request: the request carries the schedule flat under
+        // `chargingSchedule`, while the response carries it as a top-level
+        // `schedule`. The station echoes the relayed periods, so the
+        // response is built from the request's schedule.
+        let schedule = payload["chargingSchedule"].clone();
+        let composite = serde_json::json!({ "schedule": schedule });
         let observation =
-            parse_composite_schedule_response(&payload, plan.rate_unit).expect("decoded");
+            parse_composite_schedule_response(&composite, plan.rate_unit).expect("decoded");
         let outcome = flexcore_domain::ev_charging_composer::reconcile_composite_schedule(
             &plan,
             &observation,

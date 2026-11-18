@@ -425,6 +425,8 @@ fn every_health_transition_is_audited_and_unknown_plugins_are_refused_audited() 
     assert!(transition.timestamp_unix_millis >= BASE);
 
     // An observation for an UNREGISTERED plugin is REFUSED and audited.
+    // (`records()` returns a cloned snapshot — re-fetch AFTER the
+    // refusal, or the check reads the pre-refusal snapshot.)
     let error = monitor
         .record_call_result("neryva.ghost", BASE + 3_000, PluginObservation::CallSucceeded { fuel_used: 0 })
         .expect_err("unknown plugin refused");
@@ -432,6 +434,7 @@ fn every_health_transition_is_audited_and_unknown_plugins_are_refused_audited() 
         error,
         flexcore_plugin_host::health::HealthError::UnknownPlugin { .. }
     ));
+    let records = audit.records();
     assert!(
         records.iter().any(|r| r.kind == HealthAuditKind::Refused
             && r.plugin_id == "neryva.ghost"),

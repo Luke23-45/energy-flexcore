@@ -27,7 +27,8 @@ use std::sync::{Arc, Mutex};
 use flexcore_edge_agent::command_path::FROZEN_COMMAND_STATE_NAMES;
 use flexcore_edge_agent::ports::{AuditSink, EdgeAuditEvent, EdgeError};
 use flexcore_edge_agent::update_command_interlock::{
-    DeviceCommandObservation, DrainPhase, InMemoryCommandStateSource, InterlockError,
+    DeviceCommandObservation, DeviceCommandStateSource, DrainPhase, InMemoryCommandStateSource,
+    InterlockError,
     RecheckOverride, RecheckPhase, UpdateBlockRefusal, UpdateCommandInterlock,
     FROZEN_TERMINAL_COMMAND_STATE_NAMES, INTERLOCK_STATEMENT,
 };
@@ -184,8 +185,8 @@ fn an_unknown_device_command_state_blocks_fail_closed() {
     // the interlock's own input).
     let source = Arc::new(InMemoryCommandStateSource::default());
     source.set_unobservable("the command-path tracking map is unreachable".to_string());
-    let (interlock, sink) = interlock(source);
-    let refusal = interlock
+    let (interlock_unknown, sink) = interlock(source);
+    let refusal = interlock_unknown
         .authorize_update_attempt()
         .expect_err("fail-closed");
     assert!(matches!(refusal, UpdateBlockRefusal::DeviceStateUnknown { .. }));
@@ -218,8 +219,8 @@ fn the_interlock_feeds_the_wave1_session_rule_and_never_disagrees_unsafely() {
         observation("cmd-1", "ISSUED"),
         observation("cmd-2", "ACKNOWLEDGED"),
     ]));
-    let (interlock, _sink) = interlock(source);
-    assert!(interlock.authorize_update_attempt().is_err());
+    let (interlock_blocked, _sink) = interlock(source);
+    assert!(interlock_blocked.authorize_update_attempt().is_err());
     let mut blocked_session = session("attempt-1");
     assert!(matches!(
         blocked_session.begin_download(2, BASE_MILLIS + 1),
@@ -257,7 +258,7 @@ fn the_drain_walks_issued_to_terminal_and_then_authorizes() {
         "cmd-1",
         "ISSUED",
     )]));
-    let (mut interlock, sink) = interlock(source);
+    let (mut interlock, sink) = interlock(Arc::clone(&source));
 
     let phase = interlock.begin_drain().expect("drain starts").clone();
     assert!(matches!(phase, DrainPhase::Draining { .. }));
@@ -279,7 +280,11 @@ fn the_drain_walks_issued_to_terminal_and_then_authorizes() {
     assert!(matches!(interlock.drain_phase(), DrainPhase::Draining { .. }));
 
     // The operator drains the command (lifecycle action, frozen table).
+    // The device is observable again — the unobservable latch is cleared
+    // by the operator action (same as the lib double: set_observations
+    // alone never clears it) — and the command is now CANCELLED.
     source.set_observations(vec![observation("cmd-1", "CANCELLED")]);
+    source.set_observable();
     assert!(matches!(
         interlock.poll_drain().expect("observed").clone(),
         DrainPhase::Drained { .. }
@@ -313,10 +318,19 @@ fn the_drain_is_observer_only_toward_the_command_lifecycle() {
     let source = Arc::new(InMemoryCommandStateSource::reporting(vec![
         observation("cmd-1", "TRACKING"),
     ]));
-    let (mut interlock, _sink) = interlock(source);
+    let (mut interlock, _sink) = interlock(Arc::clone(&source));
     interlock.begin_drain().expect("drain starts");
-    interlock.poll_drain().expect_err("still TRACKING");
-    interlock.poll_drain().expect_err("still TRACKING");
+    // Still TRACKING: the drain continues (observed, never forced) — the
+    // poll returns Ok(Draining), not an error; only the unobservable case
+    // is an Err.
+    assert!(matches!(
+        interlock.poll_drain().expect("observed").clone(),
+        DrainPhase::Draining { .. }
+    ));
+    assert!(matches!(
+        interlock.poll_drain().expect("observed").clone(),
+        DrainPhase::Draining { .. }
+    ));
     let observed = source.device_command_states().expect("readable");
     assert_eq!(
         observed,

@@ -152,7 +152,7 @@ pub use socp_boundary::{
     assess_residuals, check_relaxation_conditions, feasibility_verdict_dimension,
     gate_socp_boundary, ConditionOutcome, FeasibilityVerdictDimension, RelaxationCondition,
     RelaxationConditionCheck, RelaxationConditionRecord, RelaxationResidualRecord,
-    RelaxationResidualReport, RelaxationResidualRecordError, ResidualAssessment, ResidualFinding,
+    RelaxationResidualReport, ResidualRecordError, ResidualAssessment, ResidualFinding,
     ResidualFindingKind, SocpBoundaryGate, TierProvenance, DISTFLOW_RESIDUAL_FORMULA,
     MIRRORED_DEFAULT_RESIDUAL_TOLERANCE, SOCP_EXACTNESS_CAVEAT, SOCP_SEAM_STATEMENT,
     TIER2_VERDICT_STATEMENT,

@@ -168,10 +168,13 @@ fn enforcement_verdicts_are_pure_functions_of_their_inputs() {
 #[test]
 fn enforcement_refusals_are_identical_named_errors_for_identical_inputs() {
     // An over-broad manifest (a permission the ceiling does not permit) is
-    // refused with the same named error on every fresh gate.
+    // refused with the same named error on every fresh gate. ("asset.read"
+    // IS in the closed permission vocabulary — step 4 passes — but has no
+    // ceiling entry, so step 5 fires PERMISSION_ABOVE_PROFILE. The base
+    // request already declares "max-calls-per-minute", so pushing it again
+    // would duplicate the field and trip step 2's drift rule first.)
     let mut over_broad = enforcement_request();
     over_broad.manifest_permissions.push("asset.read".to_string());
-    over_broad.declared_resource_fields.push("max-calls-per-minute".to_string());
 
     let build = || {
         EnforcementGate::compose(

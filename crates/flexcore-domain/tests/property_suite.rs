@@ -499,7 +499,7 @@ fn generated_reachable_vehicle(rng: &mut SplitMix64, key: &str) -> EvVehicleConf
     let initial_soc = rng.f64_in(0.1, 0.5);
     let max_power = rng.f64_in(0.01, 0.05); // MW, ≤ the EVSE rating 0.05
     let connected_intervals = 4 + rng.below(8);
-    let departure = EV_HORIZON_START_MILLIS + connected_intervals * EV_INTERVAL_MILLIS;
+    let departure = EV_HORIZON_START_MILLIS + connected_intervals as i64 * EV_INTERVAL_MILLIS;
     // Maximum reachable SOC at departure (idealised, η = 1 conservative):
     // initial + P·t / capacity.
     let reachable =

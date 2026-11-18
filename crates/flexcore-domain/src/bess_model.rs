@@ -837,7 +837,9 @@ impl BessModel {
     ///
     /// Validation and provenance narrowing (frozen P3.02 rule, reused via
     /// [`narrow_interval`]):
-    /// - raw values finite; `E_min ≥ 0`, `E_min ≤ E_max`; power limits ≥ 0;
+    /// - raw values finite (UNKNOWN-provenance values excepted: their NaN is
+    ///   the no-value sentinel, consumed by the narrowing below, not corrupt
+    ///   input); `E_min ≥ 0`, `E_min ≤ E_max`; power limits ≥ 0;
     ///   efficiencies in (0, 1]; `interval_seconds > 0`;
     /// - if EITHER energy-window bound carries UNKNOWN provenance, the
     ///   window is narrowed against the recorded conservative default for
@@ -846,11 +848,20 @@ impl BessModel {
     /// - an UNKNOWN-provenance power limit narrows to zero credit (the
     ///   recorded collapse-to-zero fallback).
     pub fn new(config: BessModelConfig) -> Result<Self, BessModelError> {
-        // Raw structural validation.
-        require_finite("e_min_mwh", config.e_min_mwh.value)?;
-        require_finite("e_max_mwh", config.e_max_mwh.value)?;
-        require_finite("p_ch_max_mw", config.p_ch_max_mw.value)?;
-        require_finite("p_dis_max_mw", config.p_dis_max_mw.value)?;
+        // Raw structural validation. An UNKNOWN-provenance value carries NaN
+        // as its no-value sentinel (ProvenancedValue::unknown); it is not
+        // a corrupt finite input, so it skips the finite check and is
+        // narrowed below instead.
+        for (field, v) in [
+            ("e_min_mwh", config.e_min_mwh),
+            ("e_max_mwh", config.e_max_mwh),
+            ("p_ch_max_mw", config.p_ch_max_mw),
+            ("p_dis_max_mw", config.p_dis_max_mw),
+        ] {
+            if v.provenance != Provenance::Unknown {
+                require_finite(field, v.value)?;
+            }
+        }
         if config.e_min_mwh.value < 0.0 {
             return Err(BessModelError::NegativeEnergyBound {
                 field: "e_min_mwh",
@@ -894,8 +905,18 @@ impl BessModel {
         // single P3.02 implementation, it does not reimplement it).
         let energy_provenance =
             weaker_provenance(config.e_min_mwh.provenance, config.e_max_mwh.provenance);
+        // An unknown bound is undeclared (None), not a NaN bound:
+        // BoundInterval refuses non-finite bounds, and the narrowing
+        // intersects the declared window with the conservative default.
+        let declared_bound = |v: ProvenancedValue| -> Option<f64> {
+            if v.provenance == Provenance::Unknown {
+                None
+            } else {
+                Some(v.value)
+            }
+        };
         let declared_window =
-            BoundInterval::new(Some(config.e_min_mwh.value), Some(config.e_max_mwh.value))
+            BoundInterval::new(declared_bound(config.e_min_mwh), declared_bound(config.e_max_mwh))
                 .expect("raw energy window already validated as finite and ordered");
         let narrowed = narrow_interval(
             AssetClass::Bess,
@@ -1130,8 +1151,14 @@ impl BessModel {
                 });
             }
         }
+        // Boundary-inclusive WITHIN the model tolerance: the trajectory
+        // integration can land 1 ULP outside [0, 1] by float accumulation
+        // (SOC 1.0000000000000002), and such a value must round-trip as the
+        // next evaluation's initial condition — the boundary checks below
+        // apply the same tolerance to energies.
         if !schedule.initial_soc.is_finite()
-            || !(0.0..=1.0).contains(&schedule.initial_soc)
+            || schedule.initial_soc < -BESS_EVALUATION_TOLERANCE
+            || schedule.initial_soc > 1.0 + BESS_EVALUATION_TOLERANCE
         {
             return Err(BessModelError::InitialSocOutOfRange {
                 value: schedule.initial_soc,

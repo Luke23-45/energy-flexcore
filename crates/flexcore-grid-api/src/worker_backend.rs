@@ -180,7 +180,7 @@ impl WorkerProcessBackend {
         // violation, never a silently published number (the provider
         // result's completeness gate would refuse it downstream, but the
         // refuse point is HERE, at the transport boundary).
-        let mut check = |name: &str, value: f64| -> Result<(), BackendError> {
+        let check = |name: &str, value: f64| -> Result<(), BackendError> {
             if value.is_finite() {
                 Ok(())
             } else {

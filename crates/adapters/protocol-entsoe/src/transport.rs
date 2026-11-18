@@ -327,20 +327,24 @@ mod tests {
 
     #[test]
     fn every_transport_error_renders_non_empty_prose() {
+        // Two different error types, so the prose is collected as
+        // Strings: one array cannot hold them together.
         let errors = [
-            A44QueryError::EmptyArea,
+            A44QueryError::EmptyArea.to_string(),
             A44QueryError::InvalidPeriodBound {
                 value: "x".to_string(),
-            },
-            A44QueryError::InvertedPeriod,
-            A44TransportError::SeamNotWired,
+            }
+            .to_string(),
+            A44QueryError::InvertedPeriod.to_string(),
+            A44TransportError::SeamNotWired.to_string(),
             A44TransportError::CallFailed {
                 code: "E-TEST".to_string(),
                 message: "fixture".to_string(),
-            },
+            }
+            .to_string(),
         ];
         for error in errors {
-            assert!(!error.to_string().is_empty());
+            assert!(!error.is_empty());
         }
     }
 }

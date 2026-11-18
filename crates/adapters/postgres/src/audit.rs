@@ -152,7 +152,7 @@ async fn fetch_chain_state(
          WHERE tenant_key = $1::uuid FOR UPDATE",
     )
     .bind(tenant_key_text)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(map_audit_rejection)?;
     match row {
@@ -187,7 +187,7 @@ async fn create_chain_state(
     )
     .bind(tenant_key_text)
     .bind(AUDIT_CHAIN_ALGORITHM)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(map_audit_rejection)?;
     Ok(())
@@ -209,7 +209,7 @@ async fn advance_chain_state(
     .bind(sequence)
     .bind(head_hex)
     .bind(AUDIT_CHAIN_ALGORITHM)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(map_audit_rejection)?;
     Ok(())
@@ -263,7 +263,7 @@ pub(crate) async fn append_audit_record_with_chain(
         chain_prev_head_hex: hex_encode_digest(&previous_head),
         chain_digest_hex: hex_encode_digest(&digest),
     };
-    insert_audit_record(&mut *tx, record, Some(&columns)).await?;
+    insert_audit_record(&mut **tx, record, Some(&columns)).await?;
     advance_chain_state(&mut *tx, &tenant_key_text, next_sequence, &columns.chain_digest_hex).await?;
     Ok(())
 }
@@ -334,7 +334,7 @@ pub(crate) async fn read_tenant_chain_rows(
          ORDER BY chain_sequence ASC",
     )
     .bind(tenant_text)
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await
     .map_err(map_audit_rejection)?;
     let unchained = sqlx::query_scalar::<_, i64>(
@@ -342,7 +342,7 @@ pub(crate) async fn read_tenant_chain_rows(
          WHERE tenant_id = $1::uuid AND chain_sequence IS NULL",
     )
     .bind(tenant_text)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(map_audit_rejection)?;
     let mut out = Vec::with_capacity(rows.len());

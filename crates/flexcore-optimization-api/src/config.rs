@@ -30,7 +30,7 @@ pub enum ScalingPolicy {
 }
 
 /// Invalid solver configuration.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ConfigError {
     /// Tolerances and gaps must be finite and non-negative.
     NonFiniteValue { field: &'static str },
@@ -115,8 +115,8 @@ pub struct ConfigContract {
     pub consumes_feasibility_tolerance: bool,
     /// Whether the provider consumes the optimality tolerance
     /// ([`SolverConfig::dual_feasibility_tolerance`]; the Tier 2 conic solver
-    /// carries it on its gap tolerances — recorded in
-    /// `ledger/phase-03-flexibility-scheduling/18_clarabel_tier2.md` §5).
+    /// carries it on its gap tolerances — recorded in decision note 18
+    /// (phase-03 ledger) §5).
     pub consumes_optimality_tolerance: bool,
     /// Whether the provider consumes [`SolverConfig::scaling`].
     pub consumes_scaling: bool,
@@ -124,7 +124,7 @@ pub struct ConfigContract {
     /// the ledger risk mitigation requires it).
     pub thread_count_fixed_for_determinism: bool,
     /// Recorded notes (translation specifics, VERIFY-BUILD pointers).
-    pub notes: Vec<&'static str>,
+    pub notes: Vec<String>,
 }
 
 /// The per-tier configuration contract (P3.19 step 1). Both tiers consume
@@ -143,7 +143,8 @@ pub fn config_contract(tier: ProviderTier) -> ConfigContract {
             notes: vec![
                 "options translate 1:1 into BackendOptions and are mapped onto \
                  the pinned solver's option names by the worker adapter \
-                 (VERIFY-BUILD item 5, decision note 17_optimizer_port.md §6)",
+                 (VERIFY-BUILD item 5, decision note 17_optimizer_port.md §6)"
+                    .to_string(),
             ],
         },
         ProviderTier::Tier2 => ConfigContract {
@@ -156,11 +157,13 @@ pub fn config_contract(tier: ProviderTier) -> ConfigContract {
             thread_count_fixed_for_determinism: true,
             notes: vec![
                 "a continuous conic solve has no MIP gap: a configured \
-                 mip_relative_gap is recorded as ignored (decision note \
-                 18_clarabel_tier2.md §5)",
+                 mip_relative_gap is recorded as ignored (decision note 18, \
+                 phase-03 ledger, §5)"
+                    .to_string(),
                 "the optimality tolerance is carried by the solver's absolute/\
                  relative gap tolerances; there is no separate dual-feasibility \
-                 knob (decision note 18_clarabel_tier2.md §5)",
+                 knob (decision note 18, phase-03 ledger, §5)"
+                    .to_string(),
             ],
         },
     }

@@ -220,15 +220,17 @@ fn a_failed_verification_denies_and_a_fresh_challenge_is_the_retry_path() {
         .issue("user:approver", tenant(TENANT_UUID), command_approval(COMMAND_A))
         .expect("the challenge issues");
     // Wrong evidence: the verifier rejects; the denial is named.
-    assert_eq!(
-        fx.service.verify(
-            &challenge.challenge_id,
-            "user:approver",
-            tenant(TENANT_UUID),
-            "stale-or-wrong-evidence",
-            &command_approval(COMMAND_A),
+    assert!(
+        matches!(
+            fx.service.verify(
+                &challenge.challenge_id,
+                "user:approver",
+                tenant(TENANT_UUID),
+                "stale-or-wrong-evidence",
+                &command_approval(COMMAND_A),
+            ),
+            Err(StepUpDenial::EvidenceRejected { .. })
         ),
-        Err(StepUpDenial::EvidenceRejected { reason: _ }),
         "the verifier's rejection surfaces as EvidenceRejected"
     );
     // The consumed challenge is gone (a failed attempt still consumed it

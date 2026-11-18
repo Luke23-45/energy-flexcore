@@ -15,7 +15,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::enrollment::{DeviceCredentialRecord, FilesystemCredentialStore};
+use crate::enrollment::{CredentialStore, DeviceCredentialRecord, FilesystemCredentialStore};
 use crate::ports::EdgeError;
 
 static COUNTER: AtomicU64 = AtomicU64::new(1);

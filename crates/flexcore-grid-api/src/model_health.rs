@@ -93,8 +93,17 @@ pub const CONTENT_HASH_STATEMENT: &str = "The content hash is FNV-1a 64-bit \
 /// the `serde_json` serialization of the model, rendered as
 /// `fnv1a64:<16 lowercase hex digits>`. Deterministic for the recorded
 /// serialization (see the ASSUMPTION in the module header).
+///
+/// The hash covers the model content EXCLUDING the stored `content_hash`
+/// field itself: the field is blanked before serializing. Hashing the
+/// stored hash would make the function self-referential — the hash
+/// assigned at registration could never equal the hash recomputed at
+/// verification (the stored value would differ between the two
+/// computations), so `verify_content_hash` could never pass.
 pub fn model_content_hash(model: &VersionedNetworkModel) -> String {
-    let json = serde_json::to_string(model).expect("the model IR always serializes");
+    let mut content = model.clone();
+    content.model_ref.content_hash = String::new();
+    let json = serde_json::to_string(&content).expect("the model IR always serializes");
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in json.as_bytes() {
         hash ^= u64::from(*byte);

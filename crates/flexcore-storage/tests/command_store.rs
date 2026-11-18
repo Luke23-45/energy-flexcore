@@ -227,17 +227,55 @@ fn a_command_record_enforces_the_supersede_state_link() {
     );
 }
 
-/// Builds a fully-populated journal record (gate pass shape) for `from`→`to`.
+/// Builds a journal record for `from`→`to` in the shape the store's
+/// rules require for that edge: the gate named iff the target state
+/// requires one (`COMMAND_STATES_REQUIRING_GATE`), evidence iff the
+/// target state requires — or, for REJECTED, may carry — one, a reason
+/// iff the target state requires one. A caller testing a NEGATIVE case
+/// starts from this shape and strips the field under test.
 fn populated(from: CommandState, to: CommandState) -> CommandTransition {
+    let gate = match to {
+        CommandState::Validated => Some(Gate::Validation),
+        CommandState::Feasible => Some(Gate::Feasibility),
+        CommandState::Approved => Some(Gate::Authorization),
+        // REJECTED names the gate that rejected it; any named gate
+        // satisfies the presence rule (no populated() caller exercises
+        // a rejection edge).
+        CommandState::Rejected => Some(Gate::Validation),
+        _ => None,
+    };
+    let evidence = match to {
+        CommandState::Validated
+        | CommandState::Feasible
+        | CommandState::Approved
+        | CommandState::Issued
+        | CommandState::Acknowledged
+        | CommandState::Tracking
+        | CommandState::Completed
+        | CommandState::Superseded
+        | CommandState::Fallback
+        | CommandState::Rejected => {
+            Some(EvidenceReference::new("evidence:ref-1").expect("evidence builds"))
+        }
+        _ => None,
+    };
+    let reason = match to {
+        CommandState::Rejected
+        | CommandState::Failed
+        | CommandState::Expired
+        | CommandState::Cancelled
+        | CommandState::Fallback => Some("recorded reason".to_string()),
+        _ => None,
+    };
     CommandTransition {
         command_id: command_id(),
         from,
         to,
         actor: Actor::new("svc:lifecycle-test").expect("actor builds"),
         at_unix_millis: 1_700_000_000_000,
-        gate: None,
-        reason: Some("recorded reason".to_string()),
-        evidence: Some(EvidenceReference::new("evidence:ref-1").expect("evidence builds")),
+        gate,
+        reason,
+        evidence,
     }
 }
 
@@ -279,11 +317,12 @@ fn journal_records_enforce_the_gate_evidence_and_reason_rules() {
     let record = CommandTransitionRecord::from_transition(tenant(), &gate_pass)
         .expect("gate pass builds");
     assert_eq!(record.gate.as_deref(), Some("validation"));
+    // A gate pass that names no gate is rejected (the gate rule fires
+    // before the evidence/reason rules).
+    let mut no_gate = populated(CommandState::Proposed, CommandState::Validated);
+    no_gate.gate = None;
     assert_eq!(
-        CommandTransitionRecord::from_transition(
-            tenant(),
-            &populated(CommandState::Proposed, CommandState::Validated)
-        ),
+        CommandTransitionRecord::from_transition(tenant(), &no_gate),
         Err(CommandStoreError::InvalidRecord { field: "gate" })
     );
     let mut ungated = populated(CommandState::Approved, CommandState::Issued);

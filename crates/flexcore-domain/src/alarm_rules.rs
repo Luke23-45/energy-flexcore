@@ -209,7 +209,7 @@ pub fn dispatch_alarm_record(
         format!(
             "dispatch command {command_id} is in the {state} state (the simulated \
              lifecycle, §14.2): an operator-attention record — acknowledgement is \
-             application-layer acceptance and nothing here is field delivery"
+             application-layer acceptance and this is NOT field delivery"
         ),
         outcome_event_time,
         derived_at,
@@ -268,11 +268,11 @@ mod tests {
     }
 
     fn asset() -> FlexUuid {
-        FlexUuid::from_u128(9)
+        FlexUuid::from_bytes(9u128.to_be_bytes())
     }
 
     fn tenant() -> FlexUuid {
-        FlexUuid::from_u128(1)
+        FlexUuid::from_bytes(1u128.to_be_bytes())
     }
 
     // --- The quality rule ----------------------------------------------------
@@ -302,7 +302,7 @@ mod tests {
     fn telemetry_alarm_record_cites_its_source_and_is_deterministic() {
         let first = telemetry_alarm_record(
             tenant(),
-            Some(FlexUuid::from_u128(7)),
+            Some(FlexUuid::from_bytes(7u128.to_be_bytes())),
             asset(),
             "active_power",
             TelemetryQuality::Bad,
@@ -312,7 +312,7 @@ mod tests {
         .expect("BAD qualifies");
         let second = telemetry_alarm_record(
             tenant(),
-            Some(FlexUuid::from_u128(7)),
+            Some(FlexUuid::from_bytes(7u128.to_be_bytes())),
             asset(),
             "active_power",
             TelemetryQuality::Bad,
@@ -424,7 +424,7 @@ mod tests {
     fn dispatch_alarm_record_carries_the_command_scope_and_severity() {
         let record = dispatch_alarm_record(
             tenant(),
-            Some(FlexUuid::from_u128(7)),
+            Some(FlexUuid::from_bytes(7u128.to_be_bytes())),
             Some(asset()),
             "cmd-1",
             "FAILED",
@@ -468,7 +468,7 @@ mod tests {
     fn feasibility_alarm_record_uses_the_check_id_as_the_evidence_link() {
         let record = feasibility_alarm_record(
             tenant(),
-            Some(FlexUuid::from_u128(7)),
+            Some(FlexUuid::from_bytes(7u128.to_be_bytes())),
             Some(asset()),
             "check-1",
             "FAIL_CLOSED",

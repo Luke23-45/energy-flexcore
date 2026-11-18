@@ -198,7 +198,7 @@ fn a_scope_is_derived_from_the_authenticated_context_only() {
 
 #[test]
 fn every_enforcement_outcome_is_audited_with_the_stable_kinds() {
-    let clock = FixedClock::at_unix_millis(BASE_MS as i64 + 1_000);
+    let clock = FixedClock::new(BASE_MS + 1_000);
     let audit = MemoryTenantScopeAuditSink::new();
     let stamped = scope(TENANT_A, Some(SITE_1));
     let scoped = ScopedRequestEnvelope::new(inner_envelope(1), stamped).expect("wrap");

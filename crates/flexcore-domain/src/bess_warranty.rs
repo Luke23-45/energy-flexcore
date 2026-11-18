@@ -387,17 +387,23 @@ impl WarrantyTerms {
     /// declared year with an invented stricter value.
     pub fn resolve_retention(&self, elapsed_years: f64) -> RetentionResolution {
         let mut resolved = &self.retention_schedule[0];
-        let mut beyond = elapsed_years > self.retention_schedule[0].year_index as f64;
         for point in &self.retention_schedule {
             if (point.year_index as f64) <= elapsed_years {
                 resolved = point;
-                beyond = elapsed_years > point.year_index as f64;
             }
         }
+        // Beyond-coverage means past the schedule's LAST declared year, not
+        // past the resolved point: elapsed time between points still holds
+        // the last point at or below it, inside coverage.
+        let last_year = self
+            .retention_schedule
+            .last()
+            .map(|point| point.year_index as f64)
+            .unwrap_or(0.0);
         RetentionResolution {
             year_index: resolved.year_index,
             min_retention_fraction: resolved.min_retention_fraction,
-            beyond_schedule_coverage: beyond,
+            beyond_schedule_coverage: elapsed_years > last_year,
         }
     }
 }

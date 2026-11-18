@@ -909,7 +909,7 @@ mod tests {
         let envelope = InverterPqEnvelope::new(base_config()).unwrap();
         // Exactly on the circle: p² + q² = S_max² with q = 1.5 (within the
         // declared Q window) and p = √(9 − 2.25) — feasible.
-        let p = (9.0 - 1.5 * 1.5).sqrt();
+        let p = (9.0f64 - 1.5 * 1.5).sqrt();
         let evaluation = envelope.evaluate(&point("DISCHARGE", p, 1.5)).unwrap();
         assert!(evaluation.violations.is_empty(), "{:?}", evaluation.violations);
         assert!((evaluation.apparent_power_mva - 3.0).abs() <= PQ_EVALUATION_TOLERANCE);
@@ -956,12 +956,12 @@ mod tests {
         let evaluation = envelope.evaluate(&point("DISCHARGE", 3.5, 0.0)).unwrap();
         assert!(matches!(
             evaluation.violations.first(),
-            Some(PqViolation::PAboveMax { p_mw, limit_mw } if *p_mw == 3.5 && *limit_mw == 3.0)
+            Some(PqViolation::PAboveMax { p_mw, limit_mw }) if *p_mw == 3.5 && *limit_mw == 3.0
         ));
         let evaluation = envelope.evaluate(&point("CHARGE", -2.5, 0.0)).unwrap();
         assert!(matches!(
             evaluation.violations.first(),
-            Some(PqViolation::PBelowMin { p_mw, limit_mw } if *p_mw == -2.5 && *limit_mw == -2.0)
+            Some(PqViolation::PBelowMin { p_mw, limit_mw }) if *p_mw == -2.5 && *limit_mw == -2.0
         ));
     }
 
@@ -981,7 +981,7 @@ mod tests {
         let evaluation = envelope.evaluate(&point("DISCHARGE", 2.0, 1.0)).unwrap();
         assert!(matches!(
             evaluation.violations.iter().find(|v| matches!(v, PqViolation::QAboveMax { .. })),
-            Some(PqViolation::QAboveMax { limit_mvar, .. } if *limit_mvar == 0.5)
+            Some(PqViolation::QAboveMax { limit_mvar, .. }) if *limit_mvar == 0.5
         ));
     }
 
@@ -996,7 +996,7 @@ mod tests {
         assert_eq!(evaluation.effective_limits.q_max_mvar, 0.0);
         assert!(matches!(
             evaluation.violations.iter().find(|v| matches!(v, PqViolation::QAboveMax { .. })),
-            Some(PqViolation::QAboveMax { limit_mvar, .. } if *limit_mvar == 0.0)
+            Some(PqViolation::QAboveMax { limit_mvar, .. }) if *limit_mvar == 0.0
         ));
         assert!(evaluation
             .provenance
@@ -1023,7 +1023,7 @@ mod tests {
         assert_eq!(evaluation.effective_limits.p_max_mw, 1.0);
         assert!(matches!(
             evaluation.violations.first(),
-            Some(PqViolation::PAboveMax { limit_mw, .. } if *limit_mw == 1.0)
+            Some(PqViolation::PAboveMax { limit_mw, .. }) if *limit_mw == 1.0
         ));
         assert!(matches!(
             evaluation.provenance.voltage_treatment,
@@ -1063,7 +1063,7 @@ mod tests {
         let evaluation = envelope.evaluate(&point("GRID_SUPPORT", 0.0, 0.0)).unwrap();
         assert!(matches!(
             evaluation.violations.first(),
-            Some(PqViolation::ModeNotDeclared { mode } if mode == "GRID_SUPPORT")
+            Some(PqViolation::ModeNotDeclared { mode }) if mode == "GRID_SUPPORT"
         ));
         assert_eq!(evaluation.provenance.mode_provenance, Provenance::Unknown);
     }
@@ -1083,7 +1083,7 @@ mod tests {
         let evaluation = envelope.evaluate(&point("WATT_VAR", 0.0, 0.0)).unwrap();
         assert!(matches!(
             evaluation.violations.first(),
-            Some(PqViolation::ModeNotCredited { mode, .. } if mode == "WATT_VAR")
+            Some(PqViolation::ModeNotCredited { mode, .. }) if mode == "WATT_VAR"
         ));
     }
 }

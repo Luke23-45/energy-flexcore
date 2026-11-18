@@ -32,8 +32,9 @@ use std::time::Duration;
 
 use flexcore_research::artifact_signing::{
     parse_model_provenance_value, verify_model_artifact_at_load, MemoryModelArtifactAuditSink,
-    ModelArtifactAuditKind, ModelArtifactRevocationRegister, ModelArtifactSigningError,
+    ModelArtifactAuditKind, ModelArtifactRevocationRegister, ArtifactSigningError,
     MODEL_ARTIFACT_SIGNING_ERROR_NAMES, MODEL_PROVENANCE_SCHEMA_ID,
+    MODEL_REFUSAL_ALGORITHM_MISMATCH,
     NoArtifactVerifier, UnsafeTestOnlyArtifactDigest,
 };
 use flexcore_research::tenant_isolation::{
@@ -210,7 +211,7 @@ fn unsigned_artifact_is_refused_at_load_and_audited() {
 
 #[test]
 fn revoked_artifact_is_refused_even_with_valid_provenance() {
-    let register = serving_register();
+    let mut register = serving_register();
     let stamp = worker_stamp("worker/gnn-load-3");
     let serving_scope =
         ResearchWorkerScope::from_authenticated_context("tenant-a", None).expect("valid scope");
@@ -318,7 +319,11 @@ fn the_default_verifier_refuses_everything_fail_closed() {
     )
     .expect_err("the default verifier refuses everything");
     assert_eq!(err.name(), "MODEL_ARTIFACT_VERIFICATION_REFUSED");
-    assert!(format!("{err}").contains("MODEL_VERIFIER_REFUSED"));
+    // The refusal reason is the ALGORITHM mismatch, not the verifier
+    // refusal: the gate order is ref → algorithm → verdict, and the
+    // default verifier computes "none" while the record declares
+    // "fnv1a64-test" (same order as the in-module suite).
+    assert!(format!("{err}").contains(MODEL_REFUSAL_ALGORITHM_MISMATCH));
 }
 
 #[test]
@@ -328,7 +333,7 @@ fn the_model_signing_error_name_table_is_closed_and_distinct() {
     assert_eq!(from_table.len(), MODEL_ARTIFACT_SIGNING_ERROR_NAMES.len());
     // The two refusal enums round-trip through their name() tables (the
     // in-module suites pin the exact table==enum equality).
-    let _ = ModelArtifactSigningError::RecordNotAnObject.name();
+    let _ = ArtifactSigningError::RecordNotAnObject.name();
 }
 
 // ---------------------------------------------------------------------------

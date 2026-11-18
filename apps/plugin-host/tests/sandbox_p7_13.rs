@@ -544,9 +544,18 @@ fn grant_forgery_is_structurally_refused_and_behaviourally_futile() {
         "the grant type's constructor is private to the broker"
     );
     // The enforcement layer's authority object is equally unforgeable.
+    // (The check skips the declaration line itself: it reads
+    // "pub struct EnforcementVerdict {" and would self-match any "pub"
+    // search — only FIELD lines count.)
     let enforcement_source = include_str!("../src/enforcement.rs");
     let verdict_struct = item_source(enforcement_source, "pub struct EnforcementVerdict {");
-    assert!(!verdict_struct.contains("pub "), "the verdict is unforgeable too");
+    assert!(
+        !verdict_struct
+            .lines()
+            .skip(1)
+            .any(|line| line.trim_start().starts_with("pub")),
+        "the verdict is unforgeable too"
+    );
 
     // BEHAVIOURAL futility: even a grant object CAPTURED legitimately (a
     // receipt's grant, cloned before revocation) confers nothing —
@@ -570,7 +579,7 @@ fn grant_forgery_is_structurally_refused_and_behaviourally_futile() {
     assert_eq!(error.name(), "CAPABILITY_NOT_GRANTED");
     // And a captured grant for a DIFFERENT plugin id is equally inert: the
     // broker matches (plugin, capability) in ITS OWN state.
-    let other_broker = broker();
+    let other_broker = CapabilityBroker::new(Box::new(InMemoryBrokerAuditSink::new()));
     let error = other_broker
         .check("plugin.hostile", "telemetry.read", &data_scope("tenant-1"), NOW)
         .expect_err("a captured object does not seed a fresh broker");
@@ -669,7 +678,7 @@ fn no_permission_id_conveys_dispatch_authority_unbuildable_not_discouraged() {
     // derivation refuses on THAT row — which is itself the fence working.
     // Evaluate the remaining rows individually.
     for capability in allowed {
-        if *capability == "dispatch.validate.request" {
+        if capability == "dispatch.validate.request" {
             continue;
         }
         let request = request(&[capability]);
@@ -695,7 +704,12 @@ fn no_permission_id_conveys_dispatch_authority_unbuildable_not_discouraged() {
     }
     // The crafted set: every protected-kernel id plus the verdict-authority
     // spelling refuses outright.
-    let gate = gate();
+    // (`gate()` the helper is shadowed by the `gate` binding above, so the
+    // composition is written out — same body as the helper.)
+    let gate = EnforcementGate::compose(
+        broker(),
+        Box::new(InMemoryEnforcementAuditSink::new()),
+    );
     for capability in [
         "dispatch.authorize",
         "dispatch.issue",
@@ -722,10 +736,10 @@ fn the_host_enforces_the_declared_bounds_not_the_components_belief() {
     // and re-validated — and there is no API to widen a constructed
     // ResourceLimits (private fields, no public constructor other than
     // `from_declared_bounds`).
-    let mut request = request(&[]);
-    request.bounds = bounds(1, 100); // 1 MiB, 100 ms — tiny by declaration
+    let mut declared = request(&[]);
+    declared.bounds = bounds(1, 100); // 1 MiB, 100 ms — tiny by declaration
     let verdict = gate
-        .evaluate(&InstantiationInput { request: &request, ceiling: &ProfileCeiling::empty() }, NOW)
+        .evaluate(&InstantiationInput { request: &declared, ceiling: &ProfileCeiling::empty() }, NOW)
         .expect("tiny bounds are valid bounds");
     assert_eq!(
         verdict.limits().max_memory_pages(),

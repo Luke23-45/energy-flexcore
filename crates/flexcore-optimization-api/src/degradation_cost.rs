@@ -618,8 +618,8 @@ mod tests {
             Err(DegradationCostError::OutOfDeclaredRange {
                 requested_cumulative_throughput_mwh,
                 declared_limit_mwh,
-            } if requested_cumulative_throughput_mwh == 501.0 && declared_limit_mwh == 500.0
-        ))
+            }) if requested_cumulative_throughput_mwh == 501.0 && declared_limit_mwh == 500.0
+        ));
     }
 
     #[test]

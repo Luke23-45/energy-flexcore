@@ -32,11 +32,11 @@ use crate::port::{
     WarmStartSupport,
 };
 use crate::problem::{
-    ObjectiveSense, OptimizationProblem, ProblemClass, ProblemError, VariableValue,
+    ObjectiveSense, OptimizationProblem, ProblemClass, ProblemError,
 };
 use crate::result::{
     DeterminismRecord, Diagnostics, DualDiagnostics, InfeasibilityEvidence, OptimizationResult,
-    PrimalDiagnostics, ResidualReport, SolveStatus,
+    PrimalDiagnostics, ResidualReport, SolveStatus, VariableValue,
 };
 use std::sync::Arc;
 use std::time::Instant;

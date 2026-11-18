@@ -229,6 +229,15 @@ impl InMemoryCommandStateSource {
             .expect("poisoned test-source mutex") = Some(reason);
     }
 
+    /// Clears a latched refusal: the device is observable again (the
+    /// operator-restores-observability step the drain test walks).
+    pub fn set_observable(&self) {
+        *self
+            .refuse_reason
+            .lock()
+            .expect("poisoned test-source mutex") = None;
+    }
+
     /// Replaces the observations (the drain-walk test double).
     pub fn set_observations(&self, observations: Vec<DeviceCommandObservation>) {
         *self
@@ -1097,8 +1106,8 @@ mod tests {
         // "no commands in flight".
         let source = Arc::new(InMemoryCommandStateSource::default());
         source.set_unobservable("the command-path tracking map is unreachable".to_string());
-        let (interlock, sink) = interlock(source);
-        let refusal = interlock.authorize_update_attempt().expect_err("blocked");
+        let (interlock_unknown, sink) = interlock(source);
+        let refusal = interlock_unknown.authorize_update_attempt().expect_err("blocked");
         assert!(matches!(refusal, UpdateBlockRefusal::DeviceStateUnknown { .. }));
         assert_eq!(refusal.name(), "UPDATE_INTERLOCK_STATE_UNKNOWN");
         assert!(sink
@@ -1179,12 +1188,12 @@ mod tests {
     fn drain_starts_only_from_a_readable_state_and_stops_new_work() {
         let source = Arc::new(InMemoryCommandStateSource::default());
         source.set_unobservable("unreachable".to_string());
-        let (mut interlock, _sink) = interlock(source);
+        let (mut interlock_unreadable, _sink) = interlock(source);
         assert!(matches!(
-            interlock.begin_drain(),
+            interlock_unreadable.begin_drain(),
             Err(InterlockError::DeviceStateUnknown { .. })
         ));
-        assert_eq!(interlock.drain_phase(), &DrainPhase::NotDraining);
+        assert_eq!(interlock_unreadable.drain_phase(), &DrainPhase::NotDraining);
 
         let source = Arc::new(InMemoryCommandStateSource::reporting(vec![
             observation("cmd-2", "TRACKING"),
@@ -1219,7 +1228,7 @@ mod tests {
         let source = Arc::new(InMemoryCommandStateSource::reporting(vec![
             observation("cmd-1", "ISSUED"),
         ]));
-        let (mut interlock, sink) = interlock(source);
+        let (mut interlock, sink) = interlock(Arc::clone(&source));
         interlock.begin_drain().expect("drain starts");
 
         // Still ISSUED: the drain continues.
@@ -1245,7 +1254,10 @@ mod tests {
 
         // The operator's lifecycle action drains the command
         // (ISSUED → CANCELLED — a frozen edge, performed by the operator,
-        // never by the update path).
+        // never by the update path). Observability is restored first: the
+        // unobservable latch is only cleared by an explicit step, and the
+        // drain cannot complete while the device is unobservable.
+        source.set_observable();
         source.set_observations(vec![observation("cmd-1", "CANCELLED")]);
         let phase = interlock.poll_drain().expect("observed").clone();
         assert!(matches!(phase, DrainPhase::Drained { .. }));
@@ -1262,7 +1274,7 @@ mod tests {
         let source = Arc::new(InMemoryCommandStateSource::reporting(vec![
             observation("cmd-1", "TRACKING"),
         ]));
-        let (mut interlock, _sink) = interlock(source);
+        let (mut interlock, _sink) = interlock(Arc::clone(&source));
         assert!(interlock.authorize_update_attempt().is_err());
         interlock.begin_drain().expect("drain starts");
         source.set_observations(vec![observation("cmd-1", "COMPLETED")]);
@@ -1280,10 +1292,15 @@ mod tests {
         let source = Arc::new(InMemoryCommandStateSource::reporting(vec![
             observation("cmd-1", "ISSUED"),
         ]));
-        let (mut interlock, _sink) = interlock(source);
+        let (mut interlock, _sink) = interlock(Arc::clone(&source));
         interlock.begin_drain().expect("drain starts");
-        interlock.poll_drain().expect_err("still ISSUED");
-        interlock.poll_drain().expect_err("still ISSUED");
+        // Polling while a command is still in flight reports the Draining
+        // phase (it is not an error); the command state itself is what
+        // must not move.
+        let phase = interlock.poll_drain().expect("drain in progress");
+        assert!(matches!(phase, DrainPhase::Draining { .. }));
+        let phase = interlock.poll_drain().expect("drain in progress");
+        assert!(matches!(phase, DrainPhase::Draining { .. }));
         let observed = source.device_command_states().expect("readable");
         assert_eq!(
             observed,

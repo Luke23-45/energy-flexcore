@@ -15,7 +15,7 @@
 // from a blocking context (`tokio::task::spawn_blocking`), never inside the
 // async executor. Per-request unit-of-work execution lives in
 // state.rs::run_in_uow.
-use std::future::Future;
+use std::future::{Future, IntoFuture};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -190,10 +190,11 @@ async fn main() {
         phase5_default_policies(),
         identity,
         readiness,
-        // Telemetry read port (P2.12): the Postgres adapter does not
-        // implement `TelemetryReader` yet (recorded P2.06-adjacent gap);
-        // the telemetry routes fail closed until it lands.
-        None,
+        // Telemetry read port (P2.12): the Postgres adapter's
+        // `PgTelemetryReader`, pool-held on the store — each call opens
+        // its own tenant-scoped unit of work (see
+        // `flexcore_postgres_adapter::telemetry_reader`).
+        Some(Arc::new(store.telemetry_reader())),
         // The current-state freshness limit (P2.18 step 3): configuration,
         // not a hard-coded constant.
         cfg.current_state_freshness.as_millis() as i64,
@@ -220,7 +221,7 @@ async fn main() {
     // surface) are the P13.09 decision record §5's open items.
     .with_webhook_delivery(Arc::new(
         flexcore_postgres_adapter::webhook_delivery::PgWebhookDeliveryStore::new(
-            store.clone(),
+            (*store).clone(),
         ),
     ));
 
@@ -260,7 +261,7 @@ async fn main() {
             // records/26_p11_14_rate_limiting.md.
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
-                crate::rate_limit::rate_limit_middleware,
+                flexcore_control_plane::rate_limit::rate_limit_middleware,
             ))
             // P11.11 — Idempotency-Key enforcement on command-submission
             // POSTs (Phase 11 wave 1, Agent B): key required (422),
@@ -269,7 +270,7 @@ async fn main() {
             // WRITTEN-UNRUN; records/23_p11_11_command_post_idempotency.md.
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
-                crate::idempotency::idempotency_middleware,
+                flexcore_control_plane::idempotency::idempotency_middleware,
             ))
             .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(15)))
             .layer(tower_http::limit::RequestBodyLimitLayer::new(1024 * 1024)),
@@ -335,14 +336,18 @@ async fn main() {
 
     let drain = cfg.drain_timeout;
     let drain_rx = signal_rx.clone();
-    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
-        let mut rx = signal_rx;
-        while !*rx.borrow_and_update() {
-            if rx.changed().await.is_err() {
-                break;
+    // `WithGracefulShutdown` implements `IntoFuture`, not `Future`, so
+    // the server future is materialized explicitly for the `select!` below.
+    let server = axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let mut rx = signal_rx;
+            while !*rx.borrow_and_update() {
+                if rx.changed().await.is_err() {
+                    break;
+                }
             }
-        }
-    });
+        })
+        .into_future();
     tokio::pin!(server);
     tokio::select! {
         result = &mut server => {
@@ -444,7 +449,7 @@ fn broker_check(client: async_nats::Client) -> HealthCheck {
             let request =
                 tokio::time::timeout(BROKER_HEALTH_TIMEOUT, client.request(
                     BROKER_HEALTH_SUBJECT,
-                    Vec::<u8>::new(),
+                    Vec::<u8>::new().into(),
                 ))
                 .await;
             match request {

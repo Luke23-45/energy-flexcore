@@ -31,7 +31,7 @@
 // UNWIRED and nothing here serves a report to anyone.
 
 use flexcore_protocol_ports::observability::{
-    Admission, BoundedQueuePolicy, BudgetError, MessageRateBudget, QueueOverflowPolicy,
+    Admission, BoundedQueuePolicy, BudgetError, MessageRateBudget, RateRefusal,
 };
 
 /// Errors the DNP3 backpressure binding reports. Every failure is named.
@@ -111,6 +111,7 @@ impl OutstationBackpressure {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flexcore_protocol_ports::observability::QueueOverflowPolicy;
 
     fn posture() -> OutstationBackpressure {
         OutstationBackpressure::new(

@@ -650,13 +650,13 @@ async fn create_asset(
             body.asset_type
         ))
     })?;
-    let rated_power_mw = ActivePowerMW::try_new(body.rated_power_mw).map_err(|e| {
+    let rated_power_mw = ActivePowerMW::new(body.rated_power_mw).map_err(|e| {
         ApiError::validation(format!("rated_power_mw rejected: {e}"))
     })?;
     let rated_energy_mwh = match body.rated_energy_mwh {
         None => None,
         Some(v) => Some(
-            flexcore_contracts::units::EnergyMWh::try_new(v)
+            flexcore_contracts::units::EnergyMWh::new(v)
                 .map_err(|e| ApiError::validation(format!("rated_energy_mwh rejected: {e}")))?,
         ),
     };

@@ -276,7 +276,7 @@ pub const KERNEL_REVOCATION_INTERPLAY_STATEMENT: &'static str = "the kernel P7.3
      and remains BYTE-IDENTICAL in phase 18. Device-identity revocation is a separate \
      register family (the 0018 edge_device_registry REVOKED term + the 0018 \
      edge_enrollment_journal REVOKED event). The registers never write each other; the \
-     only interplay is consumption at gates. No percentage-canary reinterpretation of \
+     only interplay is consumption at gates; no percentage-canary reinterpretation of \
      the kernel staged-rollout policy arises here or anywhere in phase 18.";
 
 /// The closed revocation-propagation TARGET vocabulary (the order IS the

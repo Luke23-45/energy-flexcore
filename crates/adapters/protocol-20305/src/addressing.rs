@@ -192,7 +192,7 @@ impl AddressPlan {
         .any(|root| href == *root || href.is_under(root))
     }
 
-    fn validate(&self) -> Result<(), AddressError> {
+    pub(crate) fn validate(&self) -> Result<(), AddressError> {
         // The ResourceHref constructor already enforces shape; the plan
         // check exists so a field can never be swapped for an unrelated
         // collection silently — each named field must be declared.
@@ -353,7 +353,7 @@ mod tests {
             plan.pricing_list.0.clone(),
             plan.log_event_list.0.clone(),
         ];
-        let mut sorted = paths.clone();
+        let mut sorted = paths.to_vec();
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted.len(), paths.len(), "plan paths must be distinct");

@@ -609,7 +609,22 @@ impl AggregatorServer {
             Some(query) => resource.clone().paged(query),
             None => resource.clone(),
         };
-        match serde_json::to_value(&served) {
+        // The wire body is the RESOURCE, not the store's enum wrapper:
+        // serializing `StoredResource` directly would emit the externally
+        // tagged form (`{"der_control_list": {...}}`), so `body["meta"]`
+        // would be absent and every list consumer would see an empty
+        // envelope. Each variant serializes its inner resource instead.
+        let body = match &served {
+            StoredResource::EndDeviceList(list) => serde_json::to_value(list),
+            StoredResource::FunctionSetAssignmentsList(list) => serde_json::to_value(list),
+            StoredResource::DERProgramList(list) => serde_json::to_value(list),
+            StoredResource::DERControlList(list) => serde_json::to_value(list),
+            StoredResource::DefaultDERControl(control) => serde_json::to_value(control),
+            StoredResource::ResponseList(list) => serde_json::to_value(list),
+            StoredResource::PricingList(list) => serde_json::to_value(list),
+            StoredResource::LogEventList(list) => serde_json::to_value(list),
+        };
+        match body {
             Ok(body) => ResourceResponse {
                 status: ResponseStatus::Ok,
                 body: Some(body),
@@ -727,13 +742,17 @@ mod tests {
             m.adapter_id = "other".to_string();
             m
         };
-        let error = AggregatorServer::new(
+        // AggregatorServer carries no Debug (server state), so the
+        // refusal is extracted with a match, not expect_err.
+        let error = match AggregatorServer::new(
             wrong_manifest,
             AddressPlan::csip_default(),
             limits(),
             tls(),
-        )
-        .expect_err("a mismatched manifest is refused");
+        ) {
+            Ok(_) => panic!("a mismatched manifest is refused"),
+            Err(error) => error,
+        };
         assert_eq!(
             error,
             ServerError::ManifestMismatch {

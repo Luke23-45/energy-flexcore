@@ -249,7 +249,7 @@ pub struct EnvelopeListFilter {
 /// Same recorded deviation as [`crate::schedule_store::ScheduleRecordStore`]
 /// (D-P3.21-4): the trait lives in flexcore-storage; it is shaped to move
 /// to flexcore-ports verbatim if a later subtask relocates it.
-pub trait EnvelopeRecordStore {
+pub trait EnvelopeRecordStore: Send + Sync {
     /// Inserts one envelope record inside the CALLER's unit of work
     /// (adapter obligation 1: the same native transaction carries the
     /// paired `FlexibilityEnvelopeUpdated` outbox rows). A

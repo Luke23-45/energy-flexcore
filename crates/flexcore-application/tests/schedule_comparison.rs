@@ -187,7 +187,7 @@ fn a_cross_input_comparison_is_rejected_with_the_named_error_for_every_constitue
                 expected,
                 found,
             } => {
-                assert_eq!(named, field, "the named error identifies the constituent");
+                assert_eq!(*named, field, "the named error identifies the constituent");
                 assert_eq!(candidate_id, "cand");
                 assert!(!expected.is_empty(), "the expected value is the shared input");
                 assert!(!found.is_empty());

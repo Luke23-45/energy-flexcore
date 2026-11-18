@@ -45,7 +45,7 @@
 // named reason. A deployment opts in by composing the IdP-backed verifier;
 // absence of composition is a denial, never a silent pass.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -229,21 +229,42 @@ impl std::error::Error for StepUpDenial {}
 /// serves tests and single-process deployments; the durable store (the
 /// Postgres implementation under RLS) is a composition-root artifact —
 /// deliberately not built in this batch (no migration was added; the
-/// design record names the table shape).
+/// design record names the table shape — a durable implementation must
+/// also carry the consumed-id set `take` records, e.g. a
+/// `consumed_challenge_ids` table keyed by challenge id, so a replay
+/// denies as [`StepUpDenial::AlreadyUsed`] rather than `NoChallenge`).
 pub trait StepUpStore: Send + Sync {
     fn insert(&self, challenge: StepUpChallenge) -> Result<(), StepUpDenial>;
-    /// Takes the challenge out (single-use by construction) — `None` when
-    /// no challenge matches the id.
+    /// Reads the challenge WITHOUT consuming it — the binding checks in
+    /// `verify` run against this read, so a mismatched subject, tenant,
+    /// or purpose denies without spending the challenge (a failed binding
+    /// check must never burn a live challenge belonging to someone else).
+    /// `None` when no challenge matches the id.
+    fn get(&self, challenge_id: &str) -> Result<Option<StepUpChallenge>, StepUpDenial>;
+    /// Takes the challenge out (single-use by construction) AND records
+    /// the id as consumed — `None` when no challenge matches the id. A
+    /// later replay of a taken id denies as
+    /// [`StepUpDenial::AlreadyUsed`] (see [`Self::was_consumed`]).
     fn take(&self, challenge_id: &str) -> Result<Option<StepUpChallenge>, StepUpDenial>;
+    /// Whether the id was consumed by an earlier `take` — the replay
+    /// check. `false` for ids that were never issued AND for ids dropped
+    /// by the TTL sweep ([`Self::discard`]).
+    fn was_consumed(&self, challenge_id: &str) -> Result<bool, StepUpDenial>;
+    /// Drops the entry WITHOUT recording consumption — the TTL sweep:
+    /// an expired challenge was never verified, so a later replay of its
+    /// id is "no such challenge", not "already used".
+    fn discard(&self, challenge_id: &str) -> Result<(), StepUpDenial>;
 }
 
-/// The in-memory store: id → challenge. Bounded by the TTL sweep at
-/// verification time (expired entries are dropped when encountered); a
-/// production deployment swaps the durable implementation in through the
-/// same port.
+/// The in-memory store: id → challenge, plus the consumed-id set
+/// `take` records (a replay denies as `AlreadyUsed`, never as
+/// `NoChallenge`). Bounded by the TTL sweep at verification time
+/// (expired entries are dropped when encountered); a production
+/// deployment swaps the durable implementation in through the same port.
 #[derive(Default)]
 pub struct InMemoryStepUpStore {
     entries: Mutex<HashMap<String, StepUpChallenge>>,
+    consumed: Mutex<HashSet<String>>,
 }
 
 impl StepUpStore for InMemoryStepUpStore {
@@ -258,6 +279,16 @@ impl StepUpStore for InMemoryStepUpStore {
         Ok(())
     }
 
+    fn get(&self, challenge_id: &str) -> Result<Option<StepUpChallenge>, StepUpDenial> {
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| StepUpDenial::StoreError {
+                detail: "the in-memory challenge store lock is poisoned".to_string(),
+            })?;
+        Ok(entries.get(challenge_id).cloned())
+    }
+
     fn take(&self, challenge_id: &str) -> Result<Option<StepUpChallenge>, StepUpDenial> {
         let mut entries = self
             .entries
@@ -265,7 +296,36 @@ impl StepUpStore for InMemoryStepUpStore {
             .map_err(|_| StepUpDenial::StoreError {
                 detail: "the in-memory challenge store lock is poisoned".to_string(),
             })?;
-        Ok(entries.remove(challenge_id))
+        let taken = entries.remove(challenge_id);
+        if taken.is_some() {
+            // The single-use tombstone: a replay of this id is AlreadyUsed.
+            let mut consumed = self.consumed.lock().map_err(|_| StepUpDenial::StoreError {
+                detail: "the in-memory challenge store lock is poisoned".to_string(),
+            })?;
+            consumed.insert(challenge_id.to_string());
+        }
+        Ok(taken)
+    }
+
+    fn was_consumed(&self, challenge_id: &str) -> Result<bool, StepUpDenial> {
+        let consumed = self
+            .consumed
+            .lock()
+            .map_err(|_| StepUpDenial::StoreError {
+                detail: "the in-memory challenge store lock is poisoned".to_string(),
+            })?;
+        Ok(consumed.contains(challenge_id))
+    }
+
+    fn discard(&self, challenge_id: &str) -> Result<(), StepUpDenial> {
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|_| StepUpDenial::StoreError {
+                detail: "the in-memory challenge store lock is poisoned".to_string(),
+            })?;
+        entries.remove(challenge_id);
+        Ok(())
     }
 }
 
@@ -330,8 +390,10 @@ impl StepUpService {
     /// Verifies the presented evidence for a challenge. On success the
     /// challenge is consumed (single-use) and the single-use evidence value
     /// is returned; on failure a named [`StepUpDenial`] is returned and the
-    /// world is exactly as it was before the call (a replayed-consumed
-    /// challenge denies on every later attempt).
+    /// world is exactly as it was before the call — except that a replay
+    /// of a CONSUMED challenge denies as [`StepUpDenial::AlreadyUsed`] on
+    /// every later attempt (the store remembers consumed ids; a
+    /// never-issued id still denies as `NoChallenge`).
     pub fn verify(
         &self,
         challenge_id: &str,
@@ -341,14 +403,25 @@ impl StepUpService {
         requested_purpose: &StepUpPurpose,
     ) -> Result<StepUpEvidence, StepUpDenial> {
         let now = (self.now_millis)();
-        let challenge = self
-            .store
-            .take(challenge_id)?
-            .ok_or(StepUpDenial::NoChallenge)?;
-        // Binding checks BEFORE the verifier runs: a mismatched subject,
-        // tenant, or purpose is a named denial without spending the
-        // verifier's judgment (and without consuming the verifier's
-        // judgment as oracle material).
+        // The binding checks run against a NON-CONSUMING read: a
+        // mismatched subject, tenant, or purpose is a named denial
+        // without spending the challenge (the old form took the challenge
+        // first, so the first binding failure burned it and every later
+        // check on the same challenge reported NoChallenge instead of
+        // the binding it actually violates) and without spending the
+        // verifier's judgment as oracle material.
+        let challenge = match self.store.get(challenge_id)? {
+            Some(challenge) => challenge,
+            // Gone: consumed (a replay — AlreadyUsed) or never issued /
+            // swept (NoChallenge). The distinction is the audit trail: a
+            // replay attempt is an attack signal, not a typo.
+            None => {
+                if self.store.was_consumed(challenge_id)? {
+                    return Err(StepUpDenial::AlreadyUsed);
+                }
+                return Err(StepUpDenial::NoChallenge);
+            }
+        };
         if challenge.subject != presenting_subject {
             return Err(StepUpDenial::SubjectMismatch);
         }
@@ -359,10 +432,25 @@ impl StepUpService {
             return Err(StepUpDenial::PurposeMismatch);
         }
         if challenge.expires_at_unix_millis <= now {
+            // Expired entries are dropped when encountered (the store's
+            // TTL-sweep discipline) — discarded, NOT taken: expiry is not
+            // consumption, so a later replay of this id is "no such
+            // challenge", not "already used".
+            let _ = self.store.discard(challenge_id);
             return Err(StepUpDenial::Expired {
                 expired_at_unix_millis: challenge.expires_at_unix_millis,
             });
         }
+        // Single-use consumption happens here, once the binding and the
+        // lifetime have passed: a verifier rejection consumes the
+        // challenge (a challenge whose evidence was rejected must not be
+        // re-presentable), and so does a success.
+        // Taken between the `get` above and here only by a concurrent
+        // consumption — which is, by definition, AlreadyUsed.
+        let challenge = self
+            .store
+            .take(challenge_id)?
+            .ok_or(StepUpDenial::AlreadyUsed)?;
         // The verifier's judgment — the IdP-delegated authentication
         // result (P13-E-3 DEFAULT; the shipped default denies).
         self.verifier.verify(&challenge, presented)?;
@@ -512,10 +600,11 @@ mod tests {
             "idp-evidence",
             &purpose(),
         );
-        // Single-use: the replay is a named denial (AlreadyUsed or
-        // NoChallenge — the store took the entry, so NoChallenge here),
-        // and NOTHING about the earlier success is transferable.
-        assert_eq!(replay, Err(StepUpDenial::NoChallenge));
+        // Single-use: the replay is a named denial — AlreadyUsed,
+        // not NoChallenge: the store remembers the consumed id, so a
+        // replay is distinguishable from a never-issued id (and NOTHING
+        // about the earlier success is transferable).
+        assert_eq!(replay, Err(StepUpDenial::AlreadyUsed));
     }
 
     #[test]
@@ -620,6 +709,9 @@ mod tests {
                 reason: "test: evidence does not match".to_string()
             })
         );
+        // The rejected attempt consumed the challenge at verify entry,
+        // so the retry is AlreadyUsed — the same denial as a replay after
+        // a success (consumed is consumed, whatever consumed it).
         assert_eq!(
             svc.verify(
                 &challenge.challenge_id,
@@ -628,7 +720,7 @@ mod tests {
                 "idp-evidence",
                 &purpose()
             ),
-            Err(StepUpDenial::NoChallenge)
+            Err(StepUpDenial::AlreadyUsed)
         );
     }
 

@@ -16,6 +16,7 @@ mod common;
 use common::{outcome, scripted};
 use flexcore_optimization_api::backend::{BackendOutcome, BackendStatus};
 use flexcore_optimization_api::config::SolverConfig;
+use flexcore_optimization_api::fixture;
 use flexcore_optimization_api::fixture::ReferenceOptimum;
 use flexcore_optimization_api::highs_provider::HighsTier1Provider;
 use flexcore_optimization_api::port::Optimizer;
@@ -76,7 +77,7 @@ fn all_tier1_fixtures_solve_with_their_hand_computed_optima() {
         let optimum = fixture_optimum(&problem);
         let backend = scripted(vec![Ok(optimal_outcome(
             optimum.objective_value,
-            optimum.column_values,
+            optimum.column_values.clone(),
         ))]);
         let provider = HighsTier1Provider::new(backend);
         let result = provider

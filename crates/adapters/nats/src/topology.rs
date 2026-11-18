@@ -287,10 +287,14 @@ pub fn stream_for_subject(subject: &str) -> Option<&'static str> {
         // P11.13: a conforming quarantine copy routes to its family's
         // dedicated DLQ stream; the unrouted catch-all subject (and any
         // other subject under the DLQ prefix the family table does not
-        // recognise) stays on the retained catch-all stream.
+        // recognise) stays on the retained catch-all stream. The DLQ
+        // subject is `flexcore.dlq.v1.<area>.<event>`, so the area is
+        // token [3] — NOT token [2] ("v1"; token [2] is the area only in
+        // the NON-DLQ `flexcore.v1.<area>.<event>` shape, as in
+        // `dlq_subject_for` below).
         let tokens: Vec<&str> = subject.split('.').collect();
         if tokens.len() >= 4 {
-            if let Some(stream) = dlq_stream_for_area(tokens[2]) {
+            if let Some(stream) = dlq_stream_for_area(tokens[3]) {
                 return Some(stream);
             }
         }

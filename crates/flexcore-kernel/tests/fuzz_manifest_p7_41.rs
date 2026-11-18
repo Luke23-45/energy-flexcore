@@ -109,7 +109,7 @@ const VALID_BUILTIN_MANIFEST: &str = r#"{
   "plugin-id": "neryva.sim-builtin-ess",
   "name": "Built-in ESS Simulator Provider",
   "version": "0.1.0",
-  "api-version": ">=0.5,<1.0",
+  "api-version": ">=0.5.0,<1.0.0",
   "class": "builtin-rust",
   "entry-point": { "registered-type": "neryva.builtin/sim-ess" },
   "provider-of": ["ess.simulation"],
@@ -577,7 +577,7 @@ fn targeted_mutants_never_validate() {
         ),
         (
             "missing-required:api-version",
-            "\"api-version\": \">=0.5,<1.0\",",
+            "\"api-version\": \">=0.5.0,<1.0.0\",",
             "",
         ),
         ("malformed-semver", "\"version\": \"0.1.0\",", "\"version\": \"1.0\","),
@@ -586,7 +586,7 @@ fn targeted_mutants_never_validate() {
             "\"version\": \"0.1.0\",",
             "\"version\": \"1.0.0-beta+build\",",
         ),
-        ("malformed-range", "\"api-version\": \">=0.5,<1.0\",", "\"api-version\": \">=x.y.z\","),
+        ("malformed-range", "\"api-version\": \">=0.5.0,<1.0.0\",", "\"api-version\": \">=x.y.z\","),
         ("unknown-class", "\"class\": \"builtin-rust\",", "\"class\": \"kernel-mode\","),
         (
             "undeclared-permission",
@@ -642,7 +642,7 @@ fn duplicate_keys_verdict_is_refused_or_deterministic_here_deterministic_last_wi
         "plugin-id": "neryva.duplicate-b",
         "name": "Duplicate Key Probe",
         "version": "0.1.0",
-        "api-version": ">=0.5,<1.0",
+        "api-version": ">=0.5.0,<1.0.0",
         "class": "builtin-rust",
         "entry-point": { "registered-type": "neryva.builtin/probe" },
         "provider-of": ["probe.duplicate"],
@@ -793,13 +793,15 @@ fn semver_ranges_disagree_with_lexicographic_comparison_and_numeric_wins() {
     // numeric SemVer ordering DISAGREE. The parsed-range answer must be the
     // NUMERIC one — a string comparison can never produce these verdicts.
     let numeric_wins: [(&str, &str, bool); 6] = [
-        // "0.9.0" is lexicographically GREATER than "0.10.0" ('9' > '1').
+        // "0.9.0" is lexicographically GREATER than "0.10.0" ('9' > '1'),
+        // so a string comparison flips both of these; the numeric answers
+        // are true (0.9.0 < 0.10.0; 0.5.11 is inside ~0.5.2 = [0.5.2, 0.6.0)).
         (">=0.10.0", "0.9.0", false),
-        ("<0.10.0", "0.9.0", false),
+        ("<0.10.0", "0.9.0", true),
         (">0.9.0", "0.10.0", true),
         ("<=0.9.0", "0.10.0", false),
         // Multi-digit patch: "0.5.11" vs "0.5.2" — lexicographic flips it.
-        ("~0.5.2", "0.5.11", false),
+        ("~0.5.2", "0.5.11", true),
         ("^0.5.2", "0.5.2", true),
     ];
     for (expr, version, expected) in numeric_wins {
@@ -933,7 +935,7 @@ fn generated_permission_combinations_stay_inside_the_closed_vocabulary() {
         "plugin-id": "neryva.perm-probe",
         "name": "p",
         "version": "0.1.0",
-        "api-version": ">=0.5,<1.0",
+        "api-version": ">=0.5.0,<1.0.0",
         "class": "builtin-rust",
         "entry-point": { "registered-type": "t" },
         "provider-of": [],

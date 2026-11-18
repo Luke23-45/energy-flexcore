@@ -44,6 +44,10 @@
 //   - value `false` → **Unavailable** (the asset reports itself
 //     unavailable — its own word outranks the connectivity signal);
 //   - value absent → **Unknown**.
+// - `ESTIMATED`: an estimate is well-formed and interpretable (a soft
+//   state, like SUSPECT under the same P2.08 hard-vs-soft distinction),
+//   so it drives the flag through the same value + connectivity logic as
+//   GOOD/SUSPECT.
 //
 // Change detection ([`availability_changed`]): the event fires exactly when
 // the previous assessment state differs from the new one; an `Unchanged`
@@ -122,12 +126,12 @@ pub fn availability(input: &AvailabilitySignalInput) -> AvailabilityAssessment {
             reason: "the latest availability signal failed hard validation; \
                      the flag cannot be trusted",
         },
-        Some(TelemetryQuality::Good | TelemetryQuality::Suspect) => {
+        Some(TelemetryQuality::Good | TelemetryQuality::Suspect | TelemetryQuality::Estimated) => {
             match (input.latest_value, input.source_reporting) {
                 (Some(true), true) => AvailabilityAssessment {
                     state: AvailabilityState::Available,
                     reason: "the asset reports available on a \
-                             GOOD/SUSPECT signal and the source is reporting",
+                             GOOD/SUSPECT/ESTIMATED signal and the source is reporting",
                 },
                 (Some(true), false) => AvailabilityAssessment {
                     state: AvailabilityState::Unknown,
@@ -138,7 +142,7 @@ pub fn availability(input: &AvailabilitySignalInput) -> AvailabilityAssessment {
                 (Some(false), _) => AvailabilityAssessment {
                     state: AvailabilityState::Unavailable,
                     reason: "the asset reports itself unavailable on a \
-                             GOOD/SUSPECT signal",
+                             GOOD/SUSPECT/ESTIMATED signal",
                 },
                 (None, _) => AvailabilityAssessment {
                     state: AvailabilityState::Unknown,

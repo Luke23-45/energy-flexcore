@@ -515,7 +515,7 @@ impl SimulatorDispatchTransport for VerifyingDispatchTransport<'_> {
         envelope: &SimulatorDispatchEnvelope,
     ) -> Result<crate::dispatch_simulator::SimulatedAcceptance, crate::dispatch_simulator::SimulatorTransportError>
     {
-        use crate::dispatch_simulator::{SimulatedAcceptance, SimulatorTransportFailure};
+        use crate::dispatch_simulator::SimulatedAcceptance;
         let nack = |code: &str, detail: String| {
             Ok(SimulatedAcceptance::Nack {
                 reason: format!("dispatch-security: {code}: {detail}"),

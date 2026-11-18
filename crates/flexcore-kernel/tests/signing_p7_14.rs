@@ -225,7 +225,16 @@ fn the_default_no_verifier_refuses_everything() {
         GateOutcome::Failed { reason } => reason.as_str(),
         GateOutcome::Passed => panic!("NoVerifier must refuse everything"),
     };
-    assert!(reason.starts_with("VERIFIER_REFUSED"), "named refusal expected: {reason}");
+    // The refusal surfaces as the ALGORITHM mismatch, not VERIFIER_REFUSED:
+    // `NoVerifier` computes no digest (`algorithm_name() == "none"`), so
+    // the gate's documented check order (manifest → algorithm → verdict)
+    // refuses at step 2, before the verifier is even consulted. The
+    // verifier-level refusal itself is pinned by the direct `verify` call
+    // below. Either way the intact artifact is refused, fail-closed.
+    assert!(
+        reason.starts_with(REFUSAL_ALGORITHM_MISMATCH),
+        "named refusal expected: {reason}"
+    );
     // The port itself refuses too.
     assert!(matches!(
         NoVerifier.verify(artifact_bytes(), &record.digest_hex),

@@ -9,7 +9,7 @@
 //! here connects to a device; everything runs against in-memory values.
 
 use flexcore_ocpp_adapter::csms::{
-    CsmsLimits, CsmsSecurityRequirements, CsmsServer, UnwiredCsmsTransport,
+    CsmsLimits, CsmsSecurityRequirements, CsmsServer, CsmsTransport, UnwiredCsmsTransport,
     CSMS_TRANSPORT_SEAM_NOT_WIRED,
 };
 use flexcore_ocpp_adapter::framing::{

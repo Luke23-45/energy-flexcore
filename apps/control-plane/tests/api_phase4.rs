@@ -320,6 +320,7 @@ fn validate_against_schema(spec: &Value, schema_name: &str, value: &Value, at: &
 
 fn validate_envelope_response(spec: &Value, item: &str, body: &Value, at: &str) {
     let (name, schema) = schema(spec, &format!("DataEnvelope_{item}"));
+
     let data_ref = schema["properties"]["data"]["$ref"]
         .as_str()
         .unwrap_or_else(|| panic!("{at}: {name} does not reference the {item} item schema"));
@@ -454,8 +455,16 @@ fn seed_check(
         Some("grid-model-v1".to_string()),
         Some("fnv1a64:deadbeef".to_string()),
         outcome.to_string(),
-        None,
-        None,
+        if outcome == "LIMIT_VIOLATED" {
+            Some("feeder-a:thermal".to_string())
+        } else {
+            None
+        },
+        if outcome == "FAIL_CLOSED" {
+            Some("adapter unavailable".to_string())
+        } else {
+            None
+        },
         Some("margins within tolerance".to_string()),
         Some("balanced radial feeder".to_string()),
         "svc:grid-gate".to_string(),
@@ -1030,8 +1039,8 @@ async fn audit_event_list_and_detail_are_schema_valid_tenant_scoped_and_fully_co
     assert_eq!(approval["decision_outcome"], AUDIT_DECISION_ALLOWED);
     assert_eq!(approval["decision_reason_reference"], "approval-record:apr-1");
     assert_eq!(approval["evidence"], "evidence:approval/apr-1");
-    assert_eq!(approval["event_time_unix_millis"], 1_700_000_100_000);
-    assert_eq!(approval["ingest_time_unix_millis"], 1_700_000_100_500);
+    assert_eq!(approval["event_time_unix_millis"], 1_700_000_100_000i64);
+    assert_eq!(approval["ingest_time_unix_millis"], 1_700_000_100_500i64);
     assert_eq!(approval["correlation_id"], format!("trace-{AUDIT_1}"));
     assert_eq!(
         approval["append_only_statement"].as_str().expect("statement"),
@@ -1165,21 +1174,33 @@ async fn the_audit_events_resource_is_get_only_with_no_export_or_dump_route() {
         );
     }
     // Live probes: POST on the list and the detail path is 405 (the route
-    // exists, the method does not); POST to export/dump-shaped paths is
-    // 404 (no such route — there is no generic export/dump endpoint).
+    // exists, the method does not). The export/dump-shaped paths are
+    // likewise NOT accepted — but `/export` and `/dump` match the detail
+    // route's `/:id` shape, so axum answers 405 there (the path is a
+    // resource path; the method is disallowed), while `/{id}/export`
+    // matches no route at all and answers 404. Either way there is no
+    // export/dump endpoint: no POST is accepted anywhere on this resource.
     for uri in [
         "/api/v1/audit-events".to_string(),
         format!("/api/v1/audit-events/{AUDIT_1}"),
+        "/api/v1/audit-events/export".to_string(),
+        "/api/v1/audit-events/dump".to_string(),
     ] {
         let (status, _) = call(&router, post_json(&uri, Some("caller-a"), json!({}))).await;
         assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "no POST on {uri}");
     }
-    for uri in [
-        "/api/v1/audit-events/export".to_string(),
-        "/api/v1/audit-events/dump".to_string(),
-        format!("/api/v1/audit-events/{AUDIT_1}/export"),
-    ] {
-        let (status, _) = call(&router, post_json(&uri, Some("caller-a"), json!({}))).await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "no export/dump route at {uri}");
-    }
+    let (status, _) = call(
+        &router,
+        post_json(
+            &format!("/api/v1/audit-events/{AUDIT_1}/export"),
+            Some("caller-a"),
+            json!({}),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "no export/dump route at /api/v1/audit-events/{AUDIT_1}/export"
+    );
 }

@@ -37,7 +37,7 @@ use crate::problem::{
 use crate::result::{Diagnostics, OptimizationResult, SolveStatus};
 use flexcore_contracts::ids::FlexUuid;
 use serde::{Deserialize, Serialize};
-use time::macros::offset;
+use time::macros::datetime;
 
 /// A fixed, valid candidate identity for the conic fixtures (nil-adjacent but
 /// non-nil; distinct from the P3.17 fixture identity).
@@ -51,7 +51,7 @@ fn conic_fixture_provenance() -> ProblemProvenance {
     ProblemProvenance {
         candidate_id: conic_fixture_candidate_id(),
         input_snapshot_id: "synthetic-snapshot-p3.18-0001".to_string(),
-        data_timestamp: Some(offset!(2026-11-07 00:00:00 UTC)),
+        data_timestamp: Some(datetime!(2026-11-07 00:00:00 UTC)),
         grid_model_version: None,
         objective_config_version: Some("synthetic-objective-v1".to_string()),
         envelope_version: None,
@@ -304,6 +304,14 @@ pub fn distflow_branch_socp() -> OptimizationProblem {
         ],
         conic_constraints: vec![SecondOrderCone {
             name: DISTFLOW_CONE_NAME.to_string(),
+            // Canonical encoding ‖(2P, 2Q, v − l)‖₂ ≤ v + l (foundations
+            // §7.8). The IR's norm side is one entry per variable, so the
+            // combined (v − l) component is expressed as two entries
+            // √2·v and −√2·l with the rhs scaled by √2 to match: the
+            // cone has the same feasible set (P² + Q² ≤ v·l) and the same
+            // slack 4·g_ij. Listing v and −l UNSCALED (coefficients ±1
+            // against rhs v + l) encodes 2·(P² + Q²) ≤ v·l instead — the
+            // hand-computed optimum then reads slack −8.5, not 0.
             norm_members: vec![
                 Coefficient {
                     variable: 2,
@@ -315,22 +323,22 @@ pub fn distflow_branch_socp() -> OptimizationProblem {
                 },
                 Coefficient {
                     variable: 0,
-                    coefficient: 1.0,
+                    coefficient: std::f64::consts::SQRT_2,
                 },
                 Coefficient {
                     variable: 1,
-                    coefficient: -1.0,
+                    coefficient: -std::f64::consts::SQRT_2,
                 },
             ],
             norm_offset: 0.0,
             rhs_members: vec![
                 Coefficient {
                     variable: 0,
-                    coefficient: 1.0,
+                    coefficient: std::f64::consts::SQRT_2,
                 },
                 Coefficient {
                     variable: 1,
-                    coefficient: 1.0,
+                    coefficient: std::f64::consts::SQRT_2,
                 },
             ],
             rhs_offset: 0.0,

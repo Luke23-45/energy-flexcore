@@ -844,8 +844,8 @@ mod tests {
     fn stale_envelope_within_its_window_lapses_to_the_static_limit() {
         // The EDGE Workstream 3 subject [S-158]: cadence 60 s, budget 2
         // intervals → freshness limit 120 s. An update received at issue;
-        // at issue + 121 s the envelope is stale INSIDE its window and
-        // lapses to the static limit.
+        // at 1 ms past the 120 s budget (issue + 120.001 s) the envelope
+        // is stale INSIDE its window and lapses to the static limit.
         let envelope = envelope(60, 1_000, 600_000);
         let fallback = static_limit();
         // Inside the budget: dynamic limits govern.
@@ -858,7 +858,7 @@ mod tests {
             }
         );
         // One millisecond past the budget: stale, static governs.
-        let effective = evaluate_envelope(&envelope, &fallback, &event(121_000))
+        let effective = evaluate_envelope(&envelope, &fallback, &event(121_001))
             .expect("evaluation");
         assert_eq!(
             effective,

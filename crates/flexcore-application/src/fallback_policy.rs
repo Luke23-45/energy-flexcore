@@ -101,10 +101,9 @@
 // relay protection, inverter inner-loop control, or sub-cycle control
 // (§14.5).
 
-use flexcore_contracts::ids::FlexUuid;
 use flexcore_contracts::time_model::EventTime;
 use flexcore_domain::command_lifecycle::{
-    Actor, CommandLifecycle, CommandTransition, EvidenceReference, LifecycleClock, LifecycleError,
+    Actor, CommandTransition, EvidenceReference, LifecycleClock, LifecycleError,
 };
 use flexcore_domain::command_state::CommandState;
 use flexcore_domain::ids::{AssetId, CommandId, PortfolioId, SiteId, TenantId};
@@ -1179,7 +1178,11 @@ impl<'a> FallbackEngine<'a> {
                           automatic fallback (the explicit default entry)"
                     .to_string(),
             };
-            self.audit.record_activation(&record).map_err(FallbackPolicyError::Audit)?;
+            // The audit receipt is proof the audit record landed; there is
+            // no outbox record on this path (the decision carries the record
+            // back to the caller), so it is explicitly dropped — the
+            // sanctioned alternative in the receipt's must_use note.
+            drop(self.audit.record_activation(&record).map_err(FallbackPolicyError::Audit)?);
             return Ok(FallbackDecision::InterventionRequired { record });
         };
 
@@ -1218,7 +1221,11 @@ impl<'a> FallbackEngine<'a> {
                         .join("; ")
                 ),
             };
-            self.audit.record_activation(&record).map_err(FallbackPolicyError::Audit)?;
+            // The audit receipt is proof the audit record landed; there is
+            // no outbox record on this path (the decision carries the record
+            // back to the caller), so it is explicitly dropped — the
+            // sanctioned alternative in the receipt's must_use note.
+            drop(self.audit.record_activation(&record).map_err(FallbackPolicyError::Audit)?);
             return Ok(FallbackDecision::TriggerNotConfigured { record });
         }
 
@@ -1275,7 +1282,12 @@ impl<'a> FallbackEngine<'a> {
                 input.trigger.as_str()
             ),
         };
-        self.audit.record_activation(&record).map_err(FallbackPolicyError::Audit)?;
+        // The audit receipt is proof the audit record landed; the state
+        // change itself (the journal transition) is already paired with the
+        // outbox record via the journal receipt, so the audit receipt is
+        // explicitly dropped — the sanctioned alternative in the receipt's
+        // must_use note.
+        drop(self.audit.record_activation(&record).map_err(FallbackPolicyError::Audit)?);
 
         // `DispatchFallbackActivated` (§15.3) through the transactional
         // outbox. The frozen payload carries identity + time only; the
@@ -1365,7 +1377,11 @@ impl<'a> FallbackEngine<'a> {
                 escalation_target.as_str()
             ),
         };
-        self.audit.record_escalation(&record).map_err(FallbackPolicyError::Audit)?;
+        // The escalation is an audit record, NOT a command transition, and
+        // there is no outbox record on this path (the evaluation carries the
+        // record back), so the audit receipt is explicitly dropped — the
+        // sanctioned alternative in the receipt's must_use note.
+        drop(self.audit.record_escalation(&record).map_err(FallbackPolicyError::Audit)?);
         Ok(HoldExpiryEvaluation::Escalated { target: escalation_target, record })
     }
 }
@@ -1373,6 +1389,7 @@ impl<'a> FallbackEngine<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flexcore_contracts::ids::FlexUuid;
 
     #[test]
     fn a_hold_policy_without_validity_conditions_cannot_be_constructed() {

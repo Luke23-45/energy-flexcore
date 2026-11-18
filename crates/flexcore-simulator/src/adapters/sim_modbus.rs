@@ -44,6 +44,12 @@ pub enum SimModbusError {
     EmptyBlock,
 }
 
+impl From<TransportError> for SimModbusError {
+    fn from(error: TransportError) -> Self {
+        SimModbusError::Config(error)
+    }
+}
+
 impl std::fmt::Display for SimModbusError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -148,7 +154,7 @@ mod tests {
             },
             40_001,
             vec![
-                0xFA1C, // i16 -1500 (importing 1500 W)
+                0xFA24, // i16 -1500 (importing 1500 W)
                 0x0001, 0x86A0, // u32 100000 Wh
                 0x0000, // SF register slot
             ],
@@ -162,7 +168,7 @@ mod tests {
         // Exact window at the block start.
         assert_eq!(
             device.read_holding_registers(40_001, 1).expect("serves"),
-            vec![0xFA1C]
+            vec![0xFA24]
         );
         // A two-register pair within the block.
         assert_eq!(
@@ -179,10 +185,12 @@ mod tests {
             device.read_holding_registers(40_000, 1),
             Err(TransportError::WindowOutOfRange { start_address: 40_000, count: 1 })
         );
-        // Overrunning the block end.
+        // Overrunning the block end (40003 + 3 reaches 40005, one past
+        // the last block register 40004; 40002 + 3 ends exactly at the
+        // block end and serves — it does not overrun).
         assert_eq!(
-            device.read_holding_registers(40_002, 3),
-            Err(TransportError::WindowOutOfRange { start_address: 40_002, count: 3 })
+            device.read_holding_registers(40_003, 3),
+            Err(TransportError::WindowOutOfRange { start_address: 40_003, count: 3 })
         );
         // Zero-count read refused too.
         assert_eq!(
@@ -268,8 +276,9 @@ mod tests {
                 },
                 40_001,
                 Vec::new(),
-            ),
-            Err(SimModbusError::EmptyBlock)
+            )
+            .expect_err("an empty register block is refused"),
+            SimModbusError::EmptyBlock
         );
     }
 }

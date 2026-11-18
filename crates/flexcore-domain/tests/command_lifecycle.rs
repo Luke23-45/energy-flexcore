@@ -35,8 +35,13 @@ use flexcore_domain::ids::CommandId;
 const UUID_BASE: &str = "0192a5e0-0000-7e2f-9a1b-3c4d5e6f";
 
 fn command_uuid(suffix: u8) -> FlexUuid {
-    let mut bytes = [0u8; 16];
-    bytes[..12].copy_from_slice(UUID_BASE.as_bytes());
+    // UUID_BASE is the 32-hex-char prefix of the fixture UUID; its raw
+    // bytes are 16, not 12 — copy_from_slice on the string bytes panicked
+    // (32 vs 12). Parse it (trailing node bytes zero) and stamp the
+    // marker/suffix into bytes 12-13 as originally intended.
+    let mut bytes = FlexUuid::parse(&format!("{UUID_BASE}0000"))
+        .expect("fixture base is a valid UUID")
+        .to_bytes();
     bytes[12] = 0xB4; // P4.10 fixture marker
     bytes[13] = suffix;
     FlexUuid::from_bytes(bytes)
@@ -101,36 +106,38 @@ fn lifecycle_at(id: u8, state: CommandState, clock: &mut FixedClock) -> CommandL
                 .expect("feasibility passes");
         }
         CommandState::Approved => {
-            lifecycle_at(id, CommandState::Feasible, clock);
+            lc = lifecycle_at(id, CommandState::Feasible, clock);
             lc.record_authorization(authz_approve(), clock)
                 .expect("authorization grants");
         }
         CommandState::Issued => {
-            lifecycle_at(id, CommandState::Approved, clock);
+            lc = lifecycle_at(id, CommandState::Approved, clock);
             lc.record_issue(evidence("sig:sim-1"), actor("svc:dispatch"), clock)
                 .expect("issue records");
         }
         CommandState::Acknowledged => {
-            lifecycle_at(id, CommandState::Issued, clock);
+            lc = lifecycle_at(id, CommandState::Issued, clock);
             lc.record_acknowledgement(evidence("ack:sim-1"), actor("adapter:simulator"), clock)
                 .expect("acknowledgement records");
         }
         CommandState::Tracking => {
-            lifecycle_at(id, CommandState::Acknowledged, clock);
+            lc = lifecycle_at(id, CommandState::Acknowledged, clock);
             lc.record_tracking_started(evidence("telemetry:snap-1"), actor("svc:tracking"), clock)
                 .expect("tracking starts");
         }
         CommandState::Failed => {
-            lifecycle_at(id, CommandState::Issued, clock);
+            lc = lifecycle_at(id, CommandState::Issued, clock);
             lc.record_failure(FailureReason::Nack, actor("svc:dispatch"), clock)
                 .expect("failure records");
         }
         CommandState::Expired => {
-            lifecycle_at(id, CommandState::Approved, clock);
+            lc = lifecycle_at(id, CommandState::Approved, clock);
             clock.set(lc.valid_until_millis() + 1);
             lc.record_expiry(ExpiryMilestone::BeforeIssue, actor("svc:expiry-sweep"), clock)
                 .expect("expiry records");
-            clock.set(1_000);
+            // No clock rewind: the engine enforces monotone timestamps,
+            // so rewinding to 1_000 would make the next operation on
+            // this lifecycle a TimestampRegression.
         }
         // FAILED and EXPIRED are reachable from-state handles too (frozen
         // edges 26–27 leave them). Terminal states are never pre-built —
@@ -219,9 +226,9 @@ fn drive_edge(
                 CommandState::Tracking => ExpiryMilestone::BeforeCompletion,
                 other => panic!("no expiry milestone drives from {}", other.name()),
             };
-            let result = lc.record_expiry(milestone, actor("svc:expiry-sweep"), clock);
-            clock.set(1_000); // restore the suite clock
-            result
+            // No clock rewind here either (see lifecycle_at above): the
+            // caller drives the next edge on this same lifecycle.
+            lc.record_expiry(milestone, actor("svc:expiry-sweep"), clock)
         }
         CommandState::Cancelled => {
             lc.record_cancellation("operator cancelled the window", actor("operator:human-1"), clock)
@@ -482,7 +489,8 @@ fn expiry_never_fires_before_the_validity_window_ends() {
         })
     );
     // EXPIRED exits only via FALLBACK (frozen edge 27) — nothing else.
-    assert_eq!(lc2.permitted_transitions(), vec![CommandState::Fallback]);
+    // (lc2 above is still APPROVED; the expired lifecycle is lc.)
+    assert_eq!(lc.permitted_transitions(), vec![CommandState::Fallback]);
 }
 
 #[test]
@@ -609,7 +617,6 @@ fn terminal_states_have_no_outgoing_engine_operation() {
     fallback
         .record_expiry(ExpiryMilestone::BeforeIssue, actor("svc:expiry-sweep"), &mut clock)
         .expect("expires");
-    clock.set(1_000);
     fallback
         .record_fallback(evidence("fallback:policy-ref"), actor("svc:fallback"), &mut clock)
         .expect("falls back");

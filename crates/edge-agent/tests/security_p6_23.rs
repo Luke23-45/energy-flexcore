@@ -70,7 +70,7 @@ use flexcore_edge_agent::policy::{
 };
 use flexcore_edge_agent::ports::{
     AuditSink, EdgeError, EdgeSampleError, EdgeTelemetrySample, EdgeTelemetrySampleParts,
-    InMemoryAuditSink,
+    EmsSource, InMemoryAuditSink,
 };
 use flexcore_edge_agent::uplink_mtls::TlsMinimum;
 use flexcore_ports::fakes::FixedClock;
@@ -640,7 +640,7 @@ fn a_sequence_replay_after_verifier_restart_is_denied_by_the_persisted_checkpoin
         signing_key(),
         authorization(),
         Box::new(checkpoint),
-        audit_after as Arc<dyn AuditSink>,
+        Arc::clone(&audit_after) as Arc<dyn AuditSink>,
         Arc::new(FixedClock::at_unix_millis(PIPELINE_NOW_MILLIS)),
     )
     .expect("the restarted verifier composes");

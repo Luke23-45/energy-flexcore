@@ -136,9 +136,12 @@ fn composed_phase3_router() -> (
 ) {
     let journal = FakeWriteJournal::new();
     let outbox = Arc::new(FakeEventOutbox::new(journal.clone()));
-    let schedule_records = Arc::new(FakeScheduleRecordStore::new());
-    let schedule_revisions = Arc::new(FakeScheduleRevisionStore::new());
-    let envelope_records = Arc::new(FakeEnvelopeRecordStore::new());
+    // The record fakes share the journal: their inserts are the state
+    // changes the §15.5 pairing assertions look for before the outbox
+    // append (without this the appends appear to precede any state change).
+    let schedule_records = Arc::new(FakeScheduleRecordStore::with_journal(journal.clone()));
+    let schedule_revisions = Arc::new(FakeScheduleRevisionStore::with_journal(journal.clone()));
+    let envelope_records = Arc::new(FakeEnvelopeRecordStore::with_journal(journal.clone()));
     let resolver = FixedIdentityResolver {
         callers: vec![
             (
@@ -148,6 +151,14 @@ fn composed_phase3_router() -> (
             (
                 "caller-b".to_string(),
                 caller_for(TENANT_B_SEED, "user:admin-b", Role::TenantAdmin),
+            ),
+            (
+                // PlatformAdmin bound to tenant A: tenant creation is a
+                // platform act (record 41) and create_chain posts as
+                // "platform-a" — the old resolver had no such caller, so
+                // setup died with 401.
+                "platform-a".to_string(),
+                caller_for(TENANT_A_SEED, "user:platform-a", Role::PlatformAdmin),
             ),
             (
                 "operator".to_string(),
@@ -335,11 +346,12 @@ struct Chain {
 }
 
 async fn create_chain(router: &Router) -> Chain {
+    // Tenant creation is a platform act (record 41; see tests/api.rs).
     let (status, _) = call(
         router,
         post_json(
             "/api/v1/tenants",
-            Some("caller-a"),
+            Some("platform-a"),
             json!({
                 "name": "Alpha Grid Co",
                 "identity_provider_reference": "idp:alpha",
@@ -600,7 +612,7 @@ fn screaming_snake(name: &str) -> String {
             }
             out.push(c.to_ascii_uppercase());
         } else {
-            out.push(c);
+            out.push(c.to_ascii_uppercase());
         }
     }
     out
@@ -791,7 +803,7 @@ async fn envelope_post_is_201_and_emits_one_event_per_covered_site() {
         post_json(
             "/api/v1/flexibility/envelopes",
             Some("caller-a"),
-            envelope_body(&chain, "env-v1", vec![chain.site_id.clone(), site_b]),
+            envelope_body(&chain, "env-v1", vec![chain.site_id.clone(), site_b.clone()]),
         ),
     )
     .await;
@@ -904,17 +916,30 @@ async fn schedule_post_is_201_candidate_and_emits_proposed_plus_validated() {
     validate_envelope_response(&spec, "ScheduleRevisionDto", &body, "POST /schedules");
     let schedule_id = body["data"]["schedule_id"].as_str().expect("schedule id").to_string();
 
-    // Two events, one unit of work: ScheduleProposed + ScheduleValidated.
+    // Two events, one unit of work: ScheduleProposed + ScheduleValidated —
+    // but only ONE new outbox row. The `ScheduleProposed` republication
+    // dedupes durably (D-P3.21-4): the optimization-run POST already
+    // published this candidate's proposal under the same deterministic key,
+    // so the schedule POST's re-emit is a no-op and the row below is the
+    // `ScheduleValidated` one. The proposed row is asserted from the run
+    // post's writes (entity `schedule_results`).
     assert_state_then_outbox(&journal.ops(), "schedule_revisions");
     let writes = phase3_writes(&outbox, "schedule_revisions");
-    assert_eq!(writes.len(), 2, "one revision insert = two outbox rows");
-    let keys: Vec<&str> = writes.iter().map(|w| w.idempotency_key()).collect();
-    assert!(keys.contains(&format!("schedule_proposed:{}:{}:{CANDIDATE_1}", chain.portfolio_id, chain.site_id).as_str()));
-    assert!(keys.contains(&format!("schedule_validated:{}:{}:{CANDIDATE_1}", chain.portfolio_id, chain.site_id).as_str()));
-    for write in &writes {
-        assert_eq!(write.destination_subject().starts_with("flexcore.v1.scheduling."), true);
-        assert_outbox_payload(write, if write.idempotency_key().starts_with("schedule_proposed:") { "ScheduleProposed" } else { "ScheduleValidated" });
-    }
+    assert_eq!(writes.len(), 1, "one revision insert = one NEW outbox row (Validated; Proposed deduped)");
+    assert!(writes[0].idempotency_key().starts_with("schedule_validated:"));
+    assert_eq!(
+        writes[0].idempotency_key(),
+        format!("schedule_validated:{}:{}:{CANDIDATE_1}", chain.portfolio_id, chain.site_id),
+    );
+    assert_eq!(writes[0].destination_subject().starts_with("flexcore.v1.scheduling."), true);
+    assert_outbox_payload(&writes[0], "ScheduleValidated");
+    let run_writes = phase3_writes(&outbox, "schedule_results");
+    assert_eq!(run_writes.len(), 1, "the run post published the proposal once");
+    assert_eq!(
+        run_writes[0].idempotency_key(),
+        format!("schedule_proposed:{}:{}:{CANDIDATE_1}", chain.portfolio_id, chain.site_id),
+        "the deterministic P3.21 idempotency key, published by the run post"
+    );
 
     // The revision is stored, active, and carries no supersede link.
     let stored = revisions.rows();
@@ -953,6 +978,7 @@ async fn schedule_validated_payload_cannot_carry_the_scope_caveat_recorded_gap()
         .as_object()
         .expect("the frozen payload is an object")
         .keys()
+        .map(String::as_str)
         .collect();
     keys.sort();
     assert_eq!(
@@ -1073,9 +1099,20 @@ async fn schedule_chain_revision_two_supersedes_one_in_one_transaction() {
     );
     assert_eq!(revisions.rows().len(), 2, "both revisions are stored");
 
-    // Two revision inserts = four events (ScheduleProposed + ScheduleValidated
-    // per revision), all bound to their state change.
-    assert_eq!(phase3_writes(&outbox, "schedule_revisions").len(), 4);
+    // Two revision inserts = two NEW outbox rows (one ScheduleValidated
+    // per revision). Both ScheduleProposed republications dedupe durably
+    // (D-P3.21-4): each candidate's proposal was already published by its
+    // optimization-run POST, so the schedule POSTs' re-emits are no-ops.
+    let revision_writes = phase3_writes(&outbox, "schedule_revisions");
+    assert_eq!(revision_writes.len(), 2);
+    assert!(revision_writes
+        .iter()
+        .all(|w| w.idempotency_key().starts_with("schedule_validated:")));
+    let run_writes = phase3_writes(&outbox, "schedule_results");
+    assert_eq!(run_writes.len(), 2, "both proposals published by the run posts");
+    assert!(run_writes
+        .iter()
+        .all(|w| w.idempotency_key().starts_with("schedule_proposed:")));
 }
 
 #[tokio::test]
@@ -1575,7 +1612,10 @@ async fn outbox_rows_always_carry_the_supported_schema_version() {
     for entity in ["flexibility_envelopes", "schedule_results", "schedule_revisions"] {
         writes.extend(phase3_writes(&outbox, entity));
     }
-    assert_eq!(writes.len(), 4, "1 run + 1 envelope(1 site) + 1 schedule = 4 rows");
+    // 1 run (Proposed) + 1 envelope (1 site) + 1 schedule (Validated;
+    // the schedule's Proposed republication deduped against the run's row,
+    // D-P3.21-4) = 3 rows.
+    assert_eq!(writes.len(), 3, "1 run + 1 envelope(1 site) + 1 schedule = 3 rows");
     for write in &writes {
         let payload: Value = serde_json::from_str(write.payload())
             .expect("every outbox payload is the serialized event envelope");

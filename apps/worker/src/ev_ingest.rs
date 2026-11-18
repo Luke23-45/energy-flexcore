@@ -208,7 +208,7 @@ pub enum EvRouteOutcome {
 }
 
 /// Errors of the routing. Every variant names the failure.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EvIngestRouteError {
     /// The proposal assembly refused the message (the application error
     /// carried verbatim).
@@ -531,7 +531,7 @@ mod tests {
         // The NEVER-AUTO-COMMAND rule: the record's entry state is
         // structurally PROPOSED.
         assert_eq!(
-            record.lifecycle_entry_state(),
+            EvProposalRecord::lifecycle_entry_state(),
             flexcore_domain::command_state::CommandState::Proposed
         );
         assert_eq!(record.kind().message_name(), "NotifyChargingLimit");

@@ -93,7 +93,7 @@ fn manifest_json(plugin_id: &str, provides: &[&str]) -> serde_json::Value {
         "plugin-id": plugin_id,
         "name": "Registry test plugin",
         "version": "0.1.0",
-        "api-version": ">=0.5,<1.0",
+        "api-version": ">=0.5.0,<1.0.0",
         "class": "builtin-rust",
         "entry-point": { "registered-type": "test/type" },
         "provider-of": provides,
@@ -363,7 +363,10 @@ fn a_factory_construction_failure_is_a_named_error_not_a_panic() {
     factories.insert(seed::CONTRACT_OPTIMIZER.to_string(), failing_factory());
     registry.register_from_plan(&plan, factories).expect("registration succeeds; construction is on demand");
     let err = assert_error(
-        registry.construct(seed::CONTRACT_OPTIMIZER).unwrap_err(),
+        match registry.construct(seed::CONTRACT_OPTIMIZER) {
+            Ok(_) => panic!("a failing factory must not construct"),
+            Err(error) => error,
+        },
         "CONSTRUCTION_FAILED",
     );
     match &err {

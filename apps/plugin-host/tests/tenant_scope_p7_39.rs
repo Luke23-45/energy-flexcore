@@ -186,14 +186,19 @@ fn cross_tenant_attempts_are_refused_and_audited_at_both_layers() {
     // Defence in depth #2: even when the envelope is tenant-wide (so the
     // envelope check passes), a cross-tenant request still hits the
     // broker's grant narrowing and is refused under the broker's name.
+    // (The envelope must cover the REQUESTED tenant: a tenant-alpha
+    // envelope never covers a tenant-beta request — the gate's step 2
+    // refuses that first with TENANT_SCOPE_MISMATCH and the broker is
+    // not consulted. The cross-tenant construction is therefore a
+    // tenant-beta envelope with a tenant-alpha grant.)
     let wide_gate = TenantScopeGate::compose(Box::new(InMemoryTenantGateAuditSink::new()));
     let wide_broker = broker_with_grant("tenant-alpha", None);
-    let wide_envelope = scope("tenant-alpha", None);
+    let beta_envelope = scope("tenant-beta", None);
     let err = wide_gate
         .check_data_request(
             &wide_broker,
             PLUGIN,
-            &wide_envelope,
+            &beta_envelope,
             "telemetry.read",
             &data_scope("tenant-beta", None),
             NOW,
@@ -208,6 +213,7 @@ fn cross_tenant_attempts_are_refused_and_audited_at_both_layers() {
 
     // And a scope the grant simply does not carry (wrong site under a
     // site-1 grant, envelope-wide) surfaces the broker refusal as well.
+    let wide_envelope = scope("tenant-alpha", None);
     let site_broker = broker_with_grant("tenant-alpha", Some("site-1"));
     let err = wide_gate
         .check_data_request(

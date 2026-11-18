@@ -139,7 +139,7 @@ impl EvProposalSource {
 
 /// Errors returned by proposal-record construction. Every variant names the
 /// offending field (the P3.04 named-error style).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EvProposalError {
     /// The EVSE identifier was empty or whitespace-only. The adapter's
     /// spelling is recorded verbatim (never parsed or normalized here).

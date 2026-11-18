@@ -21,7 +21,7 @@ use flexcore_domain::ids::{AssetId, PortfolioId, SiteId, TenantId};
 /// entity and event correlation identifier. Test determinism: the in-crate
 /// fake ([`crate::fakes::CountingIdGenerator`]) yields a deterministic,
 /// strictly increasing sequence and counts every generation.
-pub trait IdGenerator {
+pub trait IdGenerator: Send + Sync {
     /// A fresh identifier. Implementations must never return the nil UUID
     /// and must never repeat an identifier within a deployment's lifetime.
     fn new_uuid(&self) -> FlexUuid;
@@ -54,32 +54,33 @@ mod tests {
     /// A minimal inline implementation proving the default typed-ID helpers
     /// work over any `new_uuid` and never produce nil identifiers.
     struct SequenceGenerator {
-        next: std::cell::Cell<u128>,
+        next: std::sync::atomic::AtomicU64,
     }
 
     impl IdGenerator for SequenceGenerator {
         fn new_uuid(&self) -> FlexUuid {
-            let n = self.next.get();
-            self.next.set(n + 1);
-            FlexUuid::from_bytes(n.to_be_bytes())
+            let n = self
+                .next
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            FlexUuid::from_bytes((n as u128).to_be_bytes())
         }
     }
 
     #[test]
     fn typed_helpers_wrap_the_generated_uuid() {
-        let gen = SequenceGenerator { next: std::cell::Cell::new(7) };
-        let id = gen.new_tenant_id();
+        let generator = SequenceGenerator { next: std::sync::atomic::AtomicU64::new(7) };
+        let id = generator.new_tenant_id();
         assert_eq!(id.uuid(), FlexUuid::from_bytes(7u128.to_be_bytes()));
         assert_ne!(id.uuid(), FlexUuid::NIL);
     }
 
     #[test]
     fn typed_helpers_are_distinct_types_over_distinct_values() {
-        let gen = SequenceGenerator { next: std::cell::Cell::new(1) };
-        let t = gen.new_tenant_id();
-        let p = gen.new_portfolio_id();
-        let s = gen.new_site_id();
-        let a = gen.new_asset_id();
+        let generator = SequenceGenerator { next: std::sync::atomic::AtomicU64::new(1) };
+        let t = generator.new_tenant_id();
+        let p = generator.new_portfolio_id();
+        let s = generator.new_site_id();
+        let a = generator.new_asset_id();
         // Each call advances the underlying sequence, so the identifiers
         // differ, and the wrapper types never unify.
         assert_ne!(t.uuid(), p.uuid());

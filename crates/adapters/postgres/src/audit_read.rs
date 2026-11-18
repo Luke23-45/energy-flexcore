@@ -24,6 +24,7 @@
 // `feasibility_check.rs`, and `schedule_store.rs` modules use for their
 // `impl PgUnitOfWork` blocks.
 
+use sqlx::Row;
 use crate::error::map_backend;
 use crate::unit_of_work::{tx_ref, PgUnitOfWork};
 use crate::uuid_map::{uuid_from_text, uuid_text};
@@ -195,12 +196,14 @@ impl AuditEventReader for PgUnitOfWork {
             let mut guard = self.tx.lock().await;
             let tx =
                 tx_ref(&mut guard).await.map_err(map_unit_of_work_error)?;
-            let row = sqlx::query(&format!(
+            // sqlx 0.9 audit: this statement interpolates only the
+            // AUDIT_EVENT_SELECT const fragment; every value is a $n bind.
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{AUDIT_EVENT_SELECT} WHERE audit_id = $1::uuid AND tenant_id = $2::uuid"
-            ))
+            )))
             .bind(audit_id.trim())
             .bind(uuid_text(ctx.tenant_id().uuid()))
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(map_sql_error)?;
             match row {
@@ -317,7 +320,7 @@ impl AuditEventReader for PgUnitOfWork {
             params.push(Bind::Limit(i64::from(limit)));
             statement
                 .push_str(&format!(" ORDER BY event_time ASC, audit_id ASC LIMIT ${n}"));
-            let mut query = sqlx::query(&statement);
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(statement.as_str()));
             for bind in params {
                 query = match bind {
                     Bind::Text(value) => query.bind(value),
@@ -326,7 +329,7 @@ impl AuditEventReader for PgUnitOfWork {
                 };
             }
             let rows = query
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut **tx)
                 .await
                 .map_err(map_sql_error)?;
             rows.iter().map(decode_audit_event_row).collect()

@@ -104,7 +104,7 @@ fn base_state() -> AppState {
         Arc::new(FakeTenantRepository::new(journal.clone())),
         Arc::new(FakePortfolioRepository::new(journal.clone())),
         Arc::new(FakeSiteRepository::new(journal.clone())),
-        Arc::new(FakeAssetRepository::new(journal)),
+        Arc::new(FakeAssetRepository::new(journal.clone())),
         Arc::new(FakeEventOutbox::new(journal.clone())),
         Arc::new(CountingIdGenerator::new()),
         Arc::new(FixedClock::at_unix_millis(1_700_000_000_000)),

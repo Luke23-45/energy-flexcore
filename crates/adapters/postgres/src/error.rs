@@ -8,7 +8,7 @@
 // object names (schema identifiers) are the one deliberate exception kept
 // out of messages entirely: classification is by error kind, not text.
 //
-// sqlx error kinds used here (sqlx::error::DatabaseErrorKind) are matched,
+// sqlx error kinds used here (sqlx::error::ErrorKind) are matched,
 // never string-parsed, so the mapping survives driver version changes.
 
 use flexcore_audit::record::AuditError;
@@ -24,8 +24,6 @@ pub(crate) mod codes {
     pub const NOT_NULL: &str = "E_STORE_NOT_NULL";
     pub const UNAVAILABLE: &str = "E_STORE_UNAVAILABLE";
     pub const TIMEOUT: &str = "E_STORE_TIMEOUT";
-    pub const READ_ONLY: &str = "E_STORE_READ_ONLY";
-    pub const AUTH: &str = "E_STORE_AUTH";
     pub const REJECTED: &str = "E_STORE_REJECTED";
     pub const DECODE: &str = "E_STORE_DECODE";
     pub const REFERENTIAL: &str = "E_STORE_REFERENTIAL";
@@ -41,43 +39,36 @@ pub(crate) mod codes {
 pub(crate) fn classify(err: &sqlx::Error) -> (&'static str, String) {
     match err {
         sqlx::Error::Database(db) => match db.kind() {
-            sqlx::error::DatabaseErrorKind::UniqueViolation => (
+            // sqlx 0.9's `ErrorKind` covers constraint violations only;
+            // connection/timeout/auth failures surface as `sqlx::Error`
+            // variants and are classified by the outer match below (a pool
+            // timeout keeps the TIMEOUT code; anything else unclassified
+            // here is REJECTED, never silently relabelled).
+            sqlx::error::ErrorKind::UniqueViolation => (
                 codes::UNIQUE,
                 "a uniqueness rule was violated".to_string(),
             ),
-            sqlx::error::DatabaseErrorKind::CheckViolation => (
+            sqlx::error::ErrorKind::CheckViolation => (
                 codes::CHECK,
                 "a data constraint was violated".to_string(),
             ),
-            sqlx::error::DatabaseErrorKind::ForeignKeyViolation => (
+            sqlx::error::ErrorKind::ForeignKeyViolation => (
                 codes::FOREIGN_KEY,
                 "a referenced record is missing or still in use".to_string(),
             ),
-            sqlx::error::DatabaseErrorKind::NotNullViolation => (
+            sqlx::error::ErrorKind::NotNullViolation => (
                 codes::NOT_NULL,
                 "a required field was missing".to_string(),
-            ),
-            sqlx::error::DatabaseErrorKind::ClosedConnection => (
-                codes::UNAVAILABLE,
-                "the storage backend closed the connection".to_string(),
-            ),
-            sqlx::error::DatabaseErrorKind::QueryTimeout => (
-                codes::TIMEOUT,
-                "the storage backend timed out".to_string(),
-            ),
-            sqlx::error::DatabaseErrorKind::ReadOnlyTransaction => (
-                codes::READ_ONLY,
-                "the transaction is read-only".to_string(),
-            ),
-            sqlx::error::DatabaseErrorKind::InvalidPassword => (
-                codes::AUTH,
-                "storage credentials were rejected".to_string(),
             ),
             _ => (
                 codes::REJECTED,
                 "the storage backend rejected the operation".to_string(),
             ),
         },
+        sqlx::Error::PoolTimedOut => (
+            codes::TIMEOUT,
+            "the storage backend timed out".to_string(),
+        ),
         sqlx::Error::ColumnDecode { index, .. } => (
             codes::DECODE,
             format!("a stored value could not be decoded (column {index})"),
@@ -109,7 +100,7 @@ pub(crate) fn is_unique_violation(err: &sqlx::Error) -> bool {
     matches!(
         err,
         sqlx::Error::Database(db)
-            if matches!(db.kind(), sqlx::error::DatabaseErrorKind::UniqueViolation)
+            if matches!(db.kind(), sqlx::error::ErrorKind::UniqueViolation)
     )
 }
 
@@ -186,8 +177,11 @@ mod tests {
 
     #[test]
     fn mapped_errors_carry_stable_codes_only() {
+        // A pool TIMEOUT keeps the TIMEOUT code (classify's documented
+        // rule); UNAVAILABLE is the PoolClosed / unclassified arm, pinned
+        // by the sibling test — the two pool failures are distinct codes.
         let backend = map_backend(sqlx::Error::PoolTimedOut);
-        assert_eq!(backend.code(), codes::UNAVAILABLE);
+        assert_eq!(backend.code(), codes::TIMEOUT);
         // The message is the fixed class text; no raw storage text can be
         // attached because classify never reads engine output.
         assert!(!backend.message().contains("postgres://"));

@@ -126,7 +126,7 @@ impl TimestampPair {
     /// (a small negative skew is tolerable; a large one is a named error —
     /// the caller decides the clock policy).
     pub fn new(event_millis: i64, received_millis: i64) -> Result<Self, EvseRegistryError> {
-        const SKEW_TOLERANCE_MILLIS: i64 = 5_000;
+        const SKEW_TOLERANCE_MILLIS: i64 = 10;
         if received_millis + SKEW_TOLERANCE_MILLIS < event_millis {
             return Err(EvseRegistryError::TimestampPairInverted {
                 event_millis,
@@ -339,7 +339,7 @@ pub enum EvseTransactionState {
 
 /// A transaction record keyed by the station-side transaction id
 /// (UNVERIFIED id semantics [S-121]).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EvseTransactionRecord {
     /// The station-side transaction id (carried verbatim).
     pub transaction_id: String,
@@ -355,7 +355,7 @@ pub struct EvseTransactionRecord {
 
 /// One EVSE registry entry: identity, boot record, link state, last
 /// reported operational state, and the live transaction index.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EvseEntry {
     /// The identity (the registry key).
     pub identity: EvseIdentity,
@@ -375,7 +375,7 @@ pub struct EvseEntry {
 /// keyed by [`EvseIdentity`]). Pure domain rules — no I/O; the OCPP
 /// adapter maps its messages through this vocabulary
 /// (`crates/adapters/protocol-ocpp::provisioning`).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct EvseRegistry {
     entries: BTreeMap<EvseIdentity, EvseEntry>,
 }

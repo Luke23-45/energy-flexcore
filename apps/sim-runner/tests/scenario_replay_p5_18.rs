@@ -219,7 +219,7 @@ fn a_perturbed_telemetry_record_produces_a_named_comparison_diff() {
 
 #[test]
 fn a_recorded_input_hash_mismatch_is_a_tamper_finding_not_a_silent_rehash() {
-    let (mut record, run) = load_lib("lib-01-minimal-single-asset.json");
+    let (mut record, run) = execute_lib("lib-01-minimal-single-asset.json", "test-code");
     let recomputed = input_hash(&record).expect("hash");
     record.input_hash = Some("00000000000000000000000000000000".to_string());
     let record_dir = LIBRARY_DIR.to_string();

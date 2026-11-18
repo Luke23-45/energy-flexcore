@@ -351,9 +351,12 @@ fn a_restart_without_explicit_policy_is_refused_and_only_failed_plugins_restart(
     let mut lifecycle =
         PluginLifecycle::register(MANIFEST_ID, "2.0.0", &clock, &audit, DrainPolicy::default());
     drive_to_ready(&mut lifecycle);
-    let err = lifecycle
+    let err = match lifecycle
         .restart_explicitly("operator", "abuse: restart to shed the drain obligation")
-        .expect_err("a restart from Ready is refused (no auto-restart; the operator decides)");
+    {
+        Ok(_) => panic!("a restart from Ready is refused (no auto-restart; the operator decides)"),
+        Err(error) => error,
+    };
     assert_eq!(err.name(), "ILLEGAL_TRANSITION");
 
     // Abuse 2: after a crash, the failed lifecycle CANNOT be walked forward
@@ -380,8 +383,8 @@ fn a_restart_without_explicit_policy_is_refused_and_only_failed_plugins_restart(
         .restart_explicitly("operator", "explicit operator decision after post-mortem")
         .expect("the explicit restart is the only path out of Failed");
     assert_eq!(fresh.state(), LifecycleState::Discovered);
-    let restart_record = audit
-        .records()
+    let restart_records = audit.records();
+    let restart_record = restart_records
         .iter()
         .find(|r| r.kind == LifecycleAuditKind::ExplicitRestart)
         .expect("the restart is audited as EXPLICIT_RESTART");
@@ -452,15 +455,19 @@ fn a_drain_deadline_abuse_cannot_force_a_replacement() {
         .expect_err("the deadline expiry refuses the stop");
     assert_eq!(err.name(), "DRAIN_DEADLINE_EXCEEDED");
     assert_eq!(lifecycle.state(), LifecycleState::Ready, "the incumbent is restored to Ready (active)");
-    let records = audit.records();
-    let refused = &records[records.len() - 2];
-    let restored = records.last().expect("the restoration is audited");
-    assert_eq!(refused.kind, LifecycleAuditKind::Refused);
-    assert_eq!(refused.from, Some(LifecycleState::Draining));
-    assert_eq!(refused.to, Some(LifecycleState::Stopped));
-    assert_eq!(restored.kind, LifecycleAuditKind::Transition);
-    assert_eq!(restored.from, Some(LifecycleState::Draining));
-    assert_eq!(restored.to, Some(LifecycleState::Ready));
+    // Scope the sink borrow: `Ref` keeps the sink borrowed until the end
+    // of its scope, and `require_fully_drained` below emits.
+    {
+        let records = audit.records();
+        let refused = &records[records.len() - 2];
+        let restored = records.last().expect("the restoration is audited");
+        assert_eq!(refused.kind, LifecycleAuditKind::Refused);
+        assert_eq!(refused.from, Some(LifecycleState::Draining));
+        assert_eq!(refused.to, Some(LifecycleState::Stopped));
+        assert_eq!(restored.kind, LifecycleAuditKind::Transition);
+        assert_eq!(restored.from, Some(LifecycleState::Draining));
+        assert_eq!(restored.to, Some(LifecycleState::Ready));
+    }
 
     // The replacement is STILL blocked: the restored incumbent is not
     // drained, and the refusal is audited (the P7.08 registry's
@@ -469,8 +476,12 @@ fn a_drain_deadline_abuse_cannot_force_a_replacement() {
         .require_fully_drained("attacker", "abuse: replace the restored incumbent")
         .expect_err("a restored (undrained) incumbent blocks any replacement");
     assert_eq!(err.name(), "REPLACEMENT_BLOCKED_UNDRAINED");
-    let last = audit.records().last().expect("the replacement refusal is audited");
-    assert_eq!(last.kind, LifecycleAuditKind::Refused);
+    // Scope the sink borrow again: the drain calls below emit.
+    {
+        let records = audit.records();
+        let last = records.last().expect("the replacement refusal is audited");
+        assert_eq!(last.kind, LifecycleAuditKind::Refused);
+    }
 
     // The ONLY way through is a genuinely quiesced drain: the operator (or
     // the plugin) finishes the work, the drain completes, and the replacement

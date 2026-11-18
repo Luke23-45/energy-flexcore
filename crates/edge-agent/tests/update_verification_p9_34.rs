@@ -44,7 +44,8 @@ use flexcore_edge_agent::ports::{AuditSink, InMemoryAuditSink};
 use flexcore_edge_agent::update_verification::{
     compare_versions, FileUpdateLedger, NoUpdateVerifier, RollbackOverride,
     TestOnlyFnv1a64UpdateVerifier, UpdateActivation, UpdateGate, UpdateLedgerEventKind,
-    UpdateLedgerRecord, UpdateVerificationError, UPDATE_SLOT_DECISION, UPDATE_STATEMENT,
+    UpdateLedgerRecord, UpdateManifest, UpdateVerificationError, UPDATE_SLOT_DECISION,
+    UPDATE_STATEMENT,
 };
 
 const BASE_MILLIS: i64 = 1_700_000_000_000;
@@ -312,7 +313,8 @@ fn a_rollback_to_a_previously_verified_version_records_the_reason() {
 
     // The register keeps ALL THREE events (append-only, never overwritten).
     assert_eq!(ledger.len(), 3);
-    let versions: Vec<&str> = ledger.history().iter().map(|r| r.version.as_str()).collect();
+    let history = ledger.history();
+    let versions: Vec<&str> = history.iter().map(|r| r.version.as_str()).collect();
     assert_eq!(versions, vec!["1.0.1", "1.2.0", "1.0.1"]);
 
     // The rollback is audited, and the re-activation was of a version the

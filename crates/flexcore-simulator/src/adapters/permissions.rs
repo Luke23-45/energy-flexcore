@@ -180,11 +180,11 @@ mod tests {
         assert_eq!(
             registry.adapter_ids(),
             vec![
-                ADAPTER_ID_20305,
                 ADAPTER_ID_CIM,
                 ADAPTER_ID_DNP3,
-                ADAPTER_ID_MQTT,
+                ADAPTER_ID_20305,
                 ADAPTER_ID_MODBUS,
+                ADAPTER_ID_MQTT,
                 ADAPTER_ID_OPENADR,
             ]
         );

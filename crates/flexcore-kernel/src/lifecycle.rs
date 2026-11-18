@@ -106,8 +106,9 @@ impl LifecycleState {
     }
 
     /// Terminal states: no outgoing transition exists in the frozen table
-    /// (except the explicit-restart OPERATION out of `Failed`, which is not
-    /// a §5.6 edge — see [`PluginLifecycle::restart_explicitly`]).
+    /// except the `Failed → Draining` cleanup edge (§5.6) — and the
+    /// explicit-restart OPERATION out of `Failed`, which is not a §5.6 edge
+    /// (see [`PluginLifecycle::restart_explicitly`]).
     pub fn is_terminal(&self) -> bool {
         matches!(self, LifecycleState::Stopped | LifecycleState::Rejected | LifecycleState::Failed)
     }
@@ -799,9 +800,11 @@ impl<'a> PluginLifecycle<'a> {
     }
 
     /// Emit an audit record. `from_override` is the state the plugin was in
-    /// BEFORE the change this record describes (refusals and restorations
-    /// pass it explicitly); when `None` the current state is used (the
-    /// registration record's entry point).
+    /// BEFORE the change this record describes — `None` only for
+    /// registration, where the plugin had no prior state. Every other
+    /// caller passes it explicitly; a `None` here must NOT fall back to
+    /// the current state, or the registration record would falsely claim
+    /// the plugin came FROM `Discovered`.
     fn emit(
         &self,
         kind: LifecycleAuditKind,
@@ -810,7 +813,7 @@ impl<'a> PluginLifecycle<'a> {
         actor: &str,
         reason: &str,
     ) {
-        let from = from_override.or(Some(self.state));
+        let from = from_override;
         let record = LifecycleAuditRecord {
             kind,
             plugin_id: self.plugin_id.clone(),
@@ -854,7 +857,7 @@ impl MemoryAuditSink {
 
     /// The records in emission order (append-only; the borrow is brief and
     /// single-threaded — the lifecycle is not `Sync`).
-    pub fn records(&self) -> std::cell::Ref<Vec<LifecycleAuditRecord>> {
+    pub fn records(&self) -> std::cell::Ref<'_, Vec<LifecycleAuditRecord>> {
         self.records.borrow()
     }
 }

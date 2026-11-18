@@ -345,7 +345,11 @@ fn the_load_baseline_shifts_the_declared_offset_range() {
     };
     let envelope = compute(&fixture, vec![asset], vec![north_coupling(None)], vec![]).unwrap();
 
-    let index = 0; // night: baseline = -0.25 * 0.8 = -0.2 MW (plus noise)
+    // Night index 2 (not 0): the baseline at index 0 is -0.198 (the
+    // seeded noise draw there is negative), so the fully-increased bound
+    // is +0.002 and the load does NOT import at index 0. At index 2 the
+    // baseline is -0.202, so the fully-increased bound stays negative.
+    let index = 2; // night: baseline = -0.25 * 0.8 = -0.2 MW (plus noise)
     let baseline = pv_series_value(&fixture, "site-north-load-1", index);
     let interval = &envelope.intervals()[index];
     assert!(
@@ -508,7 +512,12 @@ fn a_site_import_limit_that_crosses_the_aggregate_makes_the_interval_infeasible(
         }),
     };
     let envelope = compute(&fixture, vec![asset], vec![coupling], vec![]).unwrap();
-    let night = &envelope.intervals()[0];
+    // Index 2, not 0: the seeded load noise at index 0 is negative, so the
+    // night baseline there is -0.198 and the fully-increased bound is
+    // +0.002 — the zero import limit does not cross the aggregate. At
+    // index 2 the baseline is -0.202 (upper -0.002), so the limit
+    // genuinely crosses and the range is empty.
+    let night = &envelope.intervals()[2];
     assert_eq!(
         night.status,
         EnvelopeIntervalStatus::Infeasible {
@@ -809,7 +818,11 @@ fn structural_input_errors_are_named() {
     // An inverted declared range.
     let inverted = pv_input(AssetId::new(uid(0xB001)), north_site(), &fixture, "site-north-pv-1", 1.5);
     let mut inverted = inverted;
-    inverted.declared_p_net_mw = BoundInterval::new(Some(2.0), Some(1.0)).unwrap();
+    // A struct literal, not BoundInterval::new: new() rejects inverted
+    // bounds by construction, so the inverted interval can only reach
+    // compute() past the constructor (the fields are pub) — which is
+    // exactly what compute's InvertedDeclaredRange check is for.
+    inverted.declared_p_net_mw = BoundInterval { lower: Some(2.0), upper: Some(1.0) };
     assert_eq!(
         compute(&fixture, vec![inverted], vec![north_coupling(None)], vec![]),
         Err(EnvelopeError::InvertedDeclaredRange { asset_id: AssetId::new(uid(0xB001)) })
@@ -880,30 +893,35 @@ fn the_publication_uses_the_frozen_subject_and_carries_the_version_in_the_key() 
 #[test]
 fn the_publication_rejects_an_empty_or_duplicated_site_list() {
     let version = flexcore_application::flexibility_envelope::EnvelopeVersion::new("env-v1").unwrap();
-    assert_eq!(
-        envelope_updated_publications(
-            flexcore_application::flexibility_envelope::EnvelopePublicationInput {
-                correlation_id: uid(0xC001),
-                tenant_id: tenant(),
-                portfolio_id: portfolio(),
-                site_ids: &[],
-                envelope_version: &version,
-                event_time: computed_at(),
-            }
-        ),
-        Err(EnvelopeError::PublicationWithoutSite)
-    );
-    assert_eq!(
-        envelope_updated_publications(
-            flexcore_application::flexibility_envelope::EnvelopePublicationInput {
-                correlation_id: uid(0xC001),
-                tenant_id: tenant(),
-                portfolio_id: portfolio(),
-                site_ids: &[north_site(), north_site()],
-                envelope_version: &version,
-                event_time: computed_at(),
-            }
-        ),
-        Err(EnvelopeError::DuplicatePublicationSite { site_id: north_site() })
-    );
+    let error = match envelope_updated_publications(
+        flexcore_application::flexibility_envelope::EnvelopePublicationInput {
+            correlation_id: uid(0xC001),
+            tenant_id: tenant(),
+            portfolio_id: portfolio(),
+            site_ids: &[],
+            envelope_version: &version,
+            event_time: computed_at(),
+        },
+    ) {
+        Ok(_) => panic!("a publication without a site is refused"),
+        Err(error) => error,
+    };
+    assert!(matches!(error, EnvelopeError::PublicationWithoutSite));
+    let error = match envelope_updated_publications(
+        flexcore_application::flexibility_envelope::EnvelopePublicationInput {
+            correlation_id: uid(0xC001),
+            tenant_id: tenant(),
+            portfolio_id: portfolio(),
+            site_ids: &[north_site(), north_site()],
+            envelope_version: &version,
+            event_time: computed_at(),
+        },
+    ) {
+        Ok(_) => panic!("a publication with a duplicated site is refused"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error,
+        EnvelopeError::DuplicatePublicationSite { site_id } if site_id == north_site()
+    ));
 }

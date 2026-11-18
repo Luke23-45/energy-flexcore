@@ -6,19 +6,19 @@
 // through its existing transaction-bound repository traits, so the read
 // side is its own trait here.
 //
-// ADAPTER STATUS (FRV1-R1-003, recorded at the seam): NO adapter
-// implements this port in the shipped baseline. The persistence adapter
-// implements the EQUIVALENT operations as inherent unit-of-work methods
-// (query, latest-per-asset, quarantine read) over a crate-local record
-// mirror — the recorded P2.06-adjacent gap — so the port contract and the
-// adapter surface currently agree only by hand-mirroring. Until the trait
-// mapping lands (the recorded composition step: map the port onto the
-// unit-of-work inside the request's transaction so row-level security
-// applies, dropping the crate-local record mirror), the only
-// `TelemetryReader` implementation in the workspace is the in-crate test
-// fake ([`crate::fakes`]), and the control-plane telemetry read routes
-// fail closed (the composition passes `None` — the recorded gap note in
-// the composition root).
+// ADAPTER STATUS (FRV1-R1-003, recorded at the seam — LANDED, Patch A):
+// `PgTelemetryReader` (adapter crate) implements this port over
+// `FlexCoreStore`. It is POOL-HELD, not bound
+// to the request's unit of work (`PgUnitOfWork` is `!Sync`, so no reader
+// holding one can live in `AppState` as a long-lived `Arc`); each trait
+// call opens its OWN tenant-scoped unit of work via
+// `FlexCoreStore::begin` and reuses the adapter's inherent repository
+// methods (query, latest-per-asset, quarantine read) inside it, so
+// row-level security applies. The control-plane composition root wires
+// `Some(...)` (see `apps/control-plane/src/main.rs`); the in-crate test
+// fake ([`crate::fakes`]) remains for tests. Previously (until Patch A)
+// no adapter implemented this port — the recorded P2.06-adjacent gap —
+// and the telemetry read routes failed closed on a `None` reader.
 //
 // Contract, precisely:
 //

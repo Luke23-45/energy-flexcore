@@ -614,37 +614,41 @@ mod tests {
         assert!(NISPERA_PATTERN_STATEMENT.contains("[S-53]"));
         assert!(NISPERA_PATTERN_STATEMENT.contains("DESIGN reference only"));
         assert!(AVAILABILITY_KPI_INDEPENDENCE_STATEMENT.contains("independent of O&M"));
-        assert!(NORMAL_REFERENCE_IS_DECLARED_STATEMENT.contains("never fitted"));
+        assert!(NORMAL_REFERENCE_IS_DECLARED_STATEMENT.contains("No fitting procedure exists"));
     }
 
     #[test]
     fn deviation_is_relative_and_tolerance_is_exclusive() {
-        // HAND CHECK: normal mean 1.0 MW, tolerance 0.1; observed series
-        // [1.0, 1.2] -> observed mean 1.1 -> deviation 0.1 == tolerance ->
+        // HAND CHECK: normal mean 1.0 MW, tolerance 0.25; observed series
+        // [1.0, 1.5] -> observed mean 1.25 -> deviation 0.25 == tolerance ->
         // NOT exceeding (the tolerance is exclusive: `>` not `>=`).
+        // Binary-exact values on purpose: a decimal boundary such as 0.1
+        // is not representable in f64 (the deviation computes as
+        // 0.10000000000000009), so the exact-boundary case must use values
+        // f64 holds exactly.
         let mut observed = BTreeMap::new();
-        observed.insert("active_power".to_string(), vec![1.0, 1.2]);
+        observed.insert("active_power".to_string(), vec![1.0, 1.5]);
         let record = evaluate_deviation(
             asset(0xB001),
             AssetClass::FlexibleLoad,
-            &[expectation("active_power", 1.0, 0.1)],
+            &[expectation("active_power", 1.0, 0.25)],
             &observed,
             0,
             1000,
         )
         .expect("valid window");
         let observation = &record.observations[0];
-        assert_eq!(observation.observed_mean, 1.1);
-        assert_eq!(observation.relative_deviation, Some(0.1));
+        assert_eq!(observation.observed_mean, 1.25);
+        assert_eq!(observation.relative_deviation, Some(0.25));
         assert!(!observation.exceeds_tolerance, "deviation == tolerance is NOT exceeding");
 
-        // One step further: [1.0, 1.21] -> mean 1.105 -> 0.105 > 0.1.
+        // One step further: [1.0, 1.51] -> mean 1.255 -> 0.255 > 0.25.
         let mut observed = BTreeMap::new();
-        observed.insert("active_power".to_string(), vec![1.0, 1.21]);
+        observed.insert("active_power".to_string(), vec![1.0, 1.51]);
         let record = evaluate_deviation(
             asset(0xB001),
             AssetClass::FlexibleLoad,
-            &[expectation("active_power", 1.0, 0.1)],
+            &[expectation("active_power", 1.0, 0.25)],
             &observed,
             0,
             1000,

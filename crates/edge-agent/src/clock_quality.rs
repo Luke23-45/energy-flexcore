@@ -586,7 +586,14 @@ fn median_offset(samples: &VecDeque<(i64, i64)>) -> i64 {
     } else {
         let lower = offsets[count / 2 - 1];
         let upper = offsets[count / 2];
-        lower + (upper - lower) / 2
+        // The mean, rounded half AWAY from zero: a truncated mean (100.5
+        // -> 100) would report a beyond-tolerance window as inside it
+        // exactly at the boundary. Rust integer division truncates toward
+        // zero, so the remainder carries the sign (sum 201 -> 100 + 1 =
+        // 101; sum -201 -> -100 + -1 = -101). Offsets are capped at
+        // MAX_ABS_OFFSET_MILLIS (one day), so the sum cannot overflow.
+        let sum = lower + upper;
+        sum / 2 + sum % 2
     }
 }
 

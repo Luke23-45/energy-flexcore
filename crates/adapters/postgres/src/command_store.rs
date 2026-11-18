@@ -60,6 +60,7 @@
 // the two field declarations in `unit_of_work.rs`, which repairs every
 // module at once; that file was outside this subtask's ownership.
 
+use sqlx::Row;
 use crate::error::{is_unique_violation, map_backend};
 use crate::unit_of_work::{tx_ref, PgUnitOfWork};
 use crate::uuid_map::{uuid_from_text, uuid_text};
@@ -67,7 +68,7 @@ use flexcore_domain::command_state::{CommandState, try_transition};
 use flexcore_domain::tenant_context::TenantContext;
 use flexcore_storage::command_store::{
     CommandRecord, CommandRecordRow, CommandReceipt, CommandStoreError,
-    CommandTransitionRecord, CommandTransitionReceipt, CommandRecordStore,
+    CommandTransitionRecord, CommandTransitionReceipt, CommandRecordStore, COMMAND_STATES,
 };
 use flexcore_storage::schedule_revision::{ScheduleRevisionChainStore, ScheduleRevisionError};
 use serde_json::Value;
@@ -422,7 +423,7 @@ impl CommandRecordStore for PgUnitOfWork {
             .bind(row.valid_until_millis)
             .bind(row.supersedes_command_id.as_deref())
             .bind(payload)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_command_store_error(err, &row.command_id))?;
             if result.rows_affected() != 1 {
@@ -472,7 +473,7 @@ impl CommandRecordStore for PgUnitOfWork {
             .bind(&transition.to_state)
             .bind(superseded_by.as_deref())
             .bind(&transition.from_state)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_command_store_error(err, &transition.command_id))?;
             if moved.is_none() {
@@ -485,7 +486,7 @@ impl CommandRecordStore for PgUnitOfWork {
                 )
                 .bind(&transition.command_id)
                 .bind(uuid_text(ctx.tenant_id().uuid()))
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await
                 .map_err(|err| map_command_store_error(err, &transition.command_id))?;
                 return match existing {
@@ -529,7 +530,7 @@ impl CommandRecordStore for PgUnitOfWork {
             .bind(transition.gate.as_deref())
             .bind(transition.reason.as_deref())
             .bind(transition.evidence_reference.as_deref())
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await
             .map_err(|err| map_command_store_error(err, &transition.command_id))?
             .try_get::<i64, _>("seq")
@@ -559,12 +560,14 @@ impl CommandRecordStore for PgUnitOfWork {
                     code: err.code().to_string(),
                     message: err.message().to_string(),
                 })?;
-            let row = sqlx::query(&format!(
+            // sqlx 0.9 audit: this statement interpolates only the
+            // COMMAND_SELECT const fragment; every value is a $n bind.
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{COMMAND_SELECT} WHERE command_id = $1::uuid AND tenant_id = $2::uuid"
-            ))
+            )))
             .bind(command_id)
             .bind(uuid_text(ctx.tenant_id().uuid()))
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|err| map_command_store_error(err, command_id))?;
             match row {
@@ -590,13 +593,13 @@ impl CommandRecordStore for PgUnitOfWork {
                     code: err.code().to_string(),
                     message: err.message().to_string(),
                 })?;
-            let rows = sqlx::query(&format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{COMMAND_JOURNAL_SELECT} WHERE command_id = $1::uuid \
                  AND tenant_id = $2::uuid ORDER BY seq ASC"
-            ))
+            )))
             .bind(command_id)
             .bind(uuid_text(ctx.tenant_id().uuid()))
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(|err| map_command_store_error(err, command_id))?;
             rows.iter().map(decode_journal_row).collect()
@@ -645,13 +648,13 @@ impl CommandRecordStore for PgUnitOfWork {
                 statement.push_str(&format!(" AND command_id < ${}::uuid", binds.len() + 1));
             }
             statement.push_str(&format!(" ORDER BY command_id DESC LIMIT ${}", binds.len() + 2));
-            let mut query = sqlx::query(&statement).bind(uuid_text(ctx.tenant_id().uuid()));
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(statement.as_str())).bind(uuid_text(ctx.tenant_id().uuid()));
             for bind in &binds {
                 query = query.bind(bind);
             }
             let rows = query
                 .bind(limit)
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut **tx)
                 .await
                 .map_err(|err| map_command_store_error(err, "listing"))?;
             rows.iter().map(decode_command_record_row).collect()

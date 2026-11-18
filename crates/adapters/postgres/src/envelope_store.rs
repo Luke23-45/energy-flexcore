@@ -37,6 +37,7 @@
 // on the two field declarations in `unit_of_work.rs`, which repairs every
 // module at once; that file was outside this subtask's ownership.
 
+use sqlx::Row;
 use crate::error::{is_unique_violation, map_backend};
 use crate::unit_of_work::{tx_ref, PgUnitOfWork};
 use crate::uuid_map::{uuid_from_text, uuid_text};
@@ -114,7 +115,7 @@ impl EnvelopeRecordStore for PgUnitOfWork {
             .bind(interval_count_i32)
             .bind(covered_sites)
             .bind(payload)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| map_envelope_store_error(err, &row.portfolio_id, &row.envelope_version))?;
             if result.rows_affected() != 1 {
@@ -146,12 +147,14 @@ impl EnvelopeRecordStore for PgUnitOfWork {
                     code: err.code().to_string(),
                     message: err.message().to_string(),
                 })?;
-            let row = sqlx::query(&format!(
+            // sqlx 0.9 audit: this statement interpolates only the
+            // ENVELOPE_SELECT const fragment; every value is a $n bind.
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "{ENVELOPE_SELECT} WHERE envelope_id = $1::uuid AND tenant_id = $2::uuid"
-            ))
+            )))
             .bind(envelope_id)
             .bind(uuid_text(ctx.tenant_id().uuid()))
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(map_envelope_backend)?;
             match row {
@@ -192,21 +195,19 @@ impl EnvelopeRecordStore for PgUnitOfWork {
                 })?;
             // One parameterized shape: the filters are always bound (None
             // = no constraint), so the statement text is constant.
-            let rows = sqlx::query(
-                &format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                     "{ENVELOPE_SELECT} \
                      WHERE tenant_id = $1::uuid \
                        AND ($2::uuid IS NULL OR portfolio_id = $2::uuid) \
                        AND ($3::uuid IS NULL OR envelope_id > $3::uuid) \
                      ORDER BY envelope_id ASC \
                      LIMIT $4"
-                ),
-            )
+                )))
             .bind(uuid_text(ctx.tenant_id().uuid()))
             .bind(filter.portfolio_id.as_deref())
             .bind(filter.after_envelope_id.as_deref())
             .bind(limit_i64)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(map_envelope_backend)?;
             rows.iter().map(decode_envelope_record_row).collect()

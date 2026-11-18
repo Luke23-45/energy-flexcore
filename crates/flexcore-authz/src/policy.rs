@@ -488,9 +488,16 @@ mod tests {
     //   // satisfied
     //
     // Consequence for these tests (compile-level fact, same approach as the
-    // domain tests): this crate cannot fabricate a `TenantContext` — not
-    // even under `#[cfg(test)]`. The positive claims→context construction
-    // path is therefore proven where the fields are visible
+    // domain tests): this crate cannot fabricate a `TenantContext` from a
+    // raw string, a bare `TenantId`, or a default — not even under
+    // `#[cfg(test)]`. The ONE construction path that exists is the public
+    // verified path — `AuthenticatedClaims::from_verified(VerifiedClaims {
+    // tenant_id, subject })` then `TenantContext::from_authenticated_claims`
+    // — and the phase13/phase16 grant tests DO use it (a fixed test
+    // identity, never a real principal), because `evaluate` with `None`
+    // denies with `MissingContext` before any rule is reached. The
+    // positive claims→context construction path is therefore proven where
+    // the fields are visible
     // (flexcore-domain/src/tenant_context.rs tests), and THIS crate proves
     // its own mechanics through the private `decide` core, which the public
     // `evaluate` forwards to with

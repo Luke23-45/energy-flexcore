@@ -521,7 +521,7 @@ fn normalize_min_rate(
 ) -> Option<f64> {
     let rate = min_rate?;
     match (rate.unit, unit) {
-        (from, to) if from == to => Some(rate.value),
+        (RateUnit::W, RateUnit::W) | (RateUnit::A, RateUnit::A) => Some(rate.value),
         (RateUnit::A, RateUnit::W) => {
             // A → W with the declared formula (AC: per-phase amperes times
             // voltage times the phase factor).
@@ -1005,7 +1005,7 @@ mod tests {
                 },
             ],
         };
-        let plan = compose_tx_default_profile(&envelope(), RateUnit::A, &supply_ac_three(), &device, 2, 5)
+        let plan = compose_tx_default_profile(&envelope, RateUnit::A, &supply_ac_three(), &device, 2, 5)
             .expect("composed");
         assert_eq!(plan.periods[0].limit, 0.0, "below the minimum -> 0 (off)");
         assert!(plan.periods[1].limit > 6.0);
@@ -1031,7 +1031,7 @@ mod tests {
 
         // The same envelope in W: the 6 A minimum normalizes to
         // 6 * 400 * 3 = 7200 W; the 1 kW limit is below it -> 0.
-        let plan_w = compose_tx_default_profile(&envelope(), RateUnit::W, &supply_ac_three(), &device, 2, 5)
+        let plan_w = compose_tx_default_profile(&envelope, RateUnit::W, &supply_ac_three(), &device, 2, 5)
             .expect("composed");
         assert_eq!(plan_w.min_charging_rate, Some(7200.0));
         assert_eq!(plan_w.periods[0].limit, 0.0);

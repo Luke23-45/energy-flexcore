@@ -254,7 +254,7 @@ pub const GERMAN_AFRR_WINDOW_MILLIS: i64 = 300_000;
 /// observed full-response time, with the measured latency carried
 /// verbatim. The latency is a RECORD — the class verdict is the
 /// caller's (or the operator's), never this module's.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResponseTimestampObservation {
     /// The evidence record reference.
     pub evidence_ref: String,
@@ -374,7 +374,7 @@ impl MileageObservation {
 
 /// One SOC trace point (the SOC fraction in [0, 1] at the API boundary —
 /// the canonical-unit rule holds in evidence records).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SocTracePoint {
     /// The evidence record reference.
     pub evidence_ref: String,
@@ -517,7 +517,7 @@ mod tests {
         assert!(NO_SCORE_CLAIMED_STATEMENT.contains("UNVERIFIED and marked"));
         assert!(NO_SCORE_CLAIMED_STATEMENT.contains("[S-94][S-95]"));
         assert!(EVIDENCE_DATE_STATUS_RULE.contains("RegUpRegDnDateUnverified"));
-        assert!(EVIDENCE_DATE_STATUS_RULE.contains("re-verified at use"));
+        assert!(EVIDENCE_DATE_STATUS_RULE.contains("re-verify-at-use"));
     }
 
     #[test]

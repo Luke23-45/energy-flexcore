@@ -276,7 +276,9 @@ fn no_default_quality_exists() {
 fn utc_event_times_map_and_non_utc_are_refused_not_converted() {
     let good = NativeTimestamp::UtcRfc3339("2026-11-12T09:30:00Z".to_string());
     let event = good.to_event_time().expect("UTC maps");
-    assert_eq!(event.unix_millis(), 1_780_000_000_000);
+    // 2026-11-12T09:30:00Z is 1_794_475_800_000 ms (the previously pinned
+    // 1_780_000_000_000 is 2026-05-28T20:26:40Z, not this date).
+    assert_eq!(event.unix_millis(), 1_794_475_800_000);
 
     let shifted = NativeTimestamp::UtcRfc3339("2026-11-12T10:30:00+01:00".to_string());
     assert!(matches!(
@@ -344,11 +346,12 @@ fn unknown_unit_string_and_unit_quantity_mismatch_fail() {
             }],
             "edge:pilot-site-A:openems-rest",
             vec![],
-        ),
-        Err(AclError::UnitQuantityMismatch {
+        )
+        .expect_err("a mapping whose unit cannot feed its quantity is refused"),
+        AclError::UnitQuantityMismatch {
             unit: NativeUnit::Kwh,
             quantity: TelemetryQuantity::ActivePower
-        })
+        }
     );
 }
 
@@ -415,14 +418,15 @@ fn registry_denies_unknown_ids_and_unimplemented_allowlisted_ids() {
             implementing_wave: "P6.10/P6.13",
         },
     );
-    let error = registry
-        .construct(
-            "legacy-planned",
-            &|| -> Result<Box<dyn flexcore_edge_agent::adapters::port::EmsAdapter>, String> {
-                panic!("the factory must never run for a refused id")
-            },
-        )
-        .unwrap_err();
+    let error = match registry.construct(
+        "legacy-planned",
+        &|| -> Result<Box<dyn flexcore_edge_agent::adapters::port::EmsAdapter>, String> {
+            panic!("the factory must never run for a refused id")
+        },
+    ) {
+        Ok(_) => panic!("a refused id must never construct"),
+        Err(err) => err,
+    };
     assert!(error.to_string().contains("P6.10/P6.13"));
 }
 

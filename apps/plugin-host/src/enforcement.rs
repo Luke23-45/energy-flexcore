@@ -614,7 +614,7 @@ impl EnforcementGate {
         plugin_id: &str,
         capability: &str,
         error: EnforcementError,
-    ) -> EnforcementError {
+    ) -> Result<EnforcementVerdict, EnforcementError> {
         let audit_result = self.audit_event(
             now_unix_ms,
             EnforcementAuditKind::InstantiationRefused,
@@ -623,8 +623,8 @@ impl EnforcementGate {
             format!("refused ({}): {error}", error.name()),
         );
         match audit_result {
-            Ok(()) => error,
-            Err(audit_error) => audit_error,
+            Ok(()) => Err(error),
+            Err(audit_error) => Err(audit_error),
         }
     }
 

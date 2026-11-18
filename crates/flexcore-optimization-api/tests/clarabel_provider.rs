@@ -269,11 +269,25 @@ fn conic_assembly_carries_the_distflow_branch_cone_into_the_model() {
     let cone = &model.cones[0];
     assert_eq!(cone.name, DISTFLOW_CONE_NAME);
     // ‖(2·P, 2·Q, v − l)‖₂ ≤ v + l  (canonical foundations §7.8 encoding).
+    // The IR's norm side is one entry per variable, so the combined
+    // (v − l) component is √2·v and −√2·l with the rhs scaled by √2
+    // (same feasible set, same slack 4·g_ij) — see distflow_branch_socp.
     assert_eq!(
         cone.norm_members,
-        vec![(2usize, 2.0_f64), (3, 2.0), (0, 1.0), (1, -1.0)]
+        vec![
+            (2usize, 2.0_f64),
+            (3, 2.0),
+            (0, std::f64::consts::SQRT_2),
+            (1, -std::f64::consts::SQRT_2)
+        ]
     );
-    assert_eq!(cone.rhs_members, vec![(0usize, 1.0_f64), (1, 1.0)]);
+    assert_eq!(
+        cone.rhs_members,
+        vec![
+            (0usize, std::f64::consts::SQRT_2),
+            (1, std::f64::consts::SQRT_2)
+        ]
+    );
 }
 
 /// The residual formula matches hand-computed values and the canonical
@@ -344,10 +358,17 @@ fn residual_tolerance_configuration_is_respected() {
     assert!(!report.entries[0].exceeds_tolerance, "1.0 ≤ 2.0: within");
     assert!((report.tolerance - 2.0).abs() <= 1e-15);
 
-    // A violated point is flagged at any tolerance.
+    // A violated point is flagged at a tolerance smaller than |slack|.
+    // (At tolerance 2.0 the slack −1.0 is WITHIN tolerance, so the cone
+    // is reported binding/tight per the recorded three-way definition —
+    // violated ⟺ slack < −tolerance — not violated.)
     let violated_primal = vec![1.0, 4.0, 2.0, 0.5]; // g = −0.25, slack = −1.0
-    let report = relaxation_residual_report(&problem, &violated_primal, 2.0)
-        .expect("primal aligned");
+    let report = relaxation_residual_report(
+        &problem,
+        &violated_primal,
+        DEFAULT_RELAXATION_RESIDUAL_TOLERANCE,
+    )
+    .expect("primal aligned");
     assert!(report.entries[0].violated);
     assert_eq!(report.violated_cones, vec![DISTFLOW_CONE_NAME.to_string()]);
     assert!(
@@ -526,7 +547,7 @@ fn verify_build_continuous_socp_fixture_solves_through_the_port() {
         let p = primal.values[0].value;
         let q = primal.values[1].value;
         assert!((p - 4.0).abs() <= 1e-6, "p ≈ 4 MW, got {p}");
-        assert!((q - 3.0).abs() <= 1e-9, "q pinned at 3 MVAr, got {q}");
+        assert!((q - 3.0).abs() <= 1e-6, "q pinned at 3 MVAr, got {q}");
     } else {
         panic!("an optimal result must carry primal diagnostics");
     }

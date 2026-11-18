@@ -30,7 +30,7 @@
 use flexcore_domain::command_state::CommandState;
 use flexcore_domain::ev_fleet_model::{V2xConditionEvidence, V2xConfig, V2xEvidence};
 use flexcore_ocpp_adapter::csms::{
-    CsmsLimits, CsmsSecurityRequirements, CsmsServer, UnwiredCsmsTransport,
+    CsmsLimits, CsmsSecurityRequirements, CsmsServer, CsmsTransport, UnwiredCsmsTransport,
     CSMS_TRANSPORT_SEAM_NOT_WIRED,
 };
 use flexcore_ocpp_adapter::model::ChargePointId;
@@ -178,12 +178,12 @@ fn the_relay_step_travels_the_real_composer_relay_and_tracker_path() {
 fn the_transport_seam_holds_both_ways() {
     // The unwired transport STILL refuses with the named seam refusal —
     // wiring the simulator did not change the seam contract.
-    let mut server = server();
+    let mut unwired_server = server();
     let error = Box::new(UnwiredCsmsTransport)
-        .serve(&mut server)
+        .serve(&mut unwired_server)
         .expect_err("the unwired seam refuses");
     assert!(error.to_string().contains(CSMS_TRANSPORT_SEAM_NOT_WIRED));
-    assert!(server.connection_snapshot().is_empty());
+    assert!(unwired_server.connection_snapshot().is_empty());
     // The simulated transport completes its IN-PROCESS loopback through
     // the same seam trait (no socket, no TLS, no HTTP anywhere).
     let mut server = server();
@@ -295,8 +295,9 @@ fn degenerate_simulated_charge_points_are_refused_fail_fast() {
             evse_params(),
             None,
             0
-        ),
-        Err(SimOcppError::EmptyField("name"))
+        )
+        .expect_err("an empty name is refused"),
+        SimOcppError::EmptyField("name")
     );
     // Negative scenario base.
     assert_eq!(
@@ -307,8 +308,9 @@ fn degenerate_simulated_charge_points_are_refused_fail_fast() {
             evse_params(),
             None,
             -1
-        ),
-        Err(SimOcppError::InvalidScenarioBase { base_millis: -1 })
+        )
+        .expect_err("a negative scenario base is refused"),
+        SimOcppError::InvalidScenarioBase { base_millis: -1 }
     );
     // Degenerate EVSE params (negative charging power).
     let mut params = evse_params();

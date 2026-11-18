@@ -14,6 +14,7 @@
 //   equal; the wrapped event's own `event_time` stays inside the payload
 //   (P1.12 §2.2: the P0.09 distinction is never silently lost).
 
+use sqlx::Row;
 use crate::error::{codes, decode_failure, map_backend, map_outbox_error};
 use flexcore_contracts::time_model::EventTime;
 use flexcore_ports::backend_error::BackendError;

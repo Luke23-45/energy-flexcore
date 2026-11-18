@@ -20,7 +20,7 @@ use crate::error::ApplicationError;
 use flexcore_events::envelope::EventEnvelope;
 
 /// Renders one event envelope into its wire payload (P1.09 schema).
-pub trait EventPayloadEncoder {
+pub trait EventPayloadEncoder: Send + Sync {
     /// Serializes the envelope. The returned string is stored verbatim as
     /// the outbox record's payload and published by the broker adapter.
     fn encode(&self, envelope: &EventEnvelope) -> Result<String, ApplicationError>;

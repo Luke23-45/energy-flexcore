@@ -89,7 +89,7 @@ fn fixture_uuid(prefix: u8) -> FlexUuid {
     bytes[6] = (run_key() >> 24) as u8;
     bytes[7] = (run_key() >> 16) as u8;
     bytes[8] = (run_key() >> 8) as u8;
-    bytes[9] = run_key() as u8;
+    bytes[9] = *run_key() as u8;
     let counter = next_counter().to_be_bytes();
     bytes[10..16].copy_from_slice(&counter[2..8]);
     FlexUuid::from_bytes(bytes)
@@ -116,7 +116,7 @@ fn seed_chain(store: &FlexCoreStore, tenant_uuid: FlexUuid) -> (TenantContext, F
         let unit: PgUnitOfWork = store.begin(Some(&ctx)).expect("unit of work opens");
         let tenant = Tenant::try_new(
             TenantId::new(tenant_uuid),
-            "p3.21 tenant".to_string(),
+            format!("p3.21 tenant {tenant_uuid}"),
             None,
             format!("idp-{tenant_uuid}"),
             "default".to_string(),
@@ -406,7 +406,7 @@ fn the_database_rejects_an_optimal_row_without_a_complete_objective() {
             // Classified by kind, never by text (the adapter rule).
             assert!(matches!(
                 db.kind(),
-                sqlx::error::DatabaseErrorKind::CheckViolation
+                sqlx::error::ErrorKind::CheckViolation
             ));
         }
         Err(other) => panic!("unexpected failure class: {other}"),

@@ -959,7 +959,7 @@ pub fn scan_worker_config_audited(
             "worker config scanned: no forbidden credential key present".to_string(),
         ),
         Err(err) => match err {
-            WorkerIdentityError::ConfigSecretKeyRefused { ref location, ref key } => (
+            WorkerIdentityError::ConfigSecretKeyRefused { location, key } => (
                 WorkerIdentityAuditKind::SecretConfigRefused,
                 // The KEY NAME is diagnostic; the VALUE under it is never
                 // included (it is the secret the scan keeps out of logs).

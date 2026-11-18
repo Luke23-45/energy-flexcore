@@ -122,7 +122,15 @@ mod tests {
         let b = FlexUuid::nil();
         assert_eq!(TenantId::new(a), TenantId::new(a));
         assert_ne!(TenantId::new(a), TenantId::new(b));
-        assert_ne!(PortfolioId::new(a), SiteId::new(a));
-        assert_ne!(SiteId::new(a), AssetId::new(a));
+        // Cross-type equality is not expressible with assert_ne (it needs
+        // one type); the wrapper types never unifying is a type distinction.
+        assert_ne!(
+            std::any::TypeId::of::<PortfolioId>(),
+            std::any::TypeId::of::<SiteId>()
+        );
+        assert_ne!(
+            std::any::TypeId::of::<SiteId>(),
+            std::any::TypeId::of::<AssetId>()
+        );
     }
 }

@@ -679,6 +679,7 @@ mod tests {
                 String::new(),
                 setting.clone(),
                 None,
+                1_700_000_000_000,
                 "note".to_string(),
             ),
             Err(SettingsWorkflowError::MissingIdentifier("command_id"))
@@ -690,6 +691,7 @@ mod tests {
                 "cmd".to_string(),
                 setting,
                 None,
+                1_700_000_000_000,
                 "   ".to_string(),
             ),
             Err(SettingsWorkflowError::MissingIdentifier("provenance_note"))

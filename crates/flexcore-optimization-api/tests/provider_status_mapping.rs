@@ -12,7 +12,8 @@ mod common;
 
 use common::{outcome, scripted, ScriptedBackend};
 use flexcore_optimization_api::backend::{
-    BackendError, BackendOptions, BackendStatus, ConflictEvidence, Tier1Backend, Tier1Model,
+    BackendError, BackendOptions, BackendOutcome, BackendStatus, ConflictEvidence,
+    Tier1Backend, Tier1Model,
 };
 use flexcore_optimization_api::config::{ScalingPolicy, SolverConfig};
 use flexcore_optimization_api::fixture;
@@ -204,7 +205,7 @@ fn reference_milp_solves_through_the_provider_path() {
         conflict: None,
         solver_log_excerpt: None,
         warnings: vec!["MIP terminated within the relative gap".to_string()],
-    }))]);
+    })]);
     let backend_handle = backend.clone();
     let result = provider(backend)
         .solve(&fixture::reference_milp(), &SolverConfig::default())
@@ -289,7 +290,7 @@ fn infeasible_result_carries_conflict_evidence() {
         }),
         solver_log_excerpt: None,
         warnings: Vec::new(),
-    }))]);
+    })]);
     let result = provider(backend)
         .solve(&fixture::reference_lp(), &SolverConfig::default())
         .expect("infeasible maps in-band");

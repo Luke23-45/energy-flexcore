@@ -36,8 +36,25 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
+# Patch B (P2.07): the signed-envelope source authenticator
+# (`source_keys.rs`) — Ed25519 verification, SHA-256 digests, base64
+# wire payloads. Workspace pins (root `Cargo.toml`): ed25519-dalek 3
+# with the `rand_core` feature, sha2 0.11, base64 0.23.
+ed25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
 flexcore-contracts = { workspace = true }
 flexcore-domain = { workspace = true }
 flexcore-ports = { workspace = true }
 flexcore-storage = { workspace = true }
 flexcore-audit = { workspace = true }
+
+[dev-dependencies]
+# Patch B: the sibling test worker's source-auth tests need the same
+# crypto/hash/codec crates plus an RNG for ephemeral test keypairs.
+# (This crate's own unit tests do not use them; the dev-dependencies
+# exist so the integration tests compile.)
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }

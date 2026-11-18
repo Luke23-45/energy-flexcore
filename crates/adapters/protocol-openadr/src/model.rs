@@ -125,7 +125,10 @@ impl Interval {
         if id == 0 {
             return Err(ModelError::InvalidInterval);
         }
-        if duration_millis <= 0 || !duration_millis.is_finite() {
+        // `duration_millis` is an integer: finiteness is vacuous (every
+        // i64 is finite), so the positivity check is the whole rule. The
+        // f64 finiteness check below covers the payload.
+        if duration_millis <= 0 {
             return Err(ModelError::InvalidInterval);
         }
         if !payload_value.is_finite() {

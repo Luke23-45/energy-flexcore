@@ -59,9 +59,10 @@
 use flexcore_contracts::time_model::EventTime;
 
 use crate::envelope_staleness::{
-    evaluate_envelope_trigger, EnvelopeFreshness, EnvelopeMetadata, EnvelopeTriggerEvent,
-    StalenessConfig, StalenessReason,
+    evaluate_envelope_trigger, EnvelopeFreshness, EnvelopeTriggerEvent, StalenessConfig,
+    StalenessReason,
 };
+use crate::flexibility_envelope::EnvelopeMetadata;
 use crate::forecast_baselines::{persistence_forecast, ForecastBaselineError};
 use crate::forecast_fixture::{ForecastFixture, Provenance as FixtureProvenance, FIXTURE_ID};
 use crate::rolling_horizon::RollTrigger;
@@ -444,7 +445,7 @@ mod tests {
         assert!(FORECAST_TO_SCHEDULE_STATEMENT.contains("never silently consumed"));
         assert!(FORECAST_TO_SCHEDULE_STATEMENT.contains("persistence baseline"));
         assert!(FORECAST_TO_SCHEDULE_STATEMENT.contains("labeled synthetic fallback source"));
-        assert!(FALLBACK_IS_NOT_A_COMMAND_STATEMENT.contains("never authorizes"));
+        assert!(FALLBACK_IS_NOT_A_COMMAND_STATEMENT.contains("No forecast source decision authorizes"));
         assert!(STALENESS_REUSE_STATEMENT.contains("single staleness home"));
         assert!(STALENESS_REUSE_STATEMENT.contains("evaluate_envelope_trigger"));
     }

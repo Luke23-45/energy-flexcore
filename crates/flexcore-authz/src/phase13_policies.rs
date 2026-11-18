@@ -117,6 +117,7 @@ mod tests {
     use crate::scope::{AssetScope, SiteScope};
     use flexcore_contracts::ids::FlexUuid;
     use flexcore_domain::ids::{AssetId, SiteId, TenantId};
+    use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
 
     const UUID_TENANT: &str = "0192a5e0-0000-7e2f-9a1b-3c4d5e6f8c01";
     const UUID_SITE: &str = "0192a5e0-0000-7e2f-9a1b-3c4d5e6f8c02";
@@ -126,23 +127,39 @@ mod tests {
         TenantId::new(FlexUuid::parse(UUID_TENANT).unwrap())
     }
 
+    /// A test tenant context, built through the single public verified
+    /// path (tenant_context.rs: tests construct `VerifiedClaims` directly);
+    /// the subject is a fixed test identity, never a real principal.
+    /// Passing `None` for the context would deny with `MissingContext`
+    /// before any rule is reached (policy.rs step 3), so the grant tests
+    /// below evaluate against this context.
+    fn context() -> TenantContext {
+        TenantContext::from_authenticated_claims(AuthenticatedClaims::from_verified(
+            VerifiedClaims {
+                tenant_id: tenant(),
+                subject: "test".to_string(),
+            },
+        ))
+    }
+
     #[test]
     fn site_approver_may_approve_at_site_and_asset_scope_only() {
         let set = phase13_policies();
+        let context = context();
         let site = SiteScope::new(tenant(), SiteId::new(FlexUuid::parse(UUID_SITE).unwrap()));
         let asset =
             AssetScope::new(tenant(), AssetId::new(FlexUuid::parse(UUID_ASSET).unwrap()));
         let tenant_scope = crate::scope::TenantScope::new(tenant());
 
         assert!(set
-            .evaluate(Role::SiteApprover, Action::CommandApprove, Some(&crate::scope::Scope::Site(site)), None)
+            .evaluate(Role::SiteApprover, Action::CommandApprove, Some(&crate::scope::Scope::Site(site)), Some(&context))
             .is_allowed());
         assert!(set
-            .evaluate(Role::SiteApprover, Action::CommandApprove, Some(&crate::scope::Scope::Asset(asset)), None)
+            .evaluate(Role::SiteApprover, Action::CommandApprove, Some(&crate::scope::Scope::Asset(asset)), Some(&context))
             .is_allowed());
         // NO tenant-level approval grant (the Phase 4 rule stands).
         assert_eq!(
-            set.evaluate(Role::SiteApprover, Action::CommandApprove, Some(&crate::scope::Scope::Tenant(tenant_scope)), None)
+            set.evaluate(Role::SiteApprover, Action::CommandApprove, Some(&crate::scope::Scope::Tenant(tenant_scope)), Some(&context))
                 .deny_reason(),
             Some(DenyReason::NoMatchingRule)
         );
@@ -154,6 +171,7 @@ mod tests {
         // administrative right. A representative sweep of the
         // administrative surface — every one of these denies.
         let set = phase13_policies();
+        let context = context();
         let tenant_scope = crate::scope::Scope::Tenant(crate::scope::TenantScope::new(tenant()));
         let admin_actions = [
             Action::TenantCreate,
@@ -174,7 +192,7 @@ mod tests {
         ];
         for action in admin_actions {
             assert_eq!(
-                set.evaluate(Role::SiteApprover, action, Some(&tenant_scope), None)
+                set.evaluate(Role::SiteApprover, action, Some(&tenant_scope), Some(&context))
                     .deny_reason(),
                 Some(DenyReason::NoMatchingRule),
                 "SiteApprover must have no grant for {}",
@@ -186,6 +204,7 @@ mod tests {
     #[test]
     fn apikey_actions_grant_only_to_admin_roles_at_tenant_scope() {
         let set = phase13_policies();
+        let context = context();
         let tenant_scope = crate::scope::Scope::Tenant(crate::scope::TenantScope::new(tenant()));
         let key_actions = [
             Action::ApiKeyCreate,
@@ -195,11 +214,11 @@ mod tests {
         ];
         for action in key_actions {
             for role in [Role::PlatformAdmin, Role::TenantAdmin] {
-                assert!(set.evaluate(role, action, Some(&tenant_scope), None).is_allowed());
+                assert!(set.evaluate(role, action, Some(&tenant_scope), Some(&context)).is_allowed());
             }
             for role in [Role::Operator, Role::Viewer, Role::SiteApprover] {
                 assert_eq!(
-                    set.evaluate(role, action, Some(&tenant_scope), None)
+                    set.evaluate(role, action, Some(&tenant_scope), Some(&context))
                         .deny_reason(),
                     Some(DenyReason::NoMatchingRule),
                     "{role:?} must have no grant for {}",

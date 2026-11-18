@@ -75,7 +75,7 @@ pub const PRICE_INGEST_AUTHORITY_STATEMENT: &str = "the ENTSO-E price adapter is
      with control scope NONE: prices are INGESTED DATA for later phases, never bid inputs \
      and never dispatch inputs (ADR-010 extension; the ADR-011 boundary is unchanged). \
      The adapter has no bid, offer, order, dispatch, or device-write vocabulary anywhere \
-     in its surface. No market qualification, conformance, or certification claim is \
+     in its surface; no market qualification, conformance, or certification claim is \
      made.";
 
 /// The validated scope declaration of this adapter (the one declaration

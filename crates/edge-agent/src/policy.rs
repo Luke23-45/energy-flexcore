@@ -327,7 +327,7 @@ impl SitePolicyConfig {
                         if hours > 24 || minutes > 59 {
                             return Err(malformed(
                                 line_no,
-                                format!("'{raw}' is not a valid HHMM time".to_string()),
+                                format!("'{raw}' is not a valid HHMM time"),
                             ));
                         }
                         Ok(hours * 3_600_000 + minutes * 60_000)

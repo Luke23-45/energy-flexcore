@@ -137,13 +137,17 @@ pub struct AppState {
     pub metrics: Arc<MetricsRegistry>,
     pub readiness: Arc<Readiness>,
     /// The telemetry READ port (P2.12/P2.17/P2.18 routes). Deliberately NOT
-    /// part of the [`UnitOfWork`] bundle: the Postgres adapter does not
-    /// implement the port yet (recorded P2.06-adjacent gap — the
-    /// implementation must land ON `PgUnitOfWork` so the read runs inside
-    /// the request transaction with RLS applied). Until then the value is
-    /// `None` in the Postgres composition root and the telemetry routes
-    /// fail closed (infrastructure error); the Test backend wires the
-    /// in-crate fake.
+    /// part of the [`UnitOfWork`] bundle: the Postgres implementation
+    /// (`PgTelemetryReader`) is pool-held on the store, not bound to the
+    /// request's unit of work — `PgUnitOfWork` is `!Sync`, so no reader
+    /// holding one can live in `AppState` as a long-lived `Arc`. Each
+    /// trait call therefore opens its OWN tenant-scoped unit of work via
+    /// `FlexCoreStore::begin` (RLS `flexcore.tenant_id` set
+    /// transaction-locally before the first statement) and commits it
+    /// after the read; the request's unit of work (e.g. the
+    /// asset-existence check) and the reader's are separate transactions.
+    /// A backend failure fails closed (infrastructure error); the Test
+    /// backend wires the in-crate fake.
     pub telemetry: Option<Arc<dyn flexcore_ports::telemetry_read::TelemetryReader>>,
     /// The CURRENT-STATE use-case freshness limit in milliseconds (P2.18
     /// step 3, configuration — `FLEXCORE_CURRENT_STATE_FRESHNESS_MS`,

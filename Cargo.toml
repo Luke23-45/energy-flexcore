@@ -170,13 +170,14 @@ tokio = { version = "1.54.1", features = [
 # HTTP API (RESEARCH.md §3 — Axum 0.8.9, MSRV 1.80).
 axum = "0.8.9"
 tower = "0.5.3"
-tower-http = { version = "0.7.0", features = ["trace", "timeout", "limit-request"] }
+tower-http = { version = "0.7.0", features = ["trace", "timeout", "limit"] }
 # Persistence (RESEARCH.md §4 — SQLx 0.9.0, MSRV 1.94.0; offline mode always on).
 sqlx = { version = "0.9.0", default-features = false, features = [
     "runtime-tokio",
     "tls-rustls",
     "postgres",
     "migrate",
+    "macros",
     "time",
     "json",
 ] }
@@ -185,6 +186,22 @@ async-nats = "0.50.0"
 # Serialization (exact versions resolved in the first lockfile; see header).
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# Source authentication (Patch B, P2.07): Ed25519 envelopes over the
+# telemetry wire format. Versions verified against docs.rs / crates.io on
+# 2026-11-18: ed25519-dalek 3.0.0 is the current major (2.1.2 is the latest
+# 2.x); the 3.x line is pinned because its documented
+# `SigningKey::generate(&mut OsRng)` example pairs with rand 0.9, while
+# the 2.x line pairs with rand 0.8 (the rand_core trait version differs
+# between the two pairings — see the VERIFY-BUILD note in the report).
+# rand_core is a non-default feature that enables `SigningKey::generate`;
+# the default features (std, alloc, zeroize) stay on. sha2 0.11.1 and
+# base64 0.23.1 are the current lines observed the same day; rand 0.9.4
+# is the latest 0.9 observed. No Cargo.lock exists: the exact resolved
+# versions are VERIFY-BUILD at lockfile generation.
+ed25519-dalek = { version = "3", features = ["rand_core"] }
+sha2 = "0.11"
+base64 = "0.23"
+rand = "0.9"
 # Timestamps in contracts (ledger P1.05 names "chrono/time"; `time` chosen —
 # exact version resolved in the first lockfile and recorded, RESEARCH.md §8/§7).
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }

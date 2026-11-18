@@ -307,9 +307,14 @@ fn unapproved_cross_tenant_model_serving_is_refused_and_approved_serving_is_admi
     register
         .enforce_model_serving(&worker, "artifact://models/gnn-warmstart.v1", &scope(TENANT_A, Some(SITE_1)))
         .expect("in-tenant serving needs no approval");
+    // Cross-tenant serving is done by a worker holding the TARGET scope:
+    // step 3 of `enforce_model_serving` requires the worker's stamped
+    // scope to cover the serving scope, so the tenant-A worker above
+    // could never reach the approval check for tenant B.
+    let worker_b = stamp("worker-serve-b", ResearchWorkerFamily::Gnn, TENANT_B, None);
     // Serving to tenant B WITHOUT a recorded approval: refused.
     let err = register
-        .enforce_model_serving(&worker, "artifact://models/gnn-warmstart.v1", &scope(TENANT_B, None))
+        .enforce_model_serving(&worker_b, "artifact://models/gnn-warmstart.v1", &scope(TENANT_B, None))
         .expect_err("unapproved cross-tenant serving refused");
     assert_eq!(err.name(), "RESEARCH_MODEL_SERVING_NOT_APPROVED");
     // With the recorded approval (reason + actor required), serving is
@@ -347,7 +352,7 @@ fn unapproved_cross_tenant_model_serving_is_refused_and_approved_serving_is_admi
         .record_approval(approval, &clock, &audit)
         .expect("the attributed approval is recorded");
     register
-        .enforce_model_serving(&worker, "artifact://models/gnn-warmstart.v1", &scope(TENANT_B, None))
+        .enforce_model_serving(&worker_b, "artifact://models/gnn-warmstart.v1", &scope(TENANT_B, None))
         .expect("serving with the recorded approval passes");
     // An approval for an UNKNOWN artifact is refused (fail-closed).
     let bogus = ModelServingApproval {

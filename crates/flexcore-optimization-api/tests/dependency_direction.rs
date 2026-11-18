@@ -92,12 +92,27 @@ fn manifest_has_no_solver_transport_or_runtime_dependency() {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"),
     )
     .expect("Cargo.toml readable");
-    // Split off the [dependencies] section body.
-    let deps_body = manifest
-        .split("[dependencies]")
-        .nth(1)
-        .expect("[dependencies] section present");
-    let deps_body = deps_body.split('[').next().expect("section terminates");
+    // The [dependencies] section body: locate the section-header LINE
+    // (a plain substring split would match the "[dependencies]" inside the
+    // coordinator comment block at the top of this manifest and return the
+    // comment text instead of the dependency list).
+    let mut deps_body = String::new();
+    let mut in_deps = false;
+    for line in manifest.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[dependencies]" {
+            in_deps = true;
+            continue;
+        }
+        if in_deps {
+            if trimmed.starts_with('[') {
+                break;
+            }
+            deps_body.push_str(line);
+            deps_body.push('\n');
+        }
+    }
+    assert!(in_deps, "[dependencies] section present");
 
     // The core-crate policy set plus exactly the Tier 2 conic solver
     // (assembled from halves like the scan needles above).

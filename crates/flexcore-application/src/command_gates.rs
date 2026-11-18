@@ -1872,12 +1872,14 @@ impl<'a> CommandGates<'a> {
     }
 
     /// Records a feasibility-gate REJECTION, persists the transition, and
-    /// emits `DispatchRejected` — plus `FeasibilityCheckCompleted` when a
-    /// §12.5 check actually ran and completed with the verdict (`check_id`
-    /// is `Some(attempt_id)`); the usability pre-check passes `None` and
-    /// emits only `DispatchRejected` (D-P4.30-1). Both events pair with
-    /// the SAME transition receipt (the recorded one-receipt-per-event
-    /// reading of the P3.28 routes).
+    /// emits `FeasibilityCheckCompleted` first when a §12.5 check actually
+    /// ran and completed with the verdict (`check_id` is `Some(attempt_id)`),
+    /// then `DispatchRejected`; the usability pre-check passes `None` and
+    /// emits only `DispatchRejected` (D-P4.30-1). The check-completed event
+    /// precedes the decision event, as on the pass path
+    /// (`FeasibilityCheckCompleted` before `DispatchApproved`). Both events
+    /// pair with the SAME transition receipt (the recorded
+    /// one-receipt-per-event reading of the P3.28 routes).
     #[allow(clippy::too_many_arguments)]
     fn reject_through_feasibility_gate(
         &self,
@@ -1903,10 +1905,10 @@ impl<'a> CommandGates<'a> {
         // Both events of the SAME state change pair with the SAME receipt
         // descriptor (the recorded one-receipt-per-event reading of the
         // P3.28 routes; the receipt is Clone for exactly this pairing).
-        self.emit_rejected(ctx, command, receipt.clone(), correlation)?;
         if check_id.is_some() {
-            self.emit_feasibility_check_completed(ctx, command, receipt, correlation)?;
+            self.emit_feasibility_check_completed(ctx, command, receipt.clone(), correlation)?;
         }
+        self.emit_rejected(ctx, command, receipt, correlation)?;
         Ok(FeasibilityGateResult {
             result: GateResult {
                 passed: false,
@@ -2456,6 +2458,29 @@ impl<'a> ApprovalWorkflowEngine<'a> {
             });
         }
 
+        // Quorum-only policy (no sequential steps, quorum configured —
+        // the quorum rule's "instead of" case): there is no step to
+        // match, so the record accumulates with no satisfied step and
+        // counts toward the quorum in `evaluate`, which filters by
+        // eligible role and covering scope. An ineligible-role or
+        // out-of-scope record is therefore still accumulated here (it
+        // simply does not count); delegation, when present, is validated
+        // the same way as for sequential steps.
+        if self.policy.steps.is_empty() {
+            if self.policy.quorum.is_none() {
+                return Err(ApprovalWorkflowDenial::NoMatchingStep {
+                    role: request.role.clone(),
+                });
+            }
+            let mut record = request;
+            self.validate_delegation(&record, site, asset)?;
+            record.satisfied_step = None;
+            self.store
+                .append_approval(command_id, &record)
+                .map_err(ApprovalWorkflowDenial::Store)?;
+            return self.evaluate(command_id, site, asset);
+        }
+
         // The first UNSATISFIED step whose requirements this record meets.
         // Sequential: earlier unmatched steps block later ones (a record
         // never skips ahead).
@@ -2506,6 +2531,27 @@ impl<'a> ApprovalWorkflowEngine<'a> {
         // own subject is refused explicitly, and the delegation's scope
         // must cover the command).
         let mut record = request;
+        self.validate_delegation(&record, site, asset)?;
+
+        record.satisfied_step = Some(step_index);
+        self.store
+            .append_approval(command_id, &record)
+            .map_err(ApprovalWorkflowDenial::Store)?;
+        self.evaluate(command_id, site, asset)
+    }
+
+    /// Validates the delegation carried by a record, if any (shared by the
+    /// sequential-step and quorum-only paths): the absence policy must
+    /// allow delegation, the delegation must be registered and ACTIVE at
+    /// this instant, its id must match the registered one, and its scope
+    /// must cover the command. A record without a delegation passes
+    /// unchanged.
+    fn validate_delegation(
+        &self,
+        record: &AccumulatedApproval,
+        site: SiteId,
+        asset: AssetId,
+    ) -> Result<(), ApprovalWorkflowDenial> {
         if let Some(delegation_ref) = &record.delegation {
             if !self.policy.absence.allow_delegation {
                 return Err(ApprovalWorkflowDenial::DelegationInvalid {
@@ -2541,12 +2587,7 @@ impl<'a> ApprovalWorkflowEngine<'a> {
                 });
             }
         }
-
-        record.satisfied_step = Some(step_index);
-        self.store
-            .append_approval(command_id, &record)
-            .map_err(ApprovalWorkflowDenial::Store)?;
-        self.evaluate(command_id, site, asset)
+        Ok(())
     }
 
     /// Evaluates the policy against the accumulated records (the verdict
@@ -3108,7 +3149,11 @@ mod approval_workflow_tests {
 
         // A delegation whose scope does NOT cover the command (an
         // asset-scoped delegation over a DIFFERENT asset): denied.
-        let mut foreign = record("delegate-2", "tenant-admin", ApprovalScope::Site(site()));
+        // The delegated step 0 above already satisfied the
+        // `tenant-admin` step, so the waiting step is step 1
+        // (`site-approver`) — the record must carry that role to reach
+        // the delegation check at all.
+        let mut foreign = record("delegate-2", "site-approver", ApprovalScope::Site(site()));
         foreign.delegation = Some(DelegationReference {
             delegation_id: "del-3".to_string(),
             delegator: "admin-2".to_string(),

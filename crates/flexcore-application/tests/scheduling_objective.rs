@@ -92,12 +92,12 @@ fn default_objective_is_named_synthetic() {
 fn default_objective_enables_exactly_energy_and_deviation() {
     let config = default_config();
     assert!(config.energy().enabled, "the default objective minimises energy cost");
-    assert!(config.deviation.enabled, "the default objective adds the deviation penalty");
+    assert!(config.deviation().enabled, "the default objective adds the deviation penalty");
     assert!(!config.degradation().enabled, "degradation is switchable and off by default");
     assert!(!config.curtailment().enabled, "curtailment is switchable and off by default");
     assert!(!config.service().enabled, "service is switchable and off by default");
     assert_eq!(
-        config.deviation.coefficient_per_mw2_h,
+        config.deviation().coefficient_per_mw2_h,
         DEFAULT_DEVIATION_COEFFICIENT_PER_MW2_H
     );
 }
@@ -167,8 +167,22 @@ fn record_fields_carry_the_excluded_fundamentals_7_5_terms_with_reason() {
 #[test]
 fn different_objectives_are_never_the_same_problem() {
     let a = default_config();
-    let mut b = default_config();
-    b.deviation.coefficient_per_mw2_h = 1.0;
+    // The deviation coefficient is not settable through the accessor
+    // (deviation() returns &DeviationTermConfig), so `b` is built with
+    // the same constructor arguments as the default except a coefficient
+    // of 1.0 — identical to the default in every other term.
+    let b = ObjectiveConfig::new(
+        OBJECTIVE_SCHEMA_VERSION,
+        DEFAULT_SYNTHETIC_OBJECTIVE_NAME.to_string(),
+        ObjectiveProvenance::Synthetic,
+        EnergyTermConfig { enabled: true, weight: 1.0 },
+        DegradationTermConfig { enabled: false, weight: 0.0 },
+        DeviationTermConfig { enabled: true, coefficient_per_mw2_h: 1.0 },
+        CurtailmentTermConfig { enabled: false, coefficient_per_mwh: 0.0 },
+        ServiceTermConfig { enabled: false, coefficient_per_mwh: 0.0 },
+        DEFAULT_DOMINANCE_THRESHOLD,
+    )
+    .unwrap();
     assert!(!a.same_problem(&b), "a changed weight is a different problem");
     let c = energy_only_config("SYNTHETIC_TEST_ENERGY_ONLY");
     assert!(!a.same_problem(&c), "a different name/term set is a different problem");
@@ -261,8 +275,9 @@ fn config_validation_rejects_bad_weights_signs_and_schema() {
         .unwrap_err(),
         ObjectiveError::NegativeWeight { term: ObjectiveTerm::Deviation, value: -0.5 }
     );
-    // NaN service coefficient.
-    assert_eq!(
+    // NaN service coefficient (matches!: NaN never equals NaN, so
+    // assert_eq! on the NaN-carrying error can never pass).
+    assert!(matches!(
         base(
             EnergyTermConfig { enabled: false, weight: 0.0 },
             DegradationTermConfig { enabled: false, weight: 0.0 },
@@ -273,8 +288,8 @@ fn config_validation_rejects_bad_weights_signs_and_schema() {
             DEFAULT_DOMINANCE_THRESHOLD,
         )
         .unwrap_err(),
-        ObjectiveError::NonFiniteWeight { term: ObjectiveTerm::Service, value: f64::NAN }
-    );
+        ObjectiveError::NonFiniteWeight { term: ObjectiveTerm::Service, value } if value.is_nan()
+    ));
     // The service sign is DECLARED: a negative (credit) coefficient is valid.
     assert!(base(
         EnergyTermConfig { enabled: false, weight: 0.0 },
@@ -852,20 +867,15 @@ fn series_length_and_value_validation() {
         evaluate_objective(&config, &candidate, &inputs).unwrap_err(),
         ObjectiveError::SeriesLengthMismatch { series: "reference", expected: 2, found: 1 }
     );
-    // Non-finite price.
-    let inputs = ObjectiveInputs {
-        price_curve: Some(SyntheticPriceCurve::new("test-curve", vec![40.0, f64::NAN]).unwrap()),
-        reference: Some(SyntheticSeries::new("test-reference", vec![0.0, 0.0]).unwrap()),
-        ..ObjectiveInputs::new(3600)
-    };
-    assert_eq!(
-        evaluate_objective(&config, &candidate, &inputs).unwrap_err(),
-        ObjectiveError::NonFiniteSeriesValue {
-            series: "price_curve",
-            interval: 1,
-            value: f64::NAN,
-        }
-    );
+    // Non-finite price: the curve constructor refuses it — the finiteness
+    // validation lives at construction, so evaluate_objective can never
+    // see a NaN price through this path. The refusal is pinned here, at
+    // the gate that enforces it.
+    assert!(matches!(
+        SyntheticPriceCurve::new("test-curve", vec![40.0, f64::NAN]).unwrap_err(),
+        ObjectiveError::NonFiniteSeriesValue { series: "price_curve", interval: 1, value }
+            if value.is_nan()
+    ));
     // Non-finite candidate value.
     let inputs = ObjectiveInputs {
         price_curve: Some(SyntheticPriceCurve::new("test-curve", vec![40.0, 40.0]).unwrap()),
@@ -1019,6 +1029,10 @@ fn p15_08_curves_with_the_term_disabled_are_refused() {
     let candidate =
         CandidatePortfolioSchedule { label: "c".to_string(), net_export_mw: vec![0.0] };
     let inputs = ObjectiveInputs {
+        // The energy term is enabled, so a price curve must be supplied —
+        // otherwise the missing-price refusal fires before the
+        // unused-curves refusal this test pins.
+        price_curve: Some(SyntheticPriceCurve::new("test-curve", vec![40.0]).unwrap()),
         degradation_cost_curves: vec![linear_curve_declaration(DegradationChemistryLabel::Lfp)],
         ..ObjectiveInputs::new(3600)
     };

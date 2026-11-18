@@ -54,7 +54,8 @@
 
 use flexcore_contracts::capability::Provenance;
 use flexcore_domain::bess_model::{
-    AuxLoadPoint, BessModel, BessModelConfig, BessSchedule, BessSetpoint, ProvenancedValue,
+    AuxLoadPoint, BessModel, BessModelConfig, BessSchedule, BessSetpoint,
+    ProvenancedValue, BESS_EVALUATION_TOLERANCE,
 };
 use flexcore_domain::ev_fleet_model::{
     EvFleetConfig, EvFleetModel, EvFleetSchedule, EvSetpoint, EvseConfig, EvVehicleConfig,
@@ -397,8 +398,9 @@ fn every_bess_candidate_passes_its_capability_model_with_zero_violations() {
                 // SOC bounds within the model tolerance, every boundary.
                 for (boundary, &soc) in evaluation.interval_socs.iter().enumerate() {
                     assert!(
-                        (0.0..=1.0).contains(&soc),
-                        "{file}/{key}: boundary {boundary} SOC {soc} left [0, 1]"
+                        (-BESS_EVALUATION_TOLERANCE..=1.0 + BESS_EVALUATION_TOLERANCE)
+                            .contains(&soc),
+                        "{file}/{key}: boundary {boundary} SOC {soc} left [0, 1] beyond the model tolerance"
                     );
                 }
             }

@@ -336,7 +336,7 @@ fn backpressure_refuses_beyond_the_cap_and_never_queues() {
         .expect("second in flight");
     let refused = pool.acquire("worker-0", "req-3", &idem("k3"), &audit, &clock);
     match refused {
-        Err(SupervisionError::BackpressureRefused { inflight, cap }) => {
+        Err(SupervisionError::BackpressureRefused { inflight, cap, .. }) => {
             assert_eq!((inflight, cap), (2, 2));
         }
         other => panic!("expected BackpressureRefused, got {other:?}"),

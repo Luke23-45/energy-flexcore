@@ -152,6 +152,12 @@ impl RecordValidationPhase {
     }
 }
 
+impl std::fmt::Display for RecordValidationPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// The named errors of the §14.3 record validators and the journal replay.
 /// A missing or invalid field is NEVER silent and NEVER defaulted: it
 /// blocks the transition with its own named error (ledger P4.14 step 2).

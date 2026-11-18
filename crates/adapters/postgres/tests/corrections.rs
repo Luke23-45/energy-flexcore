@@ -34,6 +34,7 @@ use flexcore_domain::entities::{Asset, AssetType, Portfolio, Site, Tenant};
 use flexcore_domain::ids::{AssetId, PortfolioId, SiteId, TenantId};
 use flexcore_contracts::time_model::SiteTimezone;
 use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
+use flexcore_ports::clock::Clock;
 use flexcore_ports::repository::{
     AssetRepository, PortfolioRepository, SiteRepository, TenantRepository,
 };
@@ -139,15 +140,31 @@ fn url_as(url: &str, user: &str, password: &str) -> String {
 
 fn ensure_test_roles(pool: &sqlx::PgPool) {
     let result = test_runtime().block_on(async {
+        // Concurrent ALTER ROLE on the same role fails with "tuple
+        // concurrently updated" (XX000): every test in every binary runs
+        // this helper against the one shared database. One advisory lock
+        // (one key, shared by every copy of this helper and by the
+        // partition setup) serializes the grant so it stays idempotent
+        // across processes; the lock is transaction-scoped and released
+        // by the commit below.
+        let mut tx = pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+            .execute(&mut *tx)
+            .await?;
         for (role, password) in [
             ("flexcore_app", "flexcore_app_test_only"),
             ("flexcore_migrator", "flexcore_migrator_test_only"),
             ("flexcore_ingest", "flexcore_ingest_test_only"),
         ] {
-            sqlx::query(&format!("ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"))
-                .execute(pool)
+            // AUDITED (Batch 32+): role/password are fixed test-only literals
+            // from the loop above; DDL identifiers cannot be bind parameters.
+            sqlx::query(sqlx::AssertSqlSafe(
+                format!("ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"),
+            ))
+                .execute(&mut *tx)
                 .await?;
         }
+        tx.commit().await?;
         Ok::<(), sqlx::Error>(())
     });
     result.expect("test roles must be grantable from the migration/admin connection");
@@ -162,15 +179,28 @@ fn ensure_partitions(url: &str) {
         )))
         .expect("connect as flexcore_migrator");
     test_runtime().block_on(async {
+        // CREATE TABLE IF NOT EXISTS is not concurrency-safe: two
+        // sessions can both pass the existence check and collide with
+        // 42P07 "already exists". The same advisory lock as the role
+        // setup serializes partition creation across test processes.
+        let mut tx = migrator_pool.begin().await.expect("partition setup tx");
+        sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+            .execute(&mut *tx)
+            .await
+            .expect("partition setup lock");
         for (name, from, to) in PARTITION_MONTHS {
-            sqlx::query(&format!(
+            // AUDITED (Batch 32+): partition names and calendar-formatted bounds
+            // come from the file's own PARTITION_MONTHS const; identifiers and
+            // literal bounds cannot be bind parameters.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "CREATE TABLE IF NOT EXISTS {name} PARTITION OF telemetry \
                  FOR VALUES FROM ('{from}') TO ('{to}')"
-            ))
-            .execute(&migrator_pool)
+            )))
+            .execute(&mut *tx)
             .await
             .expect("partition DDL as the table owner");
         }
+        tx.commit().await.expect("partition setup commit");
     });
 }
 
@@ -344,8 +374,8 @@ fn seed_original_and_correction(
 }
 
 fn numeric(record: &flexcore_postgres_adapter::telemetry::StoredTelemetry) -> f64 {
-    match record.value {
-        Some(TelemetryValue::Numeric(n)) => n,
+    match &record.value {
+        Some(TelemetryValue::Numeric(n)) => *n,
         other => panic!("expected a numeric value, got {other:?}"),
     }
 }

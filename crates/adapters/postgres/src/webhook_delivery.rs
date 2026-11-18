@@ -50,6 +50,7 @@
 // named conflict code — the same-key-different-content rule of the
 // service layer, with the database constraint as the backstop.
 
+use sqlx::Row;
 use crate::error::map_backend;
 use flexcore_ports::backend_error::BackendError;
 use crate::store::FlexCoreStore;
@@ -258,7 +259,7 @@ impl PgWebhookDeliveryStore {
             .bind(delivery.next_attempt_seq)
             .bind(delivery.next_attempt_not_before_unix_millis)
             .bind(delivery.last_response_code)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(map_backend)?;
             if inserted.rows_affected() == 1 {
@@ -289,13 +290,13 @@ impl PgWebhookDeliveryStore {
             )
             .bind(&tenant_text)
             .bind(&delivery.delivery_key)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(map_backend)?
             .ok_or_else(|| {
                 BackendError::new(
                     crate::error::codes::REJECTED.to_string(),
-                    "the idempotency-key row vanished between insert and read",
+                    "the idempotency-key row vanished between insert and read".to_string(),
                 )
             })?;
             let stored = decode_delivery_row(&existing)?;
@@ -306,7 +307,7 @@ impl PgWebhookDeliveryStore {
             } else {
                 Err(BackendError::new(
                     KEY_CONFLICT_CODE.to_string(),
-                    "a delivery with this idempotency key already exists with different content",
+                    "a delivery with this idempotency key already exists with different content".to_string(),
                 ))
             }
         });
@@ -344,19 +345,23 @@ impl PgWebhookDeliveryStore {
             )
             .bind(&tenant_text)
             .bind(delivery_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(map_backend)?;
             if updated.rows_affected() == 0 {
                 return Err(BackendError::new(
                     crate::error::codes::REJECTED.to_string(),
-                    "the delivery does not exist in this tenant scope",
+                    "the delivery does not exist in this tenant scope".to_string(),
                 ));
             }
             Ok(())
         });
         match outcome {
-            Ok(()) => unit.commit()?,
+            // `commit` returns the finalized handle; the match is a
+            // statement, so the handle is discarded inside a block arm.
+            Ok(()) => {
+                unit.commit()?;
+            },
             Err(error) => {
                 drop(unit);
                 return Err(error);
@@ -378,7 +383,7 @@ impl PgWebhookDeliveryStore {
         if attempt.attempt_seq < 1 {
             return Err(BackendError::new(
                 crate::error::codes::REJECTED.to_string(),
-                "the attempt sequence must be at least 1",
+                "the attempt sequence must be at least 1".to_string(),
             ));
         }
         let tenant_text = uuid_text(tenant.uuid());
@@ -397,13 +402,17 @@ impl PgWebhookDeliveryStore {
             .bind(attempt.attempt_seq)
             .bind(&attempt.outcome)
             .bind(attempt.booked_at_unix_millis)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map(|_| ())
             .map_err(map_backend)
         });
         match outcome {
-            Ok(()) => unit.commit()?,
+            // `commit` returns the finalized handle; the match is a
+            // statement, so the handle is discarded inside a block arm.
+            Ok(()) => {
+                unit.commit()?;
+            },
             Err(error) => {
                 drop(unit);
                 return Err(error);
@@ -447,19 +456,23 @@ impl PgWebhookDeliveryStore {
             .bind(&tenant_text)
             .bind(delivery_id)
             .bind(i64::from(attempt_seq))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(map_backend)?;
             if updated.rows_affected() == 0 {
                 return Err(BackendError::new(
                     crate::error::codes::REJECTED.to_string(),
-                    "the booked attempt row does not exist in this tenant scope",
+                    "the booked attempt row does not exist in this tenant scope".to_string(),
                 ));
             }
             Ok(())
         });
         match outcome {
-            Ok(()) => unit.commit()?,
+            // `commit` returns the finalized handle; the match is a
+            // statement, so the handle is discarded inside a block arm.
+            Ok(()) => {
+                unit.commit()?;
+            },
             Err(error) => {
                 drop(unit);
                 return Err(error);
@@ -498,19 +511,23 @@ impl PgWebhookDeliveryStore {
             .bind(response_code)
             .bind(&tenant_text)
             .bind(delivery_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(map_backend)?;
             if updated.rows_affected() == 0 {
                 return Err(BackendError::new(
                     crate::error::codes::REJECTED.to_string(),
-                    "the delivery does not exist in this tenant scope",
+                    "the delivery does not exist in this tenant scope".to_string(),
                 ));
             }
             Ok(())
         });
         match outcome {
-            Ok(()) => unit.commit()?,
+            // `commit` returns the finalized handle; the match is a
+            // statement, so the handle is discarded inside a block arm.
+            Ok(()) => {
+                unit.commit()?;
+            },
             Err(error) => {
                 drop(unit);
                 return Err(error);
@@ -570,7 +587,7 @@ impl PgWebhookDeliveryStore {
                     .bind(now_unix_millis)
                     .bind(stale_booked_before_unix_millis)
                     .bind(limit)
-                    .fetch_all(&mut *tx)
+                    .fetch_all(&mut **tx)
                     .await
                     .map_err(map_backend)?;
                     rows.iter().map(decode_delivery_row).collect()
@@ -612,13 +629,17 @@ impl PgWebhookDeliveryStore {
             .bind(&dead_letter.endpoint_id)
             .bind(&dead_letter.reason)
             .bind(dead_letter.dead_lettered_at_unix_millis)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map(|_| ())
             .map_err(map_backend)
         });
         match outcome {
-            Ok(()) => unit.commit()?,
+            // `commit` returns the finalized handle; the match is a
+            // statement, so the handle is discarded inside a block arm.
+            Ok(()) => {
+                unit.commit()?;
+            },
             Err(error) => {
                 drop(unit);
                 return Err(error);
@@ -644,7 +665,7 @@ impl PgWebhookDeliveryStore {
                      WHERE tenant_id = $1::uuid AND resolved_at_unix_millis IS NULL",
                 )
                 .bind(uuid_text(tenant.uuid()))
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut **tx)
                 .await
                 .map_err(map_backend)?;
                 Ok(row.0)

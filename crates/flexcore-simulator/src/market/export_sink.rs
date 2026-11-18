@@ -40,11 +40,11 @@
 //   transport reference — never the telemetry payloads. The sink is
 //   bookkeeping, not a second telemetry store.
 
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 
 use flexcore_application::telemetry_export_design::{
     ExportMarket, ExportPostureRecord, ExportSeamError, TelemetryExportSink,
-    TELEMETRY_EXPORT_DESIGN_SCHEMA_VERSION,
 };
 use flexcore_ports::telemetry_source::NormalizedTelemetry;
 
@@ -107,8 +107,10 @@ pub struct SimulatedTelemetryExportSink {
     /// The declared receipt capacity (≥ 1; the bound is configuration,
     /// never silent).
     capacity: usize,
-    /// The monotonic per-sink receipt sequence (deterministic).
-    next_sequence: u64,
+    /// The monotonic per-sink receipt sequence (deterministic). A `Cell`
+    /// because the trait's `export_batch` takes `&self` (the sink is a
+    /// single-threaded test fixture, like the `RefCell` ring below).
+    next_sequence: Cell<u64>,
     /// The in-memory ring of receipts (bounded; `RefCell` — the sink is
     /// a single-threaded test fixture, and the crate rule is sync
     /// traits).
@@ -128,7 +130,7 @@ impl SimulatedTelemetryExportSink {
         Some(Self {
             market,
             capacity,
-            next_sequence: 0,
+            next_sequence: Cell::new(0),
             receipts: RefCell::new(VecDeque::with_capacity(capacity)),
         })
     }
@@ -167,11 +169,12 @@ impl TelemetryExportSink for SimulatedTelemetryExportSink {
                 posture: posture.market,
             });
         }
-        let sequence = self.next_sequence;
-        self.next_sequence += 1;
+        let sequence = self.next_sequence.get();
+        self.next_sequence.set(sequence + 1);
         let receipt = SimulatedExportReceipt {
             receipt_ref: format!(
-                "{SIMULATED_EXPORT_IDENTITY_PREFIX}://{:?}/{sequence}"
+                "{SIMULATED_EXPORT_IDENTITY_PREFIX}://{:?}/{sequence}",
+                self.market
             ),
             posture_transport_ref: posture.transport_ref.clone(),
             record_count: records.len(),
@@ -197,6 +200,7 @@ impl TelemetryExportSink for SimulatedTelemetryExportSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flexcore_application::telemetry_export_design::TELEMETRY_EXPORT_DESIGN_SCHEMA_VERSION;
 
     #[test]
     fn statements_are_the_recorded_strings() {

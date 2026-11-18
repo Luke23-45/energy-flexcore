@@ -94,7 +94,7 @@ fn the_update_bundle_error_vocabulary_has_exactly_the_recorded_names() {
             payload_name: "p".to_string(),
             reason: "x".to_string(),
         },
-        UpdateBundleError::BaseVerificationRefused { code: "c".to_string(), reason: "x" },
+        UpdateBundleError::BaseVerificationRefused { code: "c".to_string(), reason: "x".to_string() },
         UpdateBundleError::BundleTooLarge { size_bytes: 2, cap: 1 },
         UpdateBundleError::InvalidInput { reason: "x".to_string() },
     ];
@@ -473,16 +473,18 @@ fn a_torn_counter_tail_is_truncated_and_counted_never_silent() {
         file.sync_all().expect("torn tail durable");
     }
     // Reboot: the corrupt tail is truncated and COUNTED, and the
-    // last-seen value is the maximum of the GOOD records.
+    // last-seen value is the maximum of the GOOD records. The count lives
+    // on the GATE's counter — the recomposition opened the file and
+    // truncated the tail, so a direct open afterwards sees a clean file
+    // and counts 0 (the count belongs to the instance that opened it).
     device.power_cycle();
-    // The gate recomposition opened the counter internally; assert the
-    // semantics through a direct open (the same file, the same rules).
-    let counter = AntiRollbackCounter::open(device.counter_path()).expect("reopens");
     assert_eq!(
-        counter.corrupt_tail_truncated(),
+        device.gate().corrupt_tail_truncated(),
         1,
         "the torn tail is counted, never silent"
     );
+    // A direct open over the same file still replays the good records.
+    let counter = AntiRollbackCounter::open(device.counter_path()).expect("reopens");
     assert_eq!(counter.last_seen(), 12, "the good record survives the torn tail");
     // And the monotonicity survives: the pre-loss sequence is still a
     // replay refusal; a fresh higher sequence still advances.
@@ -499,7 +501,10 @@ fn a_foreign_file_is_refused_as_not_a_counter() {
     let dir = p18_14_support::scratch_dir("foreign-counter");
     let path = dir.join("not-a-counter.bin");
     std::fs::write(&path, b"attacker-planted bytes with no magic").expect("writes");
-    let error = AntiRollbackCounter::open(&path).expect_err("refused");
+    let error = match AntiRollbackCounter::open(&path) {
+        Ok(_) => panic!("a foreign file must never open as a counter"),
+        Err(error) => error,
+    };
     assert!(matches!(
         error,
         UpdateBundleError::NotAnAntiRollbackCounter { .. }
@@ -540,13 +545,33 @@ fn the_fail_closed_default_refuses_everything_and_advances_nothing() {
         .expect_err("refused");
     match error {
         UpdateBundleError::BaseVerificationRefused { code, reason } => {
+            // The gate checks manifest → ALGORITHM → verdict: the manifest
+            // declares fnv1a64-test while the default verifier computes
+            // "none", so the algorithm mismatch fires before the verifier
+            // is consulted. The P9.34 stable code rides through as the
+            // algorithm-mismatch code, not the verifier-refusal code.
             assert_eq!(
-                code, "UPDATE_VERIFIER_REFUSED",
+                code, "UPDATE_DIGEST_ALGORITHM_MISMATCH",
                 "the P9.34 stable code rides through"
             );
-            assert!(reason.contains("fail-closed"), "{reason}");
+            assert!(reason.contains("fnv1a64-test"), "{reason}");
+            assert!(reason.contains("'none'"), "{reason}");
         }
         other => panic!("expected BaseVerificationRefused, got {other:?}"),
+    }
+    // The verifier-level refusal (the branch the gate shadows) is pinned
+    // by a direct call: no verifier configured refuses fail-closed.
+    {
+        use flexcore_edge_agent::update_verification::{
+            NoUpdateVerifier, UpdateDigestVerdict, UpdateVerifier,
+        };
+        assert_eq!(NoUpdateVerifier.algorithm_name(), "none");
+        match NoUpdateVerifier.verify(&bundle, "deadbeef") {
+            UpdateDigestVerdict::Refused { reason } => {
+                assert!(reason.contains("fail-closed"), "{reason}");
+            }
+            other => panic!("expected the default verifier to refuse, got {other:?}"),
+        }
     }
     assert_eq!(device.last_seen_sequence(), 0);
     // The audit shows both honest layers.
@@ -666,15 +691,24 @@ fn an_unsigned_presentation_is_refused_first() {
 #[test]
 fn the_p9_34_base_validation_remains_the_inner_authority() {
     // The v2 layer never weakens the base rules: a manifest that violates
-    // a P9.34 rule (below its own floor) is refused through the v2
-    // validation with the P9.34 text riding the reason.
+    // a P9.34 rule (below its own floor) is refused through the v2 gate
+    // with the P9.34 code and text riding the reason. The floor is a
+    // VERIFY-time rule (P9.34 step 5), not a validate-time one — base
+    // validate() only requires version + floor to be parseable — so the
+    // refusal is exercised through present_bundle, not validate().
+    let device = MockUpdateDevice::new("below-floor", MockVerifierChoice::TestOnlyFnv1a64);
     let bundle = fixture_bundle();
     let manifest = v2_manifest("0.9.0", "1.0.0", 1, VALID_EXPIRY, &bundle);
-    let error = manifest.validate().expect_err("below own floor");
-    let UpdateBundleError::ManifestInvalid { reason } = error else {
-        panic!("expected ManifestInvalid, got {error:?}")
+    let error = device
+        .present_bundle(Some(&manifest), &bundle)
+        .expect_err("below own floor");
+    let UpdateBundleError::BaseVerificationRefused { code, reason } = error else {
+        panic!("expected BaseVerificationRefused, got {error:?}")
     };
+    assert_eq!(code, "UPDATE_BELOW_MINIMUM_FLOOR");
     assert!(reason.contains("below the minimum-version floor"), "{reason}");
+    assert_eq!(device.last_seen_sequence(), 0, "a refused verdict advances nothing");
+    cleanup(device.scratch());
 }
 
 #[test]

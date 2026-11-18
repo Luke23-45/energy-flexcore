@@ -904,6 +904,9 @@ impl CsmsTransport for SimulatedCsmsTransport {
                     reason: format!("sim-ocpp: {other}"),
                 },
             })
+            // `run_default_script` reports the step count; `serve`'s
+            // contract is unit — the count is visible in the session log.
+            .map(|_| ())
     }
 
     /// The honest self-report outside `serve`: an in-process loopback has
@@ -977,8 +980,9 @@ mod tests {
                 evse_params(),
                 None,
                 1_700_000_000_000,
-            ),
-            Err(SimOcppError::EmptyField("name"))
+            )
+            .expect_err("an empty name is refused"),
+            SimOcppError::EmptyField("name")
         );
         // A negative scenario base is refused.
         assert_eq!(
@@ -989,8 +993,9 @@ mod tests {
                 evse_params(),
                 None,
                 -1,
-            ),
-            Err(SimOcppError::InvalidScenarioBase { base_millis: -1 })
+            )
+            .expect_err("a negative scenario base is refused"),
+            SimOcppError::InvalidScenarioBase { base_millis: -1 }
         );
     }
 
@@ -1094,12 +1099,20 @@ mod tests {
         let snapshot = server.connection_snapshot();
         assert_eq!(snapshot, vec![("sim-ocpp:depot-1", "ENDED")]);
         // The end is a transport fact: the honest report carries the
-        // named reason (connection loss is NOT asset unavailability — the
-        // adapter's own rule, untouched here).
+        // named reason — in the structured state (`Degraded { reason }`),
+        // not in the `detail` line, which only names the session state
+        // (the adapter's own `connection_report_maps_session_states_...`
+        // test pins `detail` to the state name + security profile).
+        // Connection loss is NOT asset unavailability — the adapter's
+        // own rule, untouched here.
         let report = server
             .connection_report(&ChargePointId::new("sim-ocpp:depot-1".to_string()).expect("valid"))
             .expect("report");
-        assert!(report.detail.contains("script complete"));
+        assert!(matches!(
+            &report.state,
+            flexcore_protocol_ports::connection::ConnectionState::Degraded { reason }
+                if reason.contains("script complete")
+        ));
     }
 
     #[test]

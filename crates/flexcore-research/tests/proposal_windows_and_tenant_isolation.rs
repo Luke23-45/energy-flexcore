@@ -407,10 +407,14 @@ fn cross_tenant_model_transfer_is_refused_without_a_recorded_approval() {
             training_data_ref: "training-data://tenant-a/ds-1".to_string(),
         })
         .expect("registers");
-    let worker_a = WorkerScopeStamp::stamp_by_host(
+    // Cross-tenant serving is done by a worker holding the TARGET scope:
+    // step 3 of `enforce_model_serving` requires the worker's stamped
+    // scope to cover the serving scope, so a tenant-A worker could never
+    // reach the approval check for tenant B.
+    let worker_b = WorkerScopeStamp::stamp_by_host(
         "worker/gnn-it-2",
         ResearchWorkerFamily::Gnn,
-        ResearchWorkerScope::from_authenticated_context("tenant-a", None)
+        ResearchWorkerScope::from_authenticated_context("tenant-b", None)
             .expect("valid scope"),
     )
     .expect("stamps");
@@ -421,7 +425,7 @@ fn cross_tenant_model_transfer_is_refused_without_a_recorded_approval() {
     let serving_b = ResearchWorkerScope::from_authenticated_context("tenant-b", None)
         .expect("valid scope");
     let err = register
-        .model_serving_audited(&worker_a, "artifact://models/gnn-warmstart.v1", &serving_b, &clock, &audit)
+        .model_serving_audited(&worker_b, "artifact://models/gnn-warmstart.v1", &serving_b, &clock, &audit)
         .expect_err("unapproved cross-tenant serving refused");
     assert_eq!(err.name(), "RESEARCH_MODEL_SERVING_NOT_APPROVED");
 
@@ -440,7 +444,7 @@ fn cross_tenant_model_transfer_is_refused_without_a_recorded_approval() {
         )
         .expect("the approval is recorded");
     register
-        .model_serving_audited(&worker_a, "artifact://models/gnn-warmstart.v1", &serving_b, &clock, &audit)
+        .model_serving_audited(&worker_b, "artifact://models/gnn-warmstart.v1", &serving_b, &clock, &audit)
         .expect("recorded approval admits the serving");
 
     // The audit trail: refusal, approval record, admission — in order.

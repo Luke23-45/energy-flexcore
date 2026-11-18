@@ -21,15 +21,24 @@ use std::path::{Path, PathBuf};
 
 /// Listener-type tokens whose appearance anywhere in the edge-agent crate
 /// source is a structural violation of the outbound-only principle.
-const FORBIDDEN_TOKENS: [&str; 8] = [
+///
+/// `.bind(` and `.accept(` are DELIBERATELY NOT in this list: they collide
+/// with the recorded domain vocabulary — the command-binding registry's
+/// `bindings.bind(command_id, binding, now)` (P6.15 canonical binding) and
+/// the anti-rollback counter's `counter.accept(sequence)` (P9.34) — neither
+/// of which opens a socket. Every real listener construction is still
+/// caught: a listener value can only be created through `TcpListener::bind`
+/// / `UdpSocket::bind` (both contain `::bind(` and name their type), and
+/// `TcpListener::from_std` names `TcpListener`; `.accept(` / `.bind(` on a
+/// listener variable cannot exist without one of those constructions in
+/// the same crate.
+const FORBIDDEN_TOKENS: [&str; 6] = [
     "TcpListener",
     "UdpSocket",
     "TcpListener::bind",
     "::bind(",
-    ".bind(",
     ".listen(",
     "listen(",
-    ".accept(",
 ];
 
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {

@@ -108,7 +108,7 @@ fn fixture_uuid(prefix: u8) -> FlexUuid {
     bytes[6] = (run_key() >> 24) as u8;
     bytes[7] = (run_key() >> 16) as u8;
     bytes[8] = (run_key() >> 8) as u8;
-    bytes[9] = run_key() as u8;
+    bytes[9] = *run_key() as u8;
     let counter = next_counter().to_be_bytes();
     bytes[10..16].copy_from_slice(&counter[2..8]);
     FlexUuid::from_bytes(bytes)
@@ -137,7 +137,7 @@ fn seed_environment(
     let unit: PgUnitOfWork = store.begin(Some(&ctx)).expect("unit of work opens");
     let tenant = Tenant::try_new(
         TenantId::new(tenant_uuid),
-        "p4.10 tenant".to_string(),
+        format!("p4.10 tenant {tenant_uuid}"),
         None,
         format!("idp-{tenant_uuid}"),
         "default".to_string(),
@@ -910,19 +910,24 @@ fn command_content_and_the_journal_are_immutable_at_the_database() {
     // no-raw-storage-text rule).
     let pool: &sqlx::PgPool = store.pool();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    // Hoisted out of the closure: the closure body previously moved `ctx`
+    // into its per-call `async move` block, which made it FnOnce and left
+    // the later `ctx` uses below without their value. The tenant id is a
+    // plain String, so the closure borrows it and stays callable.
+    let tenant_id_text = ctx.tenant_id().uuid().to_string();
     let with_tenant = |statement: &'static str| {
         let command_text = command.to_string();
-        let tenant_text = ctx.tenant_id().uuid().to_string();
+        let tenant_text = tenant_id_text.to_string();
         runtime.block_on(async move {
             let mut tx = pool.begin().await.expect("transaction opens");
             sqlx::query("SELECT set_config('flexcore.tenant_id', $1, true)")
-                .bind(tenant_text)
+                .bind(tenant_text.clone())
                 .execute(&mut *tx)
                 .await
                 .expect("tenant GUC sets");
             let result = sqlx::query(statement)
                 .bind(command_text)
-                .bind(ctx.tenant_id().uuid().to_string())
+                .bind(tenant_text)
                 .execute(&mut *tx)
                 .await;
             let _ = tx.rollback().await;
@@ -962,7 +967,7 @@ fn command_content_and_the_journal_are_immutable_at_the_database() {
         runtime.block_on(async move {
             let mut tx = pool.begin().await.expect("transaction opens");
             sqlx::query("SELECT set_config('flexcore.tenant_id', $1, true)")
-                .bind(tenant_text)
+                .bind(tenant_text.clone())
                 .execute(&mut *tx)
                 .await
                 .expect("tenant GUC sets");

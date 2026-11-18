@@ -40,6 +40,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ed25519_dalek::SigningKey;
 use flexcore_contracts::time_model::EventTime;
 use flexcore_domain::ids::AssetId;
 use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
@@ -50,7 +51,9 @@ use flexcore_nats_adapter::topology::{
     STREAM_REGISTRY,
 };
 use flexcore_ports::repository::{AssetRepository, TenantRepository};
+use flexcore_ports::source_auth::SourceAuthMode;
 use flexcore_ports::telemetry_source::{TelemetryQuantity, TelemetryQuery, TelemetrySource};
+use flexcore_postgres_adapter::source_keys::PgSourceAuthenticator;
 use flexcore_postgres_adapter::FlexCoreStore;
 use flexcore_simulator::{load_scenario, SimulatorTelemetrySource};
 use flexcore_worker::command_consumer::{
@@ -63,6 +66,8 @@ use flexcore_worker::probes::{serve_probes, ProbeState};
 use flexcore_worker::runner::{
     publisher_config, run_idempotent_consumer, run_outbox_publisher,
 };
+use rand::rand_core::TryRngCore;
+use rand::rngs::OsRng;
 use tokio::sync::watch;
 
 /// The Phase 1 durable consumer the worker runs (P1.14 §5.1
@@ -187,7 +192,40 @@ async fn run(config: WorkerConfig) -> i32 {
     // on its first inbox statement (fail-fast, the same posture as every
     // other migrated table).
 
-    let client = match async_nats::connect(&config.nats_url).await {
+    // Patch B (P2.07), transport step 1: in enforced source-auth mode
+    // the broker link must be encrypted — a plaintext `nats://` URL is
+    // a fail-fast startup error, never a silent downgrade. In dev-key
+    // mode (local development only) plaintext is allowed; the server
+    // config in `deploy/compose/nats-server.conf` still requires TLS,
+    // so a dev deployment against that server must use a `tls://` URL
+    // either way — the allowance here is about the client not
+    // *requiring* TLS, not about the server accepting plaintext.
+    if config.source_auth_mode == SourceAuthMode::Enforced
+        && config.nats_url.starts_with("nats://")
+    {
+        tracing::error!(
+            "enforced source-auth mode requires an encrypted NATS URL (tls://); \
+             the configured FLEXCORE_NATS_URL is plaintext (nats://); aborting startup"
+        );
+        return 1;
+    }
+    let client = match config.source_auth_mode {
+        SourceAuthMode::Enforced => {
+            // `require_tls(true)` (async-nats `ConnectOptions`, verified
+            // against the docs.rs API): the connection fails rather than
+            // proceeding without TLS. No custom root or client certificate
+            // is wired here: a deployment whose server uses a private CA
+            // must add it via `ConnectOptions::add_root_certificates` /
+            // `add_client_certificate` (VERIFY-BUILD follow-up — no
+            // certificate-path env vars exist yet; see the report).
+            async_nats::ConnectOptions::new()
+                .require_tls(true)
+                .connect(config.nats_url.as_str())
+                .await
+        }
+        SourceAuthMode::DevKey => async_nats::connect(&config.nats_url).await,
+    };
+    let client = match client {
         Ok(client) => client,
         Err(error) => {
             tracing::error!(
@@ -347,6 +385,40 @@ async fn run(config: WorkerConfig) -> i32 {
         "background loops started (registry consumers + P11.12 command consumer)"
     );
 
+    // Patch B (P2.07): the dev-key keypair, generated ONCE here (before
+    // the ingestion composition) so the same keypair feeds both sides —
+    // the signing key goes to the simulator source inside
+    // `compose_ingestion`, the verifying-key bytes go to the
+    // authenticator below. Ephemeral: generated in process memory at
+    // every start, never written to disk or configuration, never logged.
+    // In enforced mode there is no dev keypair at all.
+    let dev_signing_key: Option<SigningKey> = match config.source_auth_mode {
+        SourceAuthMode::DevKey => {
+            tracing::warn!(
+                "source-auth dev-key mode is active: envelopes verify against an \
+                 ephemeral in-process keypair; this mode must never be used in production"
+            );
+            // ed25519-dalek 3.0 needs rand_core 0.10's `CryptoRng`,
+            // but rand 0.9's `OsRng` implements rand_core 0.9's — the
+            // traits are different types, so `generate` cannot typecheck.
+            // Seed from the OS CSPRNG via rand 0.9's own `TryRngCore`
+            // and build from bytes instead: the same entropy source, no
+            // cross-version trait involved. An OS RNG failure aborts
+            // startup (no dev keypair, no silent fallback).
+            let mut seed = [0u8; 32];
+            OsRng.try_fill_bytes(&mut seed).expect(
+                "the OS RNG must be available to generate the ephemeral dev keypair",
+            );
+            Some(SigningKey::from_bytes(&seed))
+        }
+        SourceAuthMode::Enforced => None,
+    };
+    let dev_verifying_key_bytes: Vec<[u8; 32]> = dev_signing_key
+        .as_ref()
+        .map(|key| key.verifying_key().to_bytes())
+        .into_iter()
+        .collect();
+
     // The telemetry ingestion task (P2.10): the P2.07 pipeline as a worker
     // task, consuming a `TelemetrySource` port. The simulator source (P2.14)
     // is composed when the scenario configuration is present — see
@@ -355,8 +427,9 @@ async fn run(config: WorkerConfig) -> i32 {
     // block on the adapter's private runtime, so it runs under
     // `block_in_place` (the recorded sync-port hosting rule; the runtime is
     // multi-thread).
-    let ingestion_composition =
-        match tokio::task::block_in_place(|| compose_ingestion(&config, &store)) {
+    let ingestion_composition = match tokio::task::block_in_place(|| {
+        compose_ingestion(&config, &store, dev_signing_key)
+    }) {
             Ok(composition) => composition,
             Err(error) => {
                 tracing::error!(
@@ -389,6 +462,15 @@ async fn run(config: WorkerConfig) -> i32 {
                     ..Default::default()
                 },
                 metrics,
+                // Patch B: the production envelope authenticator over the
+                // same store (enforced mode: registry keys only;
+                // dev-key mode: the ephemeral verifying key above).
+                Arc::new(PgSourceAuthenticator::new(
+                    store.clone(),
+                    config.source_auth_mode,
+                    config.source_auth_window,
+                    dev_verifying_key_bytes,
+                )),
             );
             // The source bridge (P2.14) holds `runner.queue()` and offers
             // each pulled frame; the offer side sheds at the bounded-channel
@@ -406,8 +488,15 @@ async fn run(config: WorkerConfig) -> i32 {
             // documents (see the `ev_ingest` module header for the named
             // follow-up). Nothing here fakes a caller.
             let queue = runner.queue();
+            // The ingestion task and the source bridge BOTH need the query
+            // and the shutdown receiver; the clones below go into the
+            // spawned task so the originals stay for the bridge.
+            let query_for_ingestion = query.clone();
+            let shutdown_for_ingestion = shutdown_rx.clone();
             ingestion_handle = Some(tokio::spawn(async move {
-                let report = runner.run(query.clone(), shutdown_rx.clone()).await;
+                let report = runner
+                    .run(query_for_ingestion, shutdown_for_ingestion)
+                    .await;
                 tracing::info!(?report, "telemetry ingestion task ended");
                 report
             }));
@@ -530,7 +619,7 @@ async fn run(config: WorkerConfig) -> i32 {
 
     drop(client); // closes the NATS connection
     drop(jetstream);
-    store.pool().close();
+    store.pool().close().await;
     drop(store);
     drop(inbox);
 
@@ -611,10 +700,17 @@ type IngestionComposition = (Arc<SimulatorTelemetrySource>, TelemetryQuery);
 /// compiles against the port only. Decision note:
 /// `ledger/phase-02-asset-telemetry/24_worker_source_wiring.md`.
 ///
-/// Phase 2 source authentication is a recorded STUB — see
-/// `flexcore_worker::ingestion::SOURCE_AUTH_STATUS`; this wiring does not
-/// change what is asserted.
-fn compose_ingestion(config: &WorkerConfig, store: &FlexCoreStore) -> Result<Option<IngestionComposition>, String> {
+/// Phase 2 source authentication is the Patch B signed envelope — see
+/// `flexcore_worker::ingestion::SOURCE_AUTH_STATUS`. In dev-key mode
+/// this wiring signs the simulator's frames with the ephemeral keypair
+/// (`dev_signing_key`, `None` in enforced mode); the authenticator
+/// constructed in `run` verifies them against the same keypair's
+/// verifying bytes.
+fn compose_ingestion(
+    config: &WorkerConfig,
+    store: &FlexCoreStore,
+    dev_signing_key: Option<SigningKey>,
+) -> Result<Option<IngestionComposition>, String> {
     let Some(scenario_path) = config.simulator_scenario.as_deref() else {
         return Ok(None);
     };
@@ -735,6 +831,13 @@ fn compose_ingestion(config: &WorkerConfig, store: &FlexCoreStore) -> Result<Opt
             "the simulator telemetry source could not be built from '{scenario_path}': {error}"
         )
     })?;
+    // Patch B: in dev-key mode the simulator signs every frame it pulls
+    // with the ephemeral keypair (key_id "dev"); without a signing key
+    // the source emits raw frames exactly as before.
+    let source = match dev_signing_key {
+        Some(signing_key) => source.with_signing_key(signing_key),
+        None => source,
+    };
     Ok(Some((Arc::new(source), query)))
 }
 

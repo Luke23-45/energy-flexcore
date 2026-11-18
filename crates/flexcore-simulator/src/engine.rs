@@ -608,17 +608,24 @@ mod tests {
             .filter(|f| f.asset_key == "site-north-bess-1")
             .collect();
         assert_eq!(dropped.len() - kept.len(), 10);
-        // Sequence numbering is untouched by the drop.
-        assert_eq!(
-            dropped.last().unwrap().source_sequence,
-            kept.last().unwrap().source_sequence
-        );
+        // Sequence numbering: dropped frames consume NO sequence number
+        // (engine header doc; the source-level
+        // `fault_drop_leaves_a_pure_event_time_gap_with_intact_sequences`
+        // test pins the same rule — the first sequence after the gap is
+        // exactly the last one before it + 1). So the faulted run's
+        // sequences stay gap-free from 1: 1430 frames, 1..=1430 — while
+        // the clean run has 1..=1440. The last sequence therefore DIFFERS;
+        // what is untouched is the per-frame VALUES, matched by event
+        // time (not by sequence, which shifts by the 10 dropped frames
+        // after the gap).
+        let kept_seqs: Vec<u64> = kept.iter().map(|f| f.source_sequence).collect();
+        assert_eq!(kept_seqs, (1..=1430u64).collect::<Vec<u64>>());
         // Every surviving frame of the asset is value-identical to the
         // clean run (faults act on frames, not generator state).
-        let kept_by_seq: std::collections::HashMap<u64, &WireFrame> =
-            kept.iter().map(|f| (f.source_sequence, *f)).collect();
+        let kept_by_time: std::collections::HashMap<i64, &WireFrame> =
+            kept.iter().map(|f| (f.event_time_unix_ms, *f)).collect();
         for frame in &dropped {
-            if let Some(k) = kept_by_seq.get(&frame.source_sequence) {
+            if let Some(k) = kept_by_time.get(&frame.event_time_unix_ms) {
                 assert_eq!(frame.samples, k.samples);
                 assert_eq!(frame.event_time_unix_ms, k.event_time_unix_ms);
             }

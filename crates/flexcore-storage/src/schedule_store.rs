@@ -132,7 +132,7 @@ impl std::error::Error for ScheduleStoreError {}
 /// then readable for adapters. Identifier fields are the canonical
 /// hyphenated UUID text forms (the recorded FlexUuid ↔ PG uuid mapping
 /// binds text and casts `::uuid` in SQL).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ScheduleRecordRow {
     /// The owning tenant (P0.16 rule 1 — `tenant_id` on every tenant-owned
     /// record, present on the row itself so RLS and the explicit filter
@@ -298,7 +298,7 @@ impl ScheduleRecordReceipt {
 /// See the module header: the trait lives in flexcore-storage by the P3.21
 /// subtask's recorded file ownership (D-P3.21-4); it is shaped to move to
 /// flexcore-ports verbatim if a later subtask relocates it.
-pub trait ScheduleRecordStore {
+pub trait ScheduleRecordStore: Send + Sync {
     /// Inserts one §12.6 schedule-result record inside the CALLER's unit of
     /// work (adapter obligation 1: the same native transaction carries the
     /// paired `ScheduleProposed` outbox row). Conflicts on the candidate

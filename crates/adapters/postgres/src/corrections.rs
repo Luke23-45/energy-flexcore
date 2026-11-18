@@ -282,7 +282,7 @@ fn decode_stored_version(row: &PgRow) -> Result<StoredTelemetryVersion, Telemetr
 /// parameter index (always bound — `NULL` means "no as-of", which lets every
 /// newer version supersede). A version >= 2 superseder always carries
 /// `corrected_at` (the 0012 CHECK), so the comparison is total.
-const NOT_SUPERSEDED_AT_AS_OF: &str = "AND NOT EXISTS ( \
+pub(crate) const NOT_SUPERSEDED_AT_AS_OF: &str = "AND NOT EXISTS ( \
          SELECT 1 FROM telemetry sup \
          WHERE sup.asset_id = telemetry.asset_id \
            AND sup.event_time = telemetry.event_time \
@@ -360,7 +360,7 @@ impl PgUnitOfWork {
             .bind(event_time)
             .bind(sequence)
             .bind(quantity_text)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(map_backend)
             .map_err(TelemetryError::Backend)?;
@@ -388,7 +388,7 @@ impl PgUnitOfWork {
             .bind(event_time)
             .bind(sequence)
             .bind(quantity_text)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await
             .map_err(map_backend)
             .map_err(TelemetryError::Backend)?;
@@ -432,8 +432,10 @@ impl PgUnitOfWork {
                 "telemetry_correction_{}",
                 CORRECTION_SAVEPOINT_COUNTER.fetch_add(1, Ordering::SeqCst)
             );
-            sqlx::query(&format!("SAVEPOINT {savepoint}"))
-                .execute(&mut *tx)
+            // sqlx 0.9 audit: the savepoint name is counter-generated
+            // (`telemetry_correction_<u64>`), never user input.
+            sqlx::query(sqlx::AssertSqlSafe(format!("SAVEPOINT {savepoint}")))
+                .execute(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(TelemetryError::Backend)?;
@@ -467,20 +469,20 @@ impl PgUnitOfWork {
             .bind(&correction.reason)
             .bind(&correction.corrected_by)
             .bind(correction.corrected_at.timestamp())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await;
             match insert {
                 Ok(_) => {
-                    sqlx::query(&format!("RELEASE SAVEPOINT {savepoint}"))
-                        .execute(&mut *tx)
+                    sqlx::query(sqlx::AssertSqlSafe(format!("RELEASE SAVEPOINT {savepoint}")))
+                        .execute(&mut **tx)
                         .await
                         .map_err(map_backend)
                         .map_err(TelemetryError::Backend)?;
                     Ok(CorrectionOutcome::Stored { version: new_version })
                 }
                 Err(err) => {
-                    sqlx::query(&format!("ROLLBACK TO SAVEPOINT {savepoint}"))
-                        .execute(&mut *tx)
+                    sqlx::query(sqlx::AssertSqlSafe(format!("ROLLBACK TO SAVEPOINT {savepoint}")))
+                        .execute(&mut **tx)
                         .await
                         .map_err(map_backend)
                         .map_err(TelemetryError::Backend)?;
@@ -495,8 +497,8 @@ impl PgUnitOfWork {
                     } else {
                         None
                     };
-                    sqlx::query(&format!("RELEASE SAVEPOINT {savepoint}"))
-                        .execute(&mut *tx)
+                    sqlx::query(sqlx::AssertSqlSafe(format!("RELEASE SAVEPOINT {savepoint}")))
+                        .execute(&mut **tx)
                         .await
                         .map_err(map_backend)
                         .map_err(TelemetryError::Backend)?;
@@ -539,7 +541,7 @@ impl PgUnitOfWork {
             .bind(target.event_time.timestamp())
             .bind(target.source_sequence)
             .bind(target.quantity.db_text())
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(map_backend)
             .map_err(TelemetryError::Backend)?;
@@ -610,7 +612,7 @@ impl PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(TelemetryError::Backend)?;
-            let mut query = sqlx::query(&sql)
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(&tenant_text)
                 .bind(&asset_texts)
                 .bind(from.timestamp())
@@ -621,7 +623,7 @@ impl PgUnitOfWork {
             }
             query = query.bind(i64::from(limit));
             let rows = query
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(TelemetryError::Backend)?;
@@ -708,7 +710,7 @@ impl PgUnitOfWork {
         self.runtime.block_on(async {
             let mut guard = self.tx.lock().await;
             let tx = tx_ref(&mut guard).await.map_err(TelemetryError::Backend)?;
-            let mut query = sqlx::query(&sql)
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(&tenant_text)
                 .bind(&asset_text)
                 .bind(from.timestamp())
@@ -722,8 +724,12 @@ impl PgUnitOfWork {
             }
             if let Some(cursor) = &cursor {
                 let (millis, sequence, quantity) = cursor.legs();
-                let cursor_time = time::OffsetDateTime::from_unix_timestamp_millis(millis)
-                    .map_err(|_| decode_failure("telemetry.cursor"))?;
+                let cursor_time = time::OffsetDateTime::from_unix_timestamp_nanos(
+                    // `time` 0.3 has no `from_unix_timestamp_millis`; the
+                    // nanos constructor is exact (i128 cannot overflow here).
+                    millis as i128 * 1_000_000,
+                )
+                .map_err(|_| decode_failure("telemetry.cursor"))?;
                 query = query
                     .bind(cursor_time)
                     .bind(sequence)
@@ -731,7 +737,7 @@ impl PgUnitOfWork {
             }
             query = query.bind(fetch);
             let rows = query
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(TelemetryError::Backend)?;

@@ -46,6 +46,12 @@ pub enum SimMqttError {
     Config(MqttTransportError),
 }
 
+impl From<MqttTransportError> for SimMqttError {
+    fn from(error: MqttTransportError) -> Self {
+        SimMqttError::Config(error)
+    }
+}
+
 impl std::fmt::Display for SimMqttError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -170,7 +176,7 @@ impl MqttUplinkTransport for SimulatedMqttBroker {
                 reason: "the simulated broker's tracker mutex was poisoned".to_string(),
             })?;
         let tracker = trackers
-            .entry(topic.edge_node_id.value())
+            .entry(topic.edge_node_id.value().to_string())
             .or_insert_with(BirthDeathTracker::new);
         let _observation = tracker.observe(payload);
         Ok(PublishReceipt { topic: topic.topic_string(), qos: self.config.qos })

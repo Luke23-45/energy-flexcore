@@ -171,13 +171,17 @@ pub enum AuditUploadError {
     /// The journal rewrite failed; the previous journal is intact, the
     /// in-memory pending set is the truth, and the next commit retries.
     Io { reason: String },
-    /// The commit was refused because the journal's front record does not
-    /// match the first record being committed — committing would remove an
+    /// The commit was refused because the batch is not the journal's
+    /// front prefix in order — committing would remove (or strand) an
     /// UN-UPLOADED predecessor. Nothing was removed (fail-closed).
     OutOfOrderCommit {
-        /// The sequence the caller's batch starts with.
+        /// The sequence expected at the mismatch position: the batch's
+        /// first sequence when the front itself mismatches, else the next
+        /// in-order sequence the batch should have carried there.
         expected_front_sequence: u64,
-        /// The sequence actually at the journal's front.
+        /// The sequence actually presented at that position: the journal's
+        /// front when the front itself mismatches; `None` when the journal
+        /// is empty.
         found_front_sequence: Option<u64>,
     },
 }
@@ -193,9 +197,9 @@ impl std::fmt::Display for AuditUploadError {
                 found_front_sequence,
             } => write!(
                 f,
-                "out-of-order upload commit REFUSED (fail-closed): the batch starts at \
-                 sequence {expected_front_sequence} but the journal front is \
-                 {found_front_sequence:?}; no record was removed"
+                "out-of-order upload commit REFUSED (fail-closed): expected sequence \
+                 {expected_front_sequence} but found {found_front_sequence:?}; no record \
+                 was removed"
             ),
         }
     }
@@ -363,6 +367,7 @@ impl BufferedAuditKind {
             EdgeAuditKind::CredentialExpired => BufferedAuditKind::CredentialExpired,
             EdgeAuditKind::RevocationUnchecked => BufferedAuditKind::RevocationUnchecked,
             EdgeAuditKind::UpdateLifecycle => BufferedAuditKind::UpdateLifecycle,
+            EdgeAuditKind::CommandRejected => BufferedAuditKind::CommandRejected,
         }
     }
 }
@@ -555,9 +560,17 @@ struct Inner {
     queue: VecDeque<BufferedAuditRecord>,
     file: std::fs::File,
     file_len: u64,
-    /// The next sequence to assign (persisted order: continues from the
-    /// replayed journal's highest sequence).
+    /// The next sequence number to assign (persisted across restarts:
+    /// replay continues from the journal's highest sequence + 1).
     next_sequence: u64,
+    /// The journal's front: the smallest sequence still uncommitted and
+    /// not dropped. Tracked SEPARATELY from the memory queue's front
+    /// because `drain` removes records from the queue while the journal
+    /// still holds them (drain is memory-only) -- checking a commit
+    /// against the queue front can therefore never pass on the
+    /// drain -> upload OK -> commit success path. `None` only while the
+    /// journal is empty (fresh file, or every record committed).
+    journal_front_sequence: Option<u64>,
     // Audited counters (in-memory per open — recorded limitation).
     appended_total: u64,
     dropped_oldest: u64,
@@ -611,9 +624,24 @@ impl Inner {
 
         // Memory, then the audited overflow policy (the recorded P6.09
         // pattern: drop OLDEST, hard counter, latched flag, loud log).
+        // The sequence is captured before the push: `record` moves into
+        // the queue on the next line.
+        let sequence = record.sequence;
         self.queue.push_back(record);
+        if self.journal_front_sequence.is_none() {
+            self.journal_front_sequence = Some(sequence);
+        }
         if self.queue.len() > self.capacity {
             let dropped = self.queue.pop_front();
+            // The dropped record leaves the pending set; if it was the
+            // journal's front, the front advances past it (drops take the
+            // queue front in ascending order, so dropped + 1 is the next
+            // not-yet-committed-or-dropped sequence).
+            if let Some(dropped) = &dropped {
+                if self.journal_front_sequence == Some(dropped.sequence) {
+                    self.journal_front_sequence = Some(dropped.sequence + 1);
+                }
+            }
             self.dropped_oldest += 1;
             self.overflowed = true;
             tracing::warn!(
@@ -903,6 +931,10 @@ impl FileAuditBuffer {
             );
         }
 
+        // The replayed queue is already trimmed by the at-open
+        // drop-oldest loop above, so its front IS the journal front.
+        // Computed before the struct literal moves `queue` in.
+        let journal_front_sequence = queue.front().map(|record| record.sequence);
         let mut inner = Inner {
             path,
             capacity,
@@ -911,6 +943,7 @@ impl FileAuditBuffer {
             file,
             file_len: good_offset.max(header_len) as u64,
             next_sequence: highest_sequence + 1,
+            journal_front_sequence,
             appended_total: replayed.saturating_sub(dropped_at_open as usize) as u64,
             dropped_oldest: dropped_at_open,
             corrupt_tail_truncated,
@@ -1024,7 +1057,9 @@ impl FileAuditBuffer {
     /// no record is ever uploaded before its predecessors.
     pub fn drain(&self, max: usize) -> Vec<BufferedAuditRecord> {
         let mut inner = self.inner.lock().expect("poisoned audit buffer");
-        inner.queue.drain(..max.min(inner.queue.len())).collect()
+        // `drain` borrows the queue mutably, so its length is read first.
+        let len = inner.queue.len();
+        inner.queue.drain(..max.min(len)).collect()
     }
 
     /// Puts a failed batch back at the FRONT, preserving order (the
@@ -1042,12 +1077,20 @@ impl FileAuditBuffer {
     /// the journal compacts to the still-pending set. Before this call the
     /// records stay on disk — the at-least-once window.
     ///
-    /// IN-ORDER COMMIT (fail-closed): the commit walks the caller's batch
-    /// in order and removes ONLY while the journal's front matches the
-    /// batch's next sequence. A mismatch (the batch does not start at the
-    /// journal's front) is a named [`AuditUploadError::OutOfOrderCommit`]
-    /// and removes NOTHING — an un-uploaded predecessor is never removed
-    /// out of order, and no record is ever overwritten in place.
+    /// IN-ORDER COMMIT (fail-closed): the batch must be EXACTLY the
+    /// journal's front prefix, in order. A mismatch is a named
+    /// [`AuditUploadError::OutOfOrderCommit`] and removes NOTHING — an
+    /// un-uploaded predecessor is never removed out of order, and no
+    /// record is ever overwritten in place.
+    ///
+    /// The check is against the JOURNAL's front
+    /// ([`Inner::journal_front_sequence`]), NOT the memory queue's front:
+    /// `drain` has already removed the batch from the queue (drain is
+    /// memory-only; the journal still holds the records), so a queue-front
+    /// check can never pass on the drain -> upload OK -> commit success
+    /// path. The contiguity walk also refuses a gapped batch (committing
+    /// [1, 3] while the front is 1 would strand record 2 on disk with no
+    /// commit ever able to reach it).
     pub fn commit_uploaded(
         &self,
         records: &[BufferedAuditRecord],
@@ -1057,42 +1100,51 @@ impl FileAuditBuffer {
             return Ok(0);
         }
         // Fail-closed front check: the batch must start at the journal's
-        // front, else committing would remove an un-uploaded predecessor.
-        match inner.queue.front() {
-            Some(front) if front.sequence == records[0].sequence => {}
-            Some(front) => {
-                tracing::error!(
-                    journal = %inner.path.display(),
-                    batch_front = records[0].sequence,
-                    journal_front = front.sequence,
-                    "OUT-OF-ORDER audit upload commit REFUSED — no record was removed; \
-                     an un-uploaded predecessor is never removed out of order"
-                );
-                return Err(AuditUploadError::OutOfOrderCommit {
-                    expected_front_sequence: records[0].sequence,
-                    found_front_sequence: Some(front.sequence),
-                });
-            }
+        // front and continue in order, else committing would remove an
+        // un-uploaded predecessor (or strand one).
+        let mut expected = match inner.journal_front_sequence {
+            Some(front) => front,
             None => {
                 return Err(AuditUploadError::OutOfOrderCommit {
                     expected_front_sequence: records[0].sequence,
                     found_front_sequence: None,
                 });
             }
+        };
+        for record in records {
+            if record.sequence != expected {
+                tracing::error!(
+                    journal = %inner.path.display(),
+                    batch_front = records[0].sequence,
+                    journal_front = inner.journal_front_sequence,
+                    expected_sequence = expected,
+                    found_sequence = record.sequence,
+                    "OUT-OF-ORDER audit upload commit REFUSED — no record was removed; \
+                     an un-uploaded predecessor is never removed out of order"
+                );
+                return Err(AuditUploadError::OutOfOrderCommit {
+                    expected_front_sequence: expected,
+                    found_front_sequence: Some(record.sequence),
+                });
+            }
+            expected += 1;
         }
-        // Remove the matching PREFIX (in order only).
-        let mut committed = 0usize;
+        // Remove the batch from the pending queue where it is present (the
+        // prepend-back case: drain -> prepend -> commit). In the plain
+        // drain -> commit flow the batch is already out of the queue and
+        // this loop pops nothing -- the compaction below is what removes
+        // the records from the journal.
         for record in records {
             match inner.queue.front() {
                 Some(front) if front.sequence == record.sequence => {
                     inner.queue.pop_front();
-                    committed += 1;
                 }
                 _ => break,
             }
         }
+        inner.journal_front_sequence = Some(expected);
         inner.compact_journal();
-        Ok(committed)
+        Ok(records.len())
     }
 }
 
@@ -1290,7 +1342,10 @@ mod tests {
         let dir = scratch_dir("foreign");
         let path = dir.join("audit.journal");
         std::fs::write(&path, b"not a flexcore audit journal").expect("writes");
-        let error = FileAuditBuffer::open(&path, 10, clock()).expect_err("refused");
+        let error = match FileAuditBuffer::open(&path, 10, clock()) {
+            Ok(_) => panic!("a foreign file must never open as an audit journal"),
+            Err(error) => error,
+        };
         assert!(matches!(error, FileAuditBufferError::NotAJournal { .. }));
         cleanup(&dir);
     }
@@ -1301,7 +1356,7 @@ mod tests {
         let path = dir.join("audit.journal");
         let buffer = FileAuditBuffer::open(&path, 10, clock()).expect("opens");
         let error = buffer
-            .record_event(BufferedAuditKind::ScopeDenied, "  ", "object", "detail")
+            .record_event(BufferedAuditKind::ScopeDenied, "  ", "object", "detail".to_string())
             .expect_err("an actorless audit record is refused");
         assert!(matches!(error, EdgeError::AuditWriteFailed { .. }));
         assert_eq!(buffer.pending_len(), 0, "nothing was recorded");

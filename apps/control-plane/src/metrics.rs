@@ -78,6 +78,7 @@
 // here (wave-1 handoff honored). WRITTEN-UNRUN;
 // records/51_p11_20_stuck_state.md.
 
+use axum::extract::State;
 use std::collections::BTreeMap;
 use std::hash::Hasher as _;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1352,13 +1353,16 @@ mod tests {
     /// and non-canonical shapes fail closed to `None`.
     #[test]
     fn uuidv7_extraction_reads_the_timestamp_field_and_fails_closed() {
-        // unix_ms 1_700_000_000_000 = 0x18BCFE568E00 in the top 48 bits;
-        // version nibble 7, variant bits set.
-        let uuid = "18bcfe56-8e00-7000-8000-000000000000";
+        // unix_ms 1_700_000_000_000 = 0x018BCFE56800 in the top 48 bits
+        // (eleven hex digits — the 12-digit field carries a leading zero);
+        // version nibble 7, variant bits set. (The old fixture
+        // "18bcfe56-8e00-..." encoded 0x18BCFE568E00 = 2,720,000,000,3584,
+        // not 1,700,000,000,000; the implementation was right.)
+        let uuid = "018bcfe5-6800-7000-8000-000000000000";
         assert_eq!(uuidv7_unix_millis(uuid), Some(1_700_000_000_000));
         // Uppercase hex is still canonical UUID text.
         assert_eq!(
-            uuidv7_unix_millis("18BCFE56-8E00-7000-8000-000000000000"),
+            uuidv7_unix_millis("018BCFE5-6800-7000-8000-000000000000"),
             Some(1_700_000_000_000)
         );
         // Version 4: fail closed (not a D-S1 identifier).

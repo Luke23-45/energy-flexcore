@@ -274,7 +274,7 @@ impl<'a> OutboxPublisher<'a> {
     async fn publish_entry(
         &self,
         entry: &PendingOutboxEntry,
-    ) -> Result<async_nats::jetstream::PublishAck, PublishError> {
+    ) -> Result<PublishAck, PublishError> {
         let mut headers = HeaderMap::new();
         // P1.15 acceptance: Nats-Msg-Id is set from the idempotency key on
         // EVERY publish, without exception.
@@ -284,7 +284,7 @@ impl<'a> OutboxPublisher<'a> {
         // propagator). An absent context injects nothing — no header is
         // written, no trace id is fabricated (recorded no-op, module
         // header). VERIFY-BUILD (async-nats 0.50.0): `HeaderMap::insert`
-        // takes `K: Into<HeaderName>` and `V: IntoHeaderValue`; the
+        // takes `K: IntoHeaderName` and `V: IntoHeaderValue`; the
         // `&str` name and `String` value conversions are the documented
         // shapes, re-verified at the first human build.
         for (name, value) in (self.trace_headers)() {
@@ -307,15 +307,24 @@ impl<'a> OutboxPublisher<'a> {
         let schema_headers = crate::topology::published_message_headers(
             crate::topology::PUBLISHED_SCHEMA_VERSION,
         );
-        for (name, value) in schema_headers.iter() {
-            headers.insert(name, value);
+        for (name, values) in schema_headers.iter() {
+            // `HeaderMap::iter` yields `(&HeaderName, &Vec<HeaderValue>)`;
+            // neither reference converts (`IntoHeaderName` /
+            // `IntoHeaderValue` are implemented for the owned types only),
+            // so each value is appended individually — multi-value headers
+            // are preserved instead of collapsing to one `insert`.
+            for value in values {
+                headers.append(name.clone(), value.clone());
+            }
         }
         let ack_future = self
             .jetstream
             .publish_with_headers(
-                entry.destination_subject().as_str(),
+                // `ToSubject` is implemented for `String`, not `&str`
+                // (async-nats 0.50.0 subject.rs); the subject is owned here.
+                entry.destination_subject().to_string(),
                 headers,
-                entry.payload().as_bytes().to_vec(),
+                entry.payload().as_bytes().to_vec().into(),
             )
             .await?;
         // The broker publish acknowledgement — the ONLY thing that may

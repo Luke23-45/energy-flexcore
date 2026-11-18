@@ -423,6 +423,12 @@ impl ScheduleRevisionRecord {
                     field: "superseded_by_candidate_id",
                 });
             }
+            // Unreachable after the vocabulary check above (`state` is
+            // ACTIVE or SUPERSEDED here); fail closed with the same error
+            // rather than trusting the pre-check to stay in sync.
+            (_, _, _) => {
+                return Err(ScheduleRevisionError::InvalidRevision { field: "state" });
+            }
         }
         Ok(Self {
             row,
@@ -513,7 +519,7 @@ impl ScheduleRevisionReceipt {
 ///   leaks (P0.16 rule 5);
 /// - storage failures surface as [`ScheduleRevisionError::Backend`] with an
 ///   opaque code + message only.
-pub trait ScheduleRevisionChainStore {
+pub trait ScheduleRevisionChainStore: Send + Sync {
     /// Inserts one NEW revision (always `active`). For `revision > 1` the
     /// adapter verifies inside the transaction that revision − 1 exists,
     /// is `superseded`, and names this revision as its superseded-by target

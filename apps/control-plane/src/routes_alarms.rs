@@ -62,7 +62,7 @@ use flexcore_ports::telemetry_read::TelemetryReader;
 use flexcore_storage::command_store::{CommandListFilter, CommandRecordStore as _};
 use flexcore_storage::feasibility_check::{FeasibilityCheckFilter, FeasibilityCheckStore as _};
 use serde::Deserialize;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::{CallerExtractor, authorize_tenant_scoped};
 use crate::dto_alarms::{AlarmPageEnvelope, AlarmSourcesDto, alarm_page_envelope};
@@ -93,7 +93,7 @@ const ALARM_CODES: [&str; 7] = [
 
 /// The list filters of `GET /api/v1/alarms`. All are optional; every
 /// malformed value is a 422 (never a silent "no filter").
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct AlarmListParams {
     /// Filter by closed severity (`INFO` | `WARNING` | `CRITICAL`).
     #[serde(default)]
@@ -155,7 +155,7 @@ struct Derivation {
         (status = 422, description = "Malformed filter value, inverted time window, or active_only=false (no persistence exists to serve cleared alarms)", body = crate::error::ErrorEnvelope),
     )
 )]
-async fn list_alarms(
+pub(crate) async fn list_alarms(
     State(state): State<AppState>,
     CallerExtractor(caller): CallerExtractor,
     Query(params): Query<AlarmListParams>,
@@ -213,7 +213,7 @@ async fn list_alarms(
     {
         if from > to {
             return Err(ApiError::validation(
-                "'from_event_unix_millis' must not be after 'to_event_unix_millis'",
+                "'from_event_unix_millis' must not be after 'to_event_unix_millis'".to_string(),
             ));
         }
     }

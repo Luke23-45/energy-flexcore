@@ -55,9 +55,10 @@
 // value: partition creation is runtime DDL by design (migration 0010's
 // recorded reasoning), and D-P5 forbids retention values in schema or code.
 
+use sqlx::Row;
 use flexcore_audit::record::{
     ActorIdentity, AuditAction, AuditDecision, AuditObject, AuditRecord, AuditRecordFields,
-    DecisionOutcome, RecordReference,
+    DecisionOutcome, EvidenceReference, RecordReference,
 };
 use flexcore_contracts::ids::FlexUuid;
 use flexcore_contracts::time_model::{EventTime, IngestTime};
@@ -413,7 +414,10 @@ fn build_audit_record(
             .map_err(|_| maintenance_rejected("the maintenance decision is invalid"))?,
         ),
         evidence: Some(
-            RecordReference::new(bounds_note)
+            // The evidence pointer is an EvidenceReference, not a
+            // RecordReference: the audit trail records the reference, not
+            // the evidence itself (same `new` shape, different newtype).
+            EvidenceReference::new(bounds_note)
                 .map_err(|_| maintenance_rejected("the bounds evidence reference is invalid"))?,
         ),
         event_time,
@@ -439,7 +443,7 @@ impl PgUnitOfWork {
                  WHERE i.inhparent = 'telemetry'::regclass \
                  ORDER BY c.relname",
             )
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(map_backend)
             .map_err(maintenance_backend)?;
@@ -447,10 +451,16 @@ impl PgUnitOfWork {
             for row in &rows {
                 let name: String = row
                     .try_get("name")
-                    .map_err(|_| crate::error::decode_failure("pg_class.relname"))?;
+                    .map_err(|_| {
+                        maintenance_backend(crate::error::decode_failure("pg_class.relname"))
+                    })?;
                 let bound: String = row
                     .try_get("bound")
-                    .map_err(|_| crate::error::decode_failure("pg_class.relpartbound"))?;
+                    .map_err(|_| {
+                        maintenance_backend(crate::error::decode_failure(
+                            "pg_class.relpartbound",
+                        ))
+                    })?;
                 let bounds = parse_partition_bounds(&bound).map(|(from_utc, until_utc)| {
                     PartitionBounds {
                         from_utc,
@@ -504,8 +514,11 @@ impl PgUnitOfWork {
                 "CREATE TABLE IF NOT EXISTS {name} PARTITION OF telemetry \
                  FOR VALUES FROM ('{from_text}') TO ('{until_text}')"
             );
-            sqlx::query(&ddl)
-                .execute(&mut *tx)
+            // sqlx 0.9 audit: the DDL interpolates only the validated
+            // partition name (`is_telemetry_partition_name`) and the
+            // calendar-computed bounds; every value is a literal.
+            sqlx::query(sqlx::AssertSqlSafe(ddl.as_str()))
+                .execute(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(maintenance_backend)?;
@@ -572,12 +585,15 @@ impl PgUnitOfWork {
             let tx = tx_ref(&mut guard).await.map_err(maintenance_backend)?;
             // Regular DETACH (transactional) — see D-R2 for the recorded
             // CONCURRENTLY trade-off.
-            sqlx::query(&format!("ALTER TABLE telemetry DETACH PARTITION {name}"))
-                .execute(&mut *tx)
+            sqlx::query(sqlx::AssertSqlSafe(format!("ALTER TABLE telemetry DETACH PARTITION {name}")))
+                .execute(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(maintenance_backend)?;
-            crate::audit::insert_audit_record(&mut *tx, &record)
+            // No chain linkage for maintenance audit records (same as the
+            // store and unit-of-work callers): the keyed-chain columns
+            // stay NULL, the honest un-keyed state.
+            crate::audit::insert_audit_record(&mut **tx, &record, None)
                 .await
                 .map_err(|e| {
                     MaintenanceError::Backend(BackendError::new(
@@ -623,7 +639,7 @@ impl PgUnitOfWork {
                  WHERE i.inhparent = 'telemetry'::regclass AND c.relname = $1",
             )
             .bind(name)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(map_backend)
             .map_err(maintenance_backend)?;
@@ -638,7 +654,7 @@ impl PgUnitOfWork {
             let exists: bool =
                 sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
                     .bind(format!("public.{name}"))
-                    .fetch_one(&mut *tx)
+                    .fetch_one(&mut **tx)
                     .await
                     .map_err(map_backend)
                     .map_err(maintenance_backend)?;
@@ -647,12 +663,15 @@ impl PgUnitOfWork {
                     partition: name.to_string(),
                 });
             }
-            sqlx::query(&format!("DROP TABLE {name}"))
-                .execute(&mut *tx)
+            sqlx::query(sqlx::AssertSqlSafe(format!("DROP TABLE {name}")))
+                .execute(&mut **tx)
                 .await
                 .map_err(map_backend)
                 .map_err(maintenance_backend)?;
-            crate::audit::insert_audit_record(&mut *tx, &record)
+            // No chain linkage for maintenance audit records (same as the
+            // store and unit-of-work callers): the keyed-chain columns
+            // stay NULL, the honest un-keyed state.
+            crate::audit::insert_audit_record(&mut **tx, &record, None)
                 .await
                 .map_err(|e| {
                     MaintenanceError::Backend(BackendError::new(
@@ -820,10 +839,20 @@ mod tests {
             bounds: None,
         };
         assert!(retention_eligible(&[unknown], cutoff, now).is_empty());
-        // A zero-month retention keeps everything from this month on.
+        // A zero-month retention keeps only this month on: the cutoff is
+        // the first day of the current month (2030-04-01), so jan, feb and
+        // mar all lie entirely before it (D-R3: eligible exactly when
+        // until <= cutoff, mar's until EQUALS the cutoff); only apr, which
+        // contains `now`, is kept.
         let zero_cutoff = retention_cutoff(2030, 4, 0).expect("cutoff");
         assert_eq!(zero_cutoff, month_bounds(2030, 4).expect("bounds").0);
-        assert!(retention_eligible(&[jan, feb, mar, apr], zero_cutoff, now).is_empty());
+        let zero_eligible = retention_eligible(&[jan, feb, mar, apr], zero_cutoff, now);
+        let zero_names: Vec<&str> =
+            zero_eligible.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            zero_names,
+            vec!["telemetry_y2030m01", "telemetry_y2030m02", "telemetry_y2030m03"]
+        );
     }
 
     #[test]

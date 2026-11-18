@@ -49,11 +49,13 @@ use std::time::Duration;
 
 use flexcore_domain::command_state::CommandState;
 use opentelemetry::global;
-use opentelemetry::propagation::TraceContextPropagator;
-use opentelemetry_otlp::{LogExporter, SpanExporter};
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+use opentelemetry_otlp::{LogExporter, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::logs::SdkLoggerProvider;
 use opentelemetry_sdk::resource::Resource;
-use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider, TraceIdRatioBased};
+use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// Environment keys this module reads (composition-root configuration;
 /// no secret values — an endpoint URL and a sampling ratio only).
@@ -224,7 +226,9 @@ pub fn init_from_env(config: &TelemetryConfig, log_level: &str) -> TelemetryGuar
         .build();
     // Parent-based head sampling: the decision is made once at the root
     // span and inherited by every child (P11.06 sampling policy record).
-    let sampler = Sampler::ParentBased(Box::new(TraceIdRatioBased::new(
+    // In SDK 0.33 `TraceIdRatioBased` is a `Sampler` variant, not a
+    // standalone type (`Sampler::TraceIdRatioBased(ratio)`).
+    let sampler = Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
         config.trace_sample_ratio,
     )));
     let tracer_provider = SdkTracerProvider::builder()
@@ -307,7 +311,7 @@ pub fn command_gate_span(from: CommandState, to: CommandState) -> tracing::Span 
 mod tests {
     use super::*;
 
-    fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + '_ {
+    fn env_of<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |key: &str| {
             pairs
                 .iter()

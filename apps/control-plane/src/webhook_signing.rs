@@ -600,6 +600,7 @@ fn parse_signature_header(
 ) -> Result<(i64, [u8; 32]), WebhookSigningError> {
     let mut timestamp: Option<i64> = None;
     let mut signature: Option<[u8; 32]> = None;
+    let mut saw_unknown = false;
     for element in header_value.split(scheme::ELEMENT_SEPARATOR) {
         let (key, value) = element
             .split_once(scheme::KEY_VALUE_SEPARATOR)
@@ -640,14 +641,20 @@ fn parse_signature_header(
                 signature = Some(bytes);
             }
             _ => {
-                return Err(WebhookSigningError::HeaderMalformed {
-                    reason: "unknown element",
-                })
+                // Deferred past the loop: a missing required element is
+                // the primary defect (the old form reported the unknown
+                // element first, so a header with a timestamp and an
+                // unknown element but NO signature reported "unknown
+                // element" instead of "signature element missing").
+                saw_unknown = true;
             }
         }
     }
     match (timestamp, signature) {
-        (Some(t), Some(s)) => Ok((t, s)),
+        (Some(t), Some(s)) if !saw_unknown => Ok((t, s)),
+        (Some(_), Some(_)) => Err(WebhookSigningError::HeaderMalformed {
+            reason: "unknown element",
+        }),
         (None, _) => Err(WebhookSigningError::HeaderMalformed {
             reason: "timestamp element missing",
         }),
@@ -883,9 +890,12 @@ mod tests {
 
     #[test]
     fn secrets_below_the_floor_fail_closed() {
-        assert_eq!(
-            WebhookSigningKey::from_bytes(&[0x42; 31]),
-            Err(WebhookSigningError::SecretTooShort { length: 31 })
+        assert!(
+            matches!(
+                WebhookSigningKey::from_bytes(&[0x42; 31]),
+                Err(WebhookSigningError::SecretTooShort { length: 31 })
+            ),
+            "secrets below the floor fail closed"
         );
         WebhookSigningKey::from_bytes(&[0x42; 32]).expect("at the floor passes");
     }
@@ -966,23 +976,31 @@ mod tests {
         let payload = format!("whsec_{VALID_ZERO_PAYLOAD}");
         let cases = [
             (
-                parse_webhook_secret(&format!("WHSEC_{VALID_ZERO_PAYLOAD}"))
-                    .expect_err("wrong prefix refused"),
+                match parse_webhook_secret(&format!("WHSEC_{VALID_ZERO_PAYLOAD}")) {
+                    Ok(_) => panic!("wrong prefix refused"),
+                    Err(err) => err,
+                },
                 "WEBHOOK_SECRET_WRONG_PREFIX",
             ),
             (
-                parse_webhook_secret(&format!("whsec_{}", &VALID_ZERO_PAYLOAD[..42]))
-                    .expect_err("wrong length refused"),
+                match parse_webhook_secret(&format!("whsec_{}", &VALID_ZERO_PAYLOAD[..42])) {
+                    Ok(_) => panic!("wrong length refused"),
+                    Err(err) => err,
+                },
                 "WEBHOOK_SECRET_WRONG_LENGTH",
             ),
             (
-                parse_webhook_secret(&format!("whsec_{}=", &VALID_ZERO_PAYLOAD[..42]))
-                    .expect_err("padding refused"),
+                match parse_webhook_secret(&format!("whsec_{}=", &VALID_ZERO_PAYLOAD[..42])) {
+                    Ok(_) => panic!("padding refused"),
+                    Err(err) => err,
+                },
                 "WEBHOOK_SECRET_PADDING_CHARACTER",
             ),
             (
-                parse_webhook_secret(&format!("whsec_{}+", &VALID_ZERO_PAYLOAD[..42]))
-                    .expect_err("non-alphabet refused"),
+                match parse_webhook_secret(&format!("whsec_{}+", &VALID_ZERO_PAYLOAD[..42])) {
+                    Ok(_) => panic!("non-alphabet refused"),
+                    Err(err) => err,
+                },
                 "WEBHOOK_SECRET_NON_ALPHABET_CHARACTER",
             ),
         ];

@@ -32,6 +32,7 @@
 // are unreachable through the port — a pack is tenant-scoped BY
 // CONSTRUCTION, never by a filter this module applies.
 
+use serde::Serialize;
 use std::collections::BTreeMap;
 
 use flexcore_domain::tenant_context::TenantContext;
@@ -175,7 +176,7 @@ pub fn jsonl_line(row: &AuditEventRow) -> String {
 }
 
 /// The export manifest (the pack's signed envelope).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AuditExportManifest {
     /// The pack identifier (opaque non-empty text, caller-supplied — the
     /// id-generation port's concern, not this module's; P1.07).
@@ -230,7 +231,7 @@ pub struct AuditExportBuilder<'a> {
     clock_millis: Box<dyn Fn() -> i64 + 'a>,
 }
 
-impl<'a> AuditExportBuilder {
+impl<'a> AuditExportBuilder<'a> {
     /// Composes the builder over the read port and the injected clock.
     pub fn new(
         reader: &'a dyn AuditEventReader,
@@ -480,7 +481,7 @@ mod tests {
                 .rows
                 .iter()
                 .filter(|(t, r)| {
-                    *t == ctx.tenant_id
+                    *t == ctx.tenant_id()
                         && filter
                             .from_event_unix_millis
                             .map(|from| r.event_time_unix_millis >= from)

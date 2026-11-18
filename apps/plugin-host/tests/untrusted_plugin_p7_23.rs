@@ -287,9 +287,9 @@ fn cross_tenant_telemetry_read_is_outside_every_grant() {
         .expect_err("a site grant never covers a tenant-wide request");
     assert_eq!(err.name(), "SCOPE_OUTSIDE_GRANT");
     // Every denial audited (three CapabilityDenied records, in order).
-    let denials: Vec<&BrokerAuditEvent> = broker_sink
+    let denials: Vec<BrokerAuditEvent> = broker_sink
         .events()
-        .iter()
+        .into_iter()
         .filter(|e| e.kind == BrokerAuditKind::CapabilityDenied)
         .collect();
     assert_eq!(denials.len(), 3, "each attempted read is individually audited");
@@ -430,9 +430,9 @@ fn ungranted_capability_use_is_denied_and_audited() {
             .expect_err("defaults deny");
         assert_eq!(err.name(), "CAPABILITY_NOT_GRANTED", "{capability}");
     }
-    let denials: Vec<&BrokerAuditEvent> = broker_sink
+    let denials: Vec<BrokerAuditEvent> = broker_sink
         .events()
-        .iter()
+        .into_iter()
         .filter(|e| e.kind == BrokerAuditKind::CapabilityDenied)
         .collect();
     assert_eq!(denials.len(), ALLOWED_PERMISSIONS.len());
@@ -506,13 +506,27 @@ fn the_vocabulary_has_no_kernel_contract_and_no_verdict_id() {
             .expect_err("the protected kernel is not addressable");
         assert_eq!(err.name(), "PERMISSION_UNKNOWN", "{crafted}");
     }
-    // Vocabulary sweep: NO grantable or never-granted id names the kernel
-    // or an authorization verdict — the claim "the authorizer is
-    // unreachable" holds by construction, not by configuration.
-    for id in ALLOWED_PERMISSIONS.iter().chain(NEVER_GRANTED_PERMISSIONS.iter()) {
+    // Vocabulary sweep: NO grantable id names the kernel or an
+    // authorization verdict — the claim "the authorizer is unreachable"
+    // holds by construction, not by configuration. The sweep splits by
+    // list: the "authorize" ban applies to GRANTABLE ids only.
+    // "dispatch.authorize" is BY DESIGN in the never-granted set (kernel
+    // manifest.rs + the broker mirror) — it is the id that must never be
+    // granted, named explicitly so the refusal can name it; sweeping it
+    // with the grantable predicate would refuse the refusal itself.
+    // (The old exception for "dispatch.validate.request" was vacuous:
+    // that id contains "validate", not "authorize".)
+    for id in ALLOWED_PERMISSIONS.iter() {
         assert!(!id.contains("kernel."), "no capability id may name the kernel");
-        assert!(!id.contains("authorize") || *id == "dispatch.validate.request");
+        assert!(!id.contains("authorize"), "no grantable id may authorize");
     }
+    for id in NEVER_GRANTED_PERMISSIONS.iter() {
+        assert!(!id.contains("kernel."), "no capability id may name the kernel");
+    }
+    assert!(
+        NEVER_GRANTED_PERMISSIONS.contains(&"dispatch.authorize"),
+        "the authorizer id is named in the never-granted set, not merely absent"
+    );
 }
 
 // --- #9: the manifest lie about class ---------------------------------------------------

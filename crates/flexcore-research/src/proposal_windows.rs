@@ -569,6 +569,18 @@ pub struct FileSnapshotSupersessionRegister {
     records_written: std::sync::atomic::AtomicU64,
 }
 
+impl std::fmt::Debug for FileSnapshotSupersessionRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // `std::fs::File` has no `Debug`, so the derive cannot apply; the
+        // path and the counters are the inspectable state.
+        f.debug_struct("FileSnapshotSupersessionRegister")
+            .field("path", &self.path)
+            .field("records_written", &self.records_written())
+            .field("corrupt_tail_truncated", &self.corrupt_tail_truncated())
+            .finish_non_exhaustive()
+    }
+}
+
 impl FileSnapshotSupersessionRegister {
     /// The journal magic header (26-byte label) + format version.
     fn magic() -> Vec<u8> {
@@ -587,6 +599,11 @@ impl FileSnapshotSupersessionRegister {
             });
         }
         let magic = Self::magic();
+        // Hoisted out of the match: the replay-computed corrupt-tail count
+        // must survive into the constructed register (a reopened instance
+        // reports what the file held — the same dropped-counter fix as the
+        // kernel checkpoint/revocation registers).
+        let mut corrupt_tail_truncated: u64 = 0;
         let (file, replayed) = match std::fs::OpenOptions::new().read(true).write(true).open(path)
         {
             Ok(mut existing) => {
@@ -611,7 +628,8 @@ impl FileSnapshotSupersessionRegister {
                     }
                     let mut records = Vec::new();
                     let mut offset = magic.len();
-                    let mut corrupt_tail_truncated: u64 = 0;
+                    // (The counter is declared above the match so the
+                    // constructor below can initialize from the replay.)
                     while offset + 8 <= contents.len() {
                         let len = match contents
                             .get(offset..offset + 4)
@@ -725,14 +743,15 @@ impl FileSnapshotSupersessionRegister {
             known_ids.insert(record.superseded_snapshot_id.clone());
             known_ids.insert(record.by_snapshot_id.clone());
         }
+        let records_written = replayed.len() as u64;
         Ok(Self {
             path: path.to_path_buf(),
             file: Mutex::new(file),
             by_superseded_id: Mutex::new(by_superseded_id),
             known_ids: Mutex::new(known_ids),
             append_order: Mutex::new(replayed),
-            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(0),
-            records_written: std::sync::atomic::AtomicU64::new(0),
+            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(corrupt_tail_truncated),
+            records_written: std::sync::atomic::AtomicU64::new(records_written),
         })
     }
 
@@ -749,10 +768,20 @@ impl FileSnapshotSupersessionRegister {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// How many records this instance has written (diagnostics).
+    /// How many records the register holds: replayed at open plus written
+    /// since (diagnostics — a reopened instance reports what the file
+    /// holds, not zero).
     pub fn records_written(&self) -> u64 {
         self.records_written
             .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The records in append order (test/composition inspection).
+    pub fn records(&self) -> Vec<SnapshotSupersessionRecord> {
+        match self.append_order.lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Declares a snapshot KNOWN (host-side; survives only in the current

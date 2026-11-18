@@ -64,7 +64,7 @@ pub enum MappingTarget {
 
 impl MappingTarget {
     /// Canonical kind name for the import summary.
-    pub const fn kind(self) -> &'static str {
+    pub const fn kind(&self) -> &'static str {
         match self {
             MappingTarget::Bus(_) => "bus",
             MappingTarget::Branch(_) => "branch",

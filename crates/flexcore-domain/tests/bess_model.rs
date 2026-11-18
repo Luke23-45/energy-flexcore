@@ -157,10 +157,12 @@ fn p3_05_auxiliary_term_is_applied_where_data_exists() {
     assert_close(evaluation.interval_energies_mwh[3], 3.0, "E_3 with aux drain");
     assert_close(evaluation.interval_energies_mwh[4], 7.5, "E_4 with aux drain");
     assert_close(evaluation.interval_socs[3], 0.375, "SOC_3 with aux drain");
-    // Weakest per-interval provenance is recorded (Measured < Configured).
+    // Weakest per-interval provenance is recorded: of {Measured,
+    // Configured} the weakest is Configured (Measured > Configured >
+    // Inferred > Unknown, strongest first).
     assert_eq!(
         evaluation.provenance.auxiliary_load,
-        AuxLoadState::Known { provenance: Provenance::Measured }
+        AuxLoadState::Known { provenance: Provenance::Configured }
     );
 }
 
@@ -339,7 +341,7 @@ fn p3_06_reserve_floor_narrows_the_usable_window_and_is_enforced() {
     // E_1 = 4 − 2/0.9 = 1.777... < 2.4 → floor violated at boundary 1.
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, BessViolation::EnergyBelowReserveFloor { .. })),
-        Some(BessViolation::EnergyBelowReserveFloor { boundary: 1, floor_mwh, .. } if (floor_mwh - 2.4).abs() <= TOL)
+        Some(BessViolation::EnergyBelowReserveFloor { boundary: 1, floor_mwh, .. }) if (*floor_mwh - 2.4).abs() <= TOL
     ));
     // An idle schedule exactly ON the floor boundary is feasible
     // (boundary-inclusive): initial SOC 0.3 → E = 2.4 exactly.
@@ -530,8 +532,8 @@ fn p3_07_fixture_soc_exactly_at_e_max_charge_when_full_is_rejected_not_clipped()
     );
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, BessViolation::EnergyAboveMax { .. })),
-        Some(BessViolation::EnergyAboveMax { boundary: 1, energy_mwh, e_max_mwh: 8.0 }
-            if (energy_mwh - 8.45).abs() <= TOL)
+        Some(BessViolation::EnergyAboveMax { boundary: 1, energy_mwh, e_max_mwh: 8.0 })
+            if (*energy_mwh - 8.45).abs() <= TOL
     ));
 }
 
@@ -636,7 +638,7 @@ fn p3_07_ramp_limit_enforced_between_intervals_where_configured() {
             interval: 1,
             net_change_mw,
             limit_mw_per_interval
-        } if (net_change_mw - 4.0).abs() <= TOL && (limit_mw_per_interval - 3.0).abs() <= TOL)
+        }) if (*net_change_mw - 4.0).abs() <= TOL && (*limit_mw_per_interval - 3.0).abs() <= TOL
     ));
     // The first interval is exempt (no prior setpoint exists).
     let schedule = BessSchedule {
@@ -684,7 +686,7 @@ fn p3_05_soc_dependent_power_limits_apply_only_where_configured() {
     let evaluation = model.evaluate_schedule(&schedule).unwrap();
     assert!(matches!(
         evaluation.violations.first(),
-        Some(BessViolation::DischargePowerAboveLimit { limit_mw, .. } if (limit_mw - 1.0).abs() <= TOL)
+        Some(BessViolation::DischargePowerAboveLimit { limit_mw, .. }) if (*limit_mw - 1.0).abs() <= TOL
     ));
 }
 
@@ -706,12 +708,13 @@ fn p3_05_temperature_derate_applies_only_where_data_exists() {
     let evaluation = model.evaluate_schedule(&schedule).unwrap();
     assert!(matches!(
         evaluation.violations.first(),
-        Some(BessViolation::DischargePowerAboveLimit { limit_mw, .. } if (limit_mw - 4.0).abs() <= TOL)
+        Some(BessViolation::DischargePowerAboveLimit { limit_mw, .. }) if (*limit_mw - 4.0).abs() <= TOL
     ));
 
     // UNKNOWN provenance: no derate applied (no credit taken from unknown
     // data), and the absence is recorded.
     let mut config = worked_example_config();
+    config.reserve = None;
     config.temperature_derate = Some(TemperatureDerate {
         provenance: Provenance::Unknown,
         derate_mw_per_interval: vec![1.0],

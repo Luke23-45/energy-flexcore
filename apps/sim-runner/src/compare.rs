@@ -94,7 +94,14 @@ fn sorted(records: &[ReplayRecord]) -> Vec<&ReplayRecord> {
         identity(a)
             .cmp(&identity(b))
             .then_with(|| a.quality.cmp(&b.quality))
-            .then_with(|| serde_json::to_string(&a.value).cmp(&serde_json::to_string(&b.value)))
+            .then_with(|| {
+                // `ReplayValue` serializes infallibly in practice (all
+                // fields are f64/String/bool); the empty-string fallback
+                // only keeps the ordering total if serialization ever fails.
+                serde_json::to_string(&a.value)
+                    .unwrap_or_default()
+                    .cmp(&serde_json::to_string(&b.value).unwrap_or_default())
+            })
     });
     sorted
 }

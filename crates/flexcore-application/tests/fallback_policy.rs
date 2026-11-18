@@ -36,7 +36,8 @@ use flexcore_application::error::ApplicationError;
 use flexcore_application::fallback_policy::{
     BoundedHoldInterval, EscalationTarget, FallbackAction, FallbackActivationInput,
     FallbackAuditError, FallbackAuditSink, FallbackDecision, FallbackEngine, FallbackPolicy,
-    FallbackPolicyEntry, FallbackPolicyError, FallbackPolicyRegistry, FallbackScope,
+    FallbackPolicyEntry, FallbackPolicyError, FallbackPolicyRegistry, FallbackPolicyVariant,
+    FallbackScope,
     FallbackTrigger, HoldValidityConditions, SimulatedOperatorReview,
     DEFAULT_ENTRY_STATEMENT, DISPATCH_FALLBACK_PAYLOAD_GAP_NOTE, FALLBACK_POLICY_REF_PREFIX,
     NO_UNIVERSAL_FALLBACK_STATEMENT, RECOVERY_RULE_STATEMENT, SIMULATED_OPERATOR_REVIEW_LABEL,
@@ -408,16 +409,10 @@ fn run_chain_to_failed(command_id: CommandId, clock: &TestClock) -> Vec<CommandT
             )
             .expect("issue");
     });
+    // No acknowledgement step: the helper's contract is ISSUED -> FAILED
+    // on a NACK, and the frozen §14.1 table allows Nack ONLY from ISSUED
+    // (an ACKNOWLEDGED command fails only on NoExpectedResponse).
     step(&mut lifecycle, 5_000, &|lifecycle, clock| {
-        lifecycle
-            .record_acknowledgement(
-                EvidenceReference::new("acceptance:test").expect("evidence"),
-                actor(),
-                clock,
-            )
-            .expect("acknowledgement");
-    });
-    step(&mut lifecycle, 6_000, &|lifecycle, clock| {
         lifecycle
             .record_failure(FailureReason::Nack, actor(), clock)
             .expect("failure");
@@ -863,6 +858,10 @@ fn the_bounded_hold_is_active_before_its_interval_and_escalates_after_it() {
     let command = command_id(8);
     let journal = run_chain_to_failed(command, harness.clock);
     harness.store.seed(command, VALID_UNTIL_MILLIS, journal);
+    // The chain helper leaves the clock at its last historical step;
+    // activation reads the clock, and this test's "now" is the harness
+    // start (7_000), so restore it before activating.
+    harness.clock.advance_to(7_000);
 
     let decision = harness
         .engine
@@ -908,7 +907,7 @@ fn the_bounded_hold_is_active_before_its_interval_and_escalates_after_it() {
 
     // The escalation is an AUDIT record, NOT a command transition: FALLBACK
     // is terminal in the frozen table (frozen-edge conformance).
-    assert_eq!(harness.store.journal_len(command), 7); // 6 chain + 1 FALLBACK
+    assert_eq!(harness.store.journal_len(command), 6); // 5 chain + 1 FALLBACK
     let journals = harness
         .store
         .journals

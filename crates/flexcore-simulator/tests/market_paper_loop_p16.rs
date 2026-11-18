@@ -39,12 +39,12 @@ use flexcore_application::telemetry_export_design::{
 };
 use flexcore_contracts::ids::FlexUuid;
 use flexcore_contracts::quality::TelemetryQuality;
-use flexcore_contracts::time_model::{EventTime, IngestTime};
+use flexcore_contracts::time_model::{ClockQuality, EventTime, IngestTime};
 use flexcore_contracts::units::ActivePowerMW;
 use flexcore_domain::ids::{AssetId, TenantId};
 use flexcore_ports::fakes::FixedClock;
 use flexcore_ports::telemetry_source::{
-    ClockQuality, NormalizedTelemetry, NormalizedTelemetryParts, QuantityValue, TelemetryQuantity,
+    NormalizedTelemetry, NormalizedTelemetryParts, QuantityValue, TelemetryQuantity,
 };
 use flexcore_simulator::market::export_sink::{
     SimulatedTelemetryExportSink, RECEIPTS_ARE_NOT_A_STORE_STATEMENT, RING_IS_BOUNDED_STATEMENT,
@@ -336,7 +336,9 @@ fn the_simulated_statements_round_trip_through_the_fixture_grammars() {
     assert_eq!(items[0].line_ref, format!("{statement_ref}#0"));
     assert_eq!(items[1].amount.canonical_string(), "-0.50 USD");
     // CAISO SQMD: exactly 5-minute intervals; re-binning stays impossible.
-    let rows = simulated_caiso_sqmd_rows(1_000, 2, 425, "kWh", "ESTIMATED");
+    // Quantities are INTEGER TENTHS (the generator's documented unit):
+    // 4250 tenths round-trips as 425.0, and each row adds one tenth.
+    let rows = simulated_caiso_sqmd_rows(1_000, 2, 4250, "kWh", "ESTIMATED");
     let first = extract_caiso_sqmd_row(&rows[0]).expect("valid row");
     assert_eq!(first.meter_quantity.canonical_string(), "425.0");
     assert_eq!(
@@ -344,14 +346,15 @@ fn the_simulated_statements_round_trip_through_the_fixture_grammars() {
         300_000
     );
     let second = extract_caiso_sqmd_row(&rows[1]).expect("valid row");
-    assert_eq!(second.meter_quantity.canonical_string(), "426.0");
+    assert_eq!(second.meter_quantity.canonical_string(), "425.1");
     // EBGL ISP: exactly 15-minute ISPs; the alternating sign pattern
     // extracts as SURPLUS/DEFICIT under the declared convention.
-    let isp_rows = simulated_ebgl_isp_rows(1_000, 2, 900);
+    // Imbalances are INTEGER TENTHS: 9000 tenths round-trips as 900.0.
+    let isp_rows = simulated_ebgl_isp_rows(1_000, 2, 9000);
     let surplus = extract_ebgl_isp_row(&isp_rows[0]).expect("valid row");
     assert_eq!(surplus.imbalance_energy_mwh.canonical_string(), "900.0");
     let deficit = extract_ebgl_isp_row(&isp_rows[1]).expect("valid row");
-    assert_eq!(deficit.imbalance_energy_mwh.canonical_string(), "-901.0");
+    assert_eq!(deficit.imbalance_energy_mwh.canonical_string(), "-900.1");
     assert_eq!(
         deficit.isp_end.unix_millis() - deficit.isp_start.unix_millis(),
         900_000

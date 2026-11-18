@@ -430,8 +430,8 @@ fn every_reoptimization_input_binds_the_model_hash_and_the_check_evidence() {
     // input without the model hash and the check reference.
     for outcome in [FeasibilityOutcome::Constrained, FeasibilityOutcome::ReturnedForReOptimization] {
         let candidate = returned_candidate(outcome, &["bus_voltage_lower:bus_3"]);
-        let input = rerun_input(&plan_consumption(&candidate).expect("plans"))
-            .expect("consuming action");
+        let consumption = plan_consumption(&candidate).expect("plans");
+        let input = rerun_input(&consumption).expect("consuming action");
         assert!(!input.model_content_hash.trim().is_empty());
         assert!(!input.model_id.trim().is_empty());
         assert!(!input.model_version.trim().is_empty());

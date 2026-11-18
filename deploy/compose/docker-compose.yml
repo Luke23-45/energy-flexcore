@@ -82,9 +82,30 @@ services:
 
   nats:
     image: nats:2.15.2
-    command: ["--jetstream", "-sd", "/data", "-m", "8222"]
+    # Patch B (P2.07): the server now runs from nats-server.conf (TLS,
+    # authorization users, JetStream encryption at rest) instead of CLI
+    # flags. See that file's header + VERIFY-BUILD list before the first
+    # start (certs to provision, TLS 1.3 minimum key, JetStream key
+    # spelling); the server fails fast without them, never silently
+    # plaintext.
+    command: ["-c", "/etc/nats/nats-server.conf"]
+    environment:
+      # Environment substitution inside nats-server.conf ($VAR expansion
+      # by the server at parse time). Values come from the host .env (see
+      # .env.example); unset = Compose fails here, before any container
+      # starts.
+      JETSTREAM_ENCRYPTION_KEY: ${JETSTREAM_ENCRYPTION_KEY:?JETSTREAM_ENCRYPTION_KEY is required (see .env.example)}
+      NATS_WORKER_PASSWORD: ${NATS_WORKER_PASSWORD:?NATS_WORKER_PASSWORD is required (see .env.example)}
+      NATS_SOURCE_PASSWORD: ${NATS_SOURCE_PASSWORD:?NATS_SOURCE_PASSWORD is required (see .env.example)}
+      NATS_CONTROL_PLANE_PASSWORD: ${NATS_CONTROL_PLANE_PASSWORD:?NATS_CONTROL_PLANE_PASSWORD is required (see .env.example)}
     volumes:
       - nats-data:/data
+      - ./nats-server.conf:/etc/nats/nats-server.conf:ro
+      # Server TLS material, provisioned by the operator before the first
+      # start (see nats-server.conf header). Compose creates the
+      # directory empty if absent — the server then fails fast, which is
+      # the intended posture (never silently plaintext).
+      - ./secrets/nats-certs:/etc/nats/certs:ro
     ports:
       - "4222:4222"
       - "8222:8222"
@@ -128,7 +149,7 @@ services:
       # environment output (the shim composes it in-process and execs the
       # binary). The URL embeds the dev role name and host; only the
       # password comes from the secret.
-      FLEXCORE_NATS_URL: nats://nats:4222
+      FLEXCORE_NATS_URL: tls://nats:4222
       FLEXCORE_BIND_ADDR: 0.0.0.0:8080
       FLEXCORE_LOG_LEVEL: info
       # P11.04 (Phase 11 wave 1, Agent A) — OTLP export to the gateway
@@ -177,13 +198,14 @@ services:
       # P11.16: same entrypoint-shim pattern as the control plane — the
       # database URL with its credential is composed from the mounted
       # secret file at start, never stored in this file.
-      FLEXCORE_NATS_URL: nats://nats:4222
+      FLEXCORE_NATS_URL: tls://nats:4222
       FLEXCORE_LOG_LEVEL: info
-      # FRV1-R8-001 (final review): bind the P11.21 probe server to the
-      # container interface so the `observability` profile's Prometheus
-      # can scrape `/metrics` on the Compose network (the 127.0.0.1
-      # default binds inside the container only; the port is NOT
-      # published to the host, so this widens nothing).
+      # Patch B (P2.07): local-dev source-auth posture — the worker
+      # verifies `dev` envelopes against an ephemeral in-process keypair
+      # (the simulator signs with it). Enforced mode is the default when
+      # this is unset; do not use dev-key past local development. The
+      # tls:// URL above is what the server's TLS listener requires.
+      FLEXCORE_SOURCE_AUTH_MODE: dev-key
       FLEXCORE_PROBE_ADDR: 0.0.0.0:8081
       # P11.05 (Phase 11 wave 1, Agent A) — OTLP export to the gateway.
       FLEXCORE_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317

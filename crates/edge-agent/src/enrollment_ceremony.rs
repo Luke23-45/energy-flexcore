@@ -776,6 +776,13 @@ impl FileIdentityEventRegister {
             });
         }
         let magic = Self::magic();
+        // The replay-computed loss counter, hoisted out of the match: the
+        // struct field below is initialized from it, not from 0 (a counter
+        // computed during replay and then discarded would under-report the
+        // loss — the same dropped-counter defect fixed in the kernel
+        // checkpoint, the revocation register, the research snapshot
+        // register, and the command-verify checkpoint).
+        let mut corrupt_tail_truncated: u64 = 0;
         let (file, replayed) = match std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -802,7 +809,6 @@ impl FileIdentityEventRegister {
                     }
                     let mut events = Vec::new();
                     let mut offset = magic.len();
-                    let mut corrupt_tail_truncated: u64 = 0;
                     while offset + 8 <= contents.len() {
                         let len = u32::from_le_bytes(
                             contents[offset..offset + 4].try_into().expect("4 bytes"),
@@ -876,7 +882,7 @@ impl FileIdentityEventRegister {
             path: path.to_path_buf(),
             file: Mutex::new(file),
             events: Mutex::new(replayed),
-            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(0),
+            corrupt_tail_truncated: std::sync::atomic::AtomicU64::new(corrupt_tail_truncated),
             records_written: std::sync::atomic::AtomicU64::new(0),
         })
     }
@@ -1168,42 +1174,42 @@ impl EnrollmentCeremony {
         single_use: &mut TokenSingleUseLedger,
     ) -> Result<(), EnrollmentCeremonyError> {
         if self.state != CeremonyState::Unenrolled {
-            return Err(EnrollmentCeremonyError::InvalidTransition {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidTransition {
                 from: self.state.name(),
                 transition: CeremonyTransition::BeginRequest.name(),
                 detail: "a ceremony request can only begin from UNENROLLED".to_string(),
-            });
+            }));
         }
         // Presence without value: the ceremony proves a token was presented
         // (the P6.06 constructor already refused an empty one) and never
         // calls expose().
         let _token_present = token;
         if token_record.issued_by.trim().is_empty() {
-            return Err(EnrollmentCeremonyError::EnrollmentTokenIssuerUnnamed);
+            return Err(self.refuse(EnrollmentCeremonyError::EnrollmentTokenIssuerUnnamed));
         }
         if token_record.token_reference.trim().is_empty() {
-            return Err(EnrollmentCeremonyError::InvalidCeremonyInput {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidCeremonyInput {
                 reason: "the token record carries no token reference".to_string(),
-            });
+            }));
         }
         let now = self.now_unix_millis();
         let lifetime = token_record.lifetime_millis();
         if lifetime <= 0 {
-            return Err(EnrollmentCeremonyError::InvalidCeremonyInput {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidCeremonyInput {
                 reason: "the token record expires at or before its issue instant".to_string(),
-            });
+            }));
         }
         if lifetime > DEFAULT_MAX_TOKEN_LIFETIME_MILLIS {
-            return Err(EnrollmentCeremonyError::EnrollmentTokenLifetimeExcessive {
+            return Err(self.refuse(EnrollmentCeremonyError::EnrollmentTokenLifetimeExcessive {
                 lifetime_millis: lifetime,
                 maximum_millis: DEFAULT_MAX_TOKEN_LIFETIME_MILLIS,
-            });
+            }));
         }
         if token_record.expires_at_unix_millis <= now {
-            return Err(EnrollmentCeremonyError::EnrollmentTokenExpired {
+            return Err(self.refuse(EnrollmentCeremonyError::EnrollmentTokenExpired {
                 expires_at_unix_millis: token_record.expires_at_unix_millis,
                 now_unix_millis: now,
-            });
+            }));
         }
         single_use
             .mark_spent(&token_record.token_reference, now)
@@ -1262,18 +1268,18 @@ impl EnrollmentCeremony {
     /// carries the TTL [`DEFAULT_CHALLENGE_TTL_MILLIS`].
     pub fn issue_challenge(&mut self, entropy_seed: &str) -> Result<String, EnrollmentCeremonyError> {
         if self.state != CeremonyState::Requested {
-            return Err(EnrollmentCeremonyError::InvalidTransition {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidTransition {
                 from: self.state.name(),
                 transition: CeremonyTransition::IssueChallenge.name(),
                 detail: "a challenge can only be issued while the ceremony is REQUESTED"
                     .to_string(),
-            });
+            }));
         }
         if entropy_seed.trim().is_empty() {
-            return Err(EnrollmentCeremonyError::InvalidCeremonyInput {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidCeremonyInput {
                 reason: "the challenge entropy seed is mandatory (an empty seed is not entropy)"
                     .to_string(),
-            });
+            }));
         }
         let now = self.now_unix_millis();
         let token_reference = self
@@ -1316,17 +1322,17 @@ impl EnrollmentCeremony {
     /// becomes possible.
     pub fn answer_challenge(&mut self, nonce_presented: &str) -> Result<(), EnrollmentCeremonyError> {
         if self.state != CeremonyState::Challenged {
-            return Err(EnrollmentCeremonyError::InvalidTransition {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidTransition {
                 from: self.state.name(),
                 transition: CeremonyTransition::AnswerChallenge.name(),
                 detail: "a challenge can only be answered while the ceremony is CHALLENGED"
                     .to_string(),
-            });
+            }));
         }
         if nonce_presented.trim().is_empty() {
-            return Err(EnrollmentCeremonyError::InvalidCeremonyInput {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidCeremonyInput {
                 reason: "the presented nonce is mandatory".to_string(),
-            });
+            }));
         }
         let now = self.now_unix_millis();
         let challenge = self
@@ -1406,14 +1412,14 @@ impl EnrollmentCeremony {
     /// plane, not here.
     pub fn approve(&mut self, approval: &CeremonyApproval) -> Result<(), EnrollmentCeremonyError> {
         if self.state != CeremonyState::Challenged {
-            return Err(EnrollmentCeremonyError::InvalidTransition {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidTransition {
                 from: self.state.name(),
                 transition: CeremonyTransition::Approve.name(),
                 detail: "approval applies only to a CHALLENGED ceremony".to_string(),
-            });
+            }));
         }
         if !self.challenge_answered {
-            return Err(EnrollmentCeremonyError::ChallengeNotAnswered);
+            return Err(self.refuse(EnrollmentCeremonyError::ChallengeNotAnswered));
         }
         approval
             .validate_against(&self.device_identity, &self.binding)
@@ -1473,29 +1479,31 @@ impl EnrollmentCeremony {
     /// ceremony only gates and records its acceptance.
     pub fn activate(&mut self, credential: &DeviceCredentialRecord) -> Result<(), EnrollmentCeremonyError> {
         if self.state != CeremonyState::Approved {
-            return Err(EnrollmentCeremonyError::InvalidTransition {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidTransition {
                 from: self.state.name(),
                 transition: CeremonyTransition::Activate.name(),
                 detail: "activation applies only to an APPROVED ceremony".to_string(),
-            });
+            }));
         }
         credential
             .validate()
-            .map_err(|error| EnrollmentCeremonyError::CredentialInvalid {
-                reason: error.to_string(),
+            .map_err(|error| {
+                self.refuse(EnrollmentCeremonyError::CredentialInvalid {
+                    reason: error.to_string(),
+                })
             })?;
         if credential.device_id != self.device_identity {
-            return Err(EnrollmentCeremonyError::BindingMismatch {
+            return Err(self.refuse(EnrollmentCeremonyError::BindingMismatch {
                 reason: format!(
                     "the credential names device '{}' but the ceremony gates '{}'",
                     credential.device_id, self.device_identity
                 ),
-            });
+            }));
         }
         if credential.tenant_id != self.binding.tenant_id
             || credential.site_id != self.binding.site_id
         {
-            return Err(EnrollmentCeremonyError::BindingMismatch {
+            return Err(self.refuse(EnrollmentCeremonyError::BindingMismatch {
                 reason: format!(
                     "the credential binds tenant/site '{}/{}' but the ceremony's configured \
                      binding is '{}/{}' (the WRONG-SITE refusal, ledger P9.33 step 4)",
@@ -1504,7 +1512,7 @@ impl EnrollmentCeremony {
                     self.binding.tenant_id,
                     self.binding.site_id
                 ),
-            });
+            }));
         }
         let now = self.now_unix_millis();
         self.state = CeremonyState::Active;
@@ -1540,21 +1548,21 @@ impl EnrollmentCeremony {
     /// identity's history keeps both the active and the revoked terms.
     pub fn revoke(&mut self, actor: &str, reason: &str) -> Result<(), EnrollmentCeremonyError> {
         if self.state == CeremonyState::Unenrolled {
-            return Err(EnrollmentCeremonyError::InvalidTransition {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidTransition {
                 from: self.state.name(),
                 transition: CeremonyTransition::Revoke.name(),
                 detail: "an UNENROLLED identity has nothing to revoke".to_string(),
-            });
+            }));
         }
         if self.state == CeremonyState::Revoked {
-            return Err(EnrollmentCeremonyError::AlreadyRevoked);
+            return Err(self.refuse(EnrollmentCeremonyError::AlreadyRevoked));
         }
         if actor.trim().is_empty() || reason.trim().is_empty() {
-            return Err(EnrollmentCeremonyError::InvalidCeremonyInput {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidCeremonyInput {
                 reason: "the revoking actor and the reason are mandatory (an unattributable \
                          or unexplained revocation is refused)"
                     .to_string(),
-            });
+            }));
         }
         let now = self.now_unix_millis();
         let previous = self.state.name();
@@ -1592,27 +1600,27 @@ impl EnrollmentCeremony {
         reason: &str,
     ) -> Result<(), EnrollmentCeremonyError> {
         if self.state != CeremonyState::Revoked {
-            return Err(EnrollmentCeremonyError::InvalidTransition {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidTransition {
                 from: self.state.name(),
                 transition: CeremonyTransition::ResetForReEnrollment.name(),
                 detail: "re-enrollment after compromise applies only to a REVOKED identity"
                     .to_string(),
-            });
+            }));
         }
         if reason.trim().is_empty() {
-            return Err(EnrollmentCeremonyError::InvalidCeremonyInput {
+            return Err(self.refuse(EnrollmentCeremonyError::InvalidCeremonyInput {
                 reason: "the re-enrollment reason is mandatory (compromise re-enrollment is \
                          never silent)"
                     .to_string(),
-            });
+            }));
         }
         let ticket = match authorization {
             ReEnrollmentAuthorization::PlatformAuthorityTicket { ticket_reference } => {
                 if ticket_reference.trim().is_empty() {
-                    return Err(EnrollmentCeremonyError::InvalidCeremonyInput {
+                    return Err(self.refuse(EnrollmentCeremonyError::InvalidCeremonyInput {
                         reason: "the platform authority ticket reference is mandatory"
                             .to_string(),
-                    });
+                    }));
                 }
                 ticket_reference.clone()
             }
@@ -1721,6 +1729,26 @@ impl EnrollmentCeremony {
         if let Err(error) = self.audit.record(event) {
             tracing::error!(%error, audit_event = name, "enrollment-ceremony audit write FAILED");
         }
+    }
+
+    /// Audits a refusal under the dedicated name and returns it — every
+    /// refusal carries its named `CEREMONY_*` error AND an
+    /// `EDGE_ENROLLMENT_CEREMONY_REFUSED` audit line (ledger P9.33 §5). The
+    /// detail carries the error's Display, which includes the refusal
+    /// reason (so the wrong-site refusal's "WRONG-SITE" is in the audit
+    /// line, not only in the returned error).
+    fn refuse(&self, error: EnrollmentCeremonyError) -> EnrollmentCeremonyError {
+        self.audit_event(
+            "EDGE_ENROLLMENT_CEREMONY_REFUSED",
+            EdgeAuditKind::EnrollmentRejected,
+            format!(
+                "device='{}' err={} ({})",
+                self.device_identity,
+                error.name(),
+                error
+            ),
+        );
+        error
     }
 }
 

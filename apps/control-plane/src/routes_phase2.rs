@@ -92,6 +92,7 @@
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
+use axum::response::IntoResponse;
 use axum::{Json, Router};
 use flexcore_application::deactivate_asset::DeactivateAssetCommand;
 use flexcore_application::payload_encoding::EventPayloadEncoder as _;
@@ -100,16 +101,17 @@ use flexcore_authz::action::Action;
 use flexcore_contracts::ids::FlexUuid;
 use flexcore_contracts::time_model::EventTime;
 use flexcore_contracts::units::{ActivePowerMW, EnergyMWh, ReactiveSignConvention};
+use flexcore_domain::tenant_context::TenantContext;
 use flexcore_events::envelope::{EventEnvelope, SUPPORTED_SCHEMA_VERSION};
 use flexcore_events::events::{DomainEvent, OperatorActionRecordedPayload, event_name};
 use flexcore_events::subject::subject_for;
-use flexcore_ports::event_outbox::{EventOutbox as _, OutboxWrite};
+use flexcore_ports::event_outbox::{EventOutbox, OutboxWrite};
 use flexcore_ports::repository::{
     AssetRepository as _, PortfolioRepository as _, SiteRepository as _, TenantRepository as _,
 };
 use flexcore_ports::state_change::{StateChangeOperation, StateChangeReceipt, entities};
 use flexcore_ports::telemetry_read::{
-    TelemetryCursor, TelemetryReadError, TelemetryReadQuery, TelemetryReader as _,
+    TelemetryCursor, TelemetryReadError, TelemetryReadQuery, TelemetryReader,
     parse_quantity_key, quantity_key, quantity_unit,
 };
 use flexcore_ports::telemetry_source::{NormalizedTelemetry, QuantityValue, TelemetryQuantity};
@@ -252,7 +254,7 @@ pub struct DeactivateAssetBody {
 /// quantities); `quality` accepts ONLY the six canonical states (a seventh
 /// value is 422, P2.12 step 3); `limit` is bounded by [`MAX_PAGE_SIZE`];
 /// `cursor` is the opaque keyset cursor from the previous page.
-#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[derive(Debug, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct TelemetryQueryParams {
     /// The asset to query (required; a foreign-tenant asset is 404).
     #[serde(default)]
@@ -731,12 +733,12 @@ async fn update_asset(
 ) -> Result<Json<DataEnvelope<crate::dto::AssetDto>>, ApiError> {
     authorize_tenant_scoped(&state.policies, &caller, Action::AssetUpdate)?;
     let id = parse_asset_id(&asset_id).ok_or_else(ApiError::not_found)?;
-    let rated_power_mw = ActivePowerMW::try_new(body.rated_power_mw)
+    let rated_power_mw = ActivePowerMW::new(body.rated_power_mw)
         .map_err(|e| ApiError::validation(format!("rated_power_mw rejected: {e}")))?;
     let rated_energy_mwh = match body.rated_energy_mwh {
         None => None,
         Some(v) => Some(
-            EnergyMWh::try_new(v)
+            EnergyMWh::new(v)
                 .map_err(|e| ApiError::validation(format!("rated_energy_mwh rejected: {e}")))?,
         ),
     };
@@ -1050,7 +1052,7 @@ async fn query_telemetry(
 /// `bucket` selects the aggregation mode over the closed width set
 /// `1m|5m|15m|1h|1d` (D-H2) — bucket mode requires exactly one numeric
 /// quantity and forbids `limit`/`cursor`.
-#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[derive(Debug, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct TelemetryHistoryParams {
     /// The asset to query (required; a foreign-tenant asset is 404).
     #[serde(default)]
@@ -1645,8 +1647,9 @@ async fn list_quarantine(
     authorize_tenant_scoped(&state.policies, &caller, Action::QuarantineRead)?;
     let reader = telemetry_reader(&state)?;
     // A pure read; the quarantine store is read through the port with the
-    // caller's context (the Postgres implementation will run inside the
-    // request transaction with RLS applied — recorded on the port).
+    // caller's context (the Postgres implementation opens its own
+    // tenant-scoped unit of work per call, with RLS applied — see
+    // `flexcore_postgres_adapter::telemetry_reader`).
     let entries = reader.list_quarantine(&caller.ctx).map_err(map_read_error)?;
     Ok(Json(crate::dto::ListEnvelope {
         data: entries

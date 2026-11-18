@@ -96,6 +96,7 @@ use flexcore_contracts::quality::TelemetryQuality;
 use flexcore_contracts::time_model::{EventTime, ValidFrom, ValidUntil, ValidityWindow};
 use flexcore_contracts::units::{ActivePowerMW, ReactivePowerMVAr, ReactiveSignConvention};
 use flexcore_domain::command_lifecycle::{Actor, LifecycleClock};
+use flexcore_domain::quality_rules::{staleness, FreshnessLimit};
 use flexcore_domain::command_state::CommandState;
 use flexcore_domain::dispatch_command::{
     ActivePowerSignConvention, CommandAuthenticity, CommandIntent, CommandScope, ControlTarget,
@@ -116,7 +117,9 @@ use flexcore_grid_api::feasibility::{
     EnvelopeFreshness, FeasibilityCandidate, GateAbort, GatePipelineOutcome, GateRejection,
     GateRunRequest, GateSources, RevisionState, SeamError, TelemeteredState,
 };
-use flexcore_grid_api::limits::{check_limits, GeneratorLimitSet, LimitCheckReport, LimitCheckStatus};
+use flexcore_grid_api::limits::{
+    check_limits, GeneratorLimit, GeneratorLimitSet, LimitCheckReport, LimitCheckStatus,
+};
 use flexcore_grid_api::model_health::{
     ModelCoverage, ModelHealthConfig, ModelLifecycleState, ModelVersionRegistry, RegistryElement,
     RegistryElementKind, VersionedModel,
@@ -245,7 +248,7 @@ pub struct RecordedDropout {
 /// dropout.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RollPlanSummary {
-    /// The trigger (`asset_dropout`).
+    /// The trigger (`asset_opt_out_dropout`, the frozen P3.24 vocabulary).
     pub trigger: String,
     /// The trigger detail recorded with the revision.
     pub trigger_detail: String,
@@ -812,6 +815,10 @@ impl SimulatorTelemetryTransport {
                 .map(|record| record.ingest_time().unix_millis())
                 .max()
                 .unwrap_or(0);
+            // The pump position is i64 millis (the `Sample`/`until_ms`
+            // convention); clamp the i128 ingest instant the same way the
+            // edge agent clamps `unix_millis()` (past year ~292M only).
+            let frame_release = i64::try_from(frame_release).unwrap_or(i64::MAX);
             for record in records {
                 // Only value-bearing records become samples.
                 let Some(value) = record.value() else {
@@ -831,12 +838,36 @@ impl SimulatorTelemetryTransport {
                     }
                     QuantityValue::State(_) => continue,
                 };
+                // P2.08 staleness, evaluated ONCE at the consumer boundary:
+                // the age is ingest − event on the scenario clock, against
+                // the configured freshness limit (never a constant). A
+                // delayed record arrives GOOD from the simulator (STALE is an
+                // evaluation, not a stored flag) but is STALE in the pumped
+                // history — that is what the console's P5.03 quality
+                // accounting and the P5.21 fault journal mine. A fresh value
+                // keeps the quality state the assigner gave it.
+                let quality = {
+                    let limit = FreshnessLimit::from_seconds(
+                        self.fault_plan.freshness_limit_seconds,
+                    )
+                    .expect("the validated fault plan carries a positive freshness limit");
+                    let now = EventTime::from_unix_millis(
+                        i64::try_from(record.ingest_time().unix_millis()).unwrap_or(i64::MAX),
+                    )
+                    .expect("the release instant is a representable timestamp");
+                    if staleness(record.event_time(), now, limit).is_stale() {
+                        TelemetryQuality::Stale
+                    } else {
+                        record.quality()
+                    }
+                };
                 st.history.push(Sample {
                     asset_id: record.asset_id(),
-                    event_ms: record.event_time().unix_millis(),
+                    event_ms: i64::try_from(record.event_time().unix_millis())
+                        .unwrap_or(i64::MAX),
                     quantity: record.quantity(),
                     value,
-                    quality: record.quality(),
+                    quality,
                 });
             }
             st.pumped_until_ms = Some(frame_release);
@@ -1046,6 +1077,9 @@ impl SimulatorDispatchTransport for SimulatorTelemetryTransport {
         let Some(sample) = next else {
             return Ok(None);
         };
+        // `Sample` is `Copy`: take it by value so the borrow of
+        // `st.history` ends before the `last_served` mutations below.
+        let sample = *sample;
         // The quality rule: GOOD and SUSPECT are usable (SUSPECT is the
         // out-of-range mapping's out-of-tolerance sample); BAD, MISSING,
         // and STALE are not — skipped, never coerced.
@@ -1247,13 +1281,24 @@ pub(crate) struct ScenarioGridFeasibilityRunner {
     /// The declared capability bounds per asset id text (the composition's
     /// stand-in for the P3.04 capability store).
     pub capability_bounds: BTreeMap<String, DeclaredBounds>,
+    /// The declared apparent-power limit per equipment bus (§11),
+    /// capability-derived from the same P3.04 bounds: S_max(bus) is the sum
+    /// of the declared per-asset apparent-power maxima at that bus. The
+    /// step-5 check fail-closes on a bus WITHOUT a declared S_max (the
+    /// P3.02 rule), so the composition must declare one for every bus its
+    /// candidate injects at; deriving it from the declared bounds keeps the
+    /// declaration honest instead of inventing a fixture number.
+    pub generator_limits: GeneratorLimitSet,
     /// The asset→bus mapping the candidate setpoints carry.
     pub asset_buses: BTreeMap<String, String>,
     /// The setpoint active power per asset id text (the candidate).
     pub setpoints_mw: BTreeMap<String, f64>,
     /// The setpoint reactive power per asset id text.
     pub setpoints_mvar: BTreeMap<String, f64>,
-    /// The declared reactive convention of the setpoints.
+    /// The declared reactive convention of the setpoints — the fallback
+    /// for an asset with no declared capability bounds (in the composition
+    /// every asset carries bounds built from its site's declaration, so
+    /// the per-asset convention governs).
     pub reactive_convention: ReactiveSignConvention,
     /// The backend selection (scripted = seam-level; worker process = the
     /// P5.15 real leg).
@@ -1335,13 +1380,13 @@ impl CommandFeasibilityRunner for ScenarioGridFeasibilityRunner {
             setpoints: self
                 .setpoints_mw
                 .iter()
-                .map(|(asset_id, p_mw)| {
+                .map(|(asset_id, p_mw)| -> Result<CandidateSetpoint, GateSeamError> {
                     let bus_id = self
                         .asset_buses
                         .get(asset_id)
                         .cloned()
                         .unwrap_or_default();
-                    CandidateSetpoint {
+                    Ok(CandidateSetpoint {
                         setpoint_id: format!("sp:{asset_id}"),
                         asset_id: asset_id.clone(),
                         bus_id,
@@ -1356,11 +1401,20 @@ impl CommandFeasibilityRunner for ScenarioGridFeasibilityRunner {
                             seam: "feasibility_runner",
                             detail: format!("the candidate setpoint is not canonical: {error}"),
                         })?,
-                        reactive_sign_convention: self.reactive_convention,
+                        // Per-asset convention (§10.2): the setpoint must declare
+                        // the SAME convention the capability model declares for
+                        // THIS asset — the scenario declares conventions per
+                        // site (north injects, south consumes), so the
+                        // composition-wide default cannot serve both.
+                        reactive_sign_convention: self
+                            .capability_bounds
+                            .get(asset_id)
+                            .map(|bounds| bounds.q_convention)
+                            .unwrap_or(self.reactive_convention),
                         interval_start_millis: now,
-                    }
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
         };
 
         // The injected sources: capability bounds from the composition
@@ -1384,7 +1438,7 @@ impl CommandFeasibilityRunner for ScenarioGridFeasibilityRunner {
             ramp_baseline: Arc::new(move |asset_id: &str| {
                 // The asset id text is the canonical UUID of a mapped
                 // scenario asset; find its AssetId.
-                let parsed = FlexUuid::parse(asset_id).ok_or_else(|| SeamError {
+                let parsed = FlexUuid::parse(asset_id).map_err(|_| SeamError {
                     seam: "ramp_baseline",
                     detail: format!("asset id '{asset_id}' is not a canonical UUID"),
                 })?;
@@ -1437,7 +1491,7 @@ impl CommandFeasibilityRunner for ScenarioGridFeasibilityRunner {
             GatePipelineOutcome::Completed { attempt, .. } => Some(check_limits(
                 attempt.result(),
                 &self.limits,
-                &GeneratorLimitSet { limits: Vec::new() },
+                &self.generator_limits,
                 &balanced_worker_scope(),
             )),
             _ => None,
@@ -1452,8 +1506,8 @@ impl CommandFeasibilityRunner for ScenarioGridFeasibilityRunner {
             GatePipelineOutcome::Completed { attempt, evidence } => {
                 let _ = evidence;
                 // Step 5 (REAL limit check), then the composition-root
-                // verdict conversion. An empty generator-limit set: the
-                // fixture declares no inverter S limits.
+                // verdict conversion, against the capability-derived
+                // generator limits (one declared S_max per injected bus).
                 let report = limit_report
                     .expect("a completed attempt always produced its limit report");
                 let model_id = model_ref.model_id.clone();
@@ -1877,6 +1931,7 @@ impl ScenarioRunHarness {
         let mut capability_bounds: BTreeMap<String, DeclaredBounds> = BTreeMap::new();
         let mut asset_buses: BTreeMap<String, String> = BTreeMap::new();
         let mut setpoints_mw: BTreeMap<String, f64> = BTreeMap::new();
+        let mut generator_s_max: BTreeMap<String, f64> = BTreeMap::new();
         for (site_index, site) in scenario.sites.iter().enumerate() {
             for asset in &site.assets {
                 let id = asset_ids[&asset.asset_key];
@@ -1902,14 +1957,35 @@ impl ScenarioRunHarness {
                     (GridFixtureKind::MeshedTwoFeeder, 1) => "bus_5".to_string(),
                     _ => "bus_3".to_string(),
                 };
+                // The §11 apparent-power limit for this bus, accumulated
+                // from the declared per-asset bounds: each asset's apparent
+                // maximum is sqrt(p_max^2 + q_max^2) from its own bounds
+                // (p_max = rated, q_max = 0.5 * rated, same as above).
+                let p_max = asset.rated_power_mw;
+                let q_max = 0.5 * asset.rated_power_mw;
+                *generator_s_max.entry(bus_id.clone()).or_insert(0.0) +=
+                    (p_max * p_max + q_max * q_max).sqrt();
                 asset_buses.insert(id_text.clone(), bus_id);
                 setpoints_mw.insert(id_text, 0.0);
             }
         }
 
+        let generator_limits = GeneratorLimitSet {
+            limits: generator_s_max
+                .into_iter()
+                .map(|(bus_id, s_max_mva)| GeneratorLimit {
+                    bus_id,
+                    s_max_mva,
+                    source_note: "capability-derived: sum of the declared per-asset apparent-power maxima at this bus (P3.04 bounds: sqrt(p_max^2 + q_max^2) per asset)"
+                        .to_string(),
+                })
+                .collect(),
+        };
+
         let grid_runner = Arc::new(ScenarioGridFeasibilityRunner {
             versioned_model,
             registry,
+            generator_limits,
             limits: NetworkLimits {
                 voltage_min_pu: 0.9,
                 voltage_max_pu: 1.1,
@@ -2225,7 +2301,7 @@ impl ScenarioRunHarness {
                     final_state: self.store.current_state(command_id).name().to_string(),
                     issue_outcome: format!(
                         "rejected:{}",
-                        validation.failing_check.unwrap_or_default()
+                        validation.failing_check.as_deref().unwrap_or_default()
                     ),
                     acceptance_reference: None,
                     tracking_verdict: None,
@@ -2268,7 +2344,8 @@ impl ScenarioRunHarness {
                         feasibility
                             .result
                             .failing_check
-                            .unwrap_or_else(|| "network_gate".to_string())
+                            .as_deref()
+                            .unwrap_or("network_gate")
                     ),
                     acceptance_reference: None,
                     tracking_verdict: None,
@@ -2528,7 +2605,7 @@ impl ScenarioRunHarness {
         };
 
         let request = RollRequest {
-            trigger: RollTrigger::AssetDropout,
+            trigger: RollTrigger::AssetOptOutDropout,
             trigger_detail: format!(
                 "simulator telemetry drop observed for '{}' from the scenario clock instant \
                  {first_dropout} (P5.14 step 4: the dropout is visible and triggers the \

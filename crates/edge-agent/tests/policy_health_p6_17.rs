@@ -136,14 +136,16 @@ fn adapter_failure_lands_failing_unresponsive_within_the_detection_window() {
         BASE_MILLIS,
         AdapterObservation::Responsive { event_age_millis: 1_000 },
     );
-    // Inside the window: healthy.
-    assert_eq!(
-        monitor
-            .assess("simulated-test", BASE_MILLIS + 59_000)
-            .expect("assessed")
-            .status_name(),
-        "HEALTHY"
-    );
+    // At BASE+59_000 the last event is 60 s old: inside the 60 s
+    // unresponsive window but past the 30 s FRESHNESS limit — the adapter
+    // is up, its data is stale: DEGRADED_STALE_DATA, not HEALTHY (the
+    // sibling stale-data test pins the same rule at 46 s old). Stale data
+    // degrades without blocking dependent actions.
+    let stale = monitor
+        .assess("simulated-test", BASE_MILLIS + 59_000)
+        .expect("assessed");
+    assert_eq!(stale.status_name(), "DEGRADED_STALE_DATA");
+    assert!(!stale.blocks_dependent_actions());
     // The device/process dies with NO further observation: at the 60 s
     // detection window the last-seen rule fires → FAILING_UNRESPONSIVE.
     let record = monitor

@@ -1032,6 +1032,7 @@ fn run_from_verified(
         },
         backend,
         prior_schedule,
+        fixture,
     )
     .map_err(|error| ReplayError::Config(error.to_string()))?;
 
@@ -1390,7 +1391,7 @@ pub fn compare_double_run(
         code_version,
         recomputed,
         input_leg,
-        vec![telemetry, run_record?],
+        vec![telemetry, run_record],
     )
 }
 

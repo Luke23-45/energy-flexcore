@@ -518,7 +518,7 @@ pub fn execute_switch(
     //    this closes the door on postures handed in from elsewhere.
     if request.from_posture != request.to_posture {
         let reason = format!(
-            "profile switch {} -> {} refused: it would change the control-authority posture from '{}' to '{}' (report §21.4)",
+            "profile switch {} -> {} refused: it would change the control-authority posture from '{}' to '{}'; the mode is a deployment/per-site setting and no profile switch can change it (report §21.4)",
             request.from_profile, request.to_profile, request.from_posture.name(), request.to_posture.name()
         );
         emit_switch_record(audit, clock, request.to_profile, confirmation.actor.as_str(), LifecycleAuditKind::Refused, &reason);

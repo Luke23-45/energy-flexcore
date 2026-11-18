@@ -22,7 +22,7 @@ use flexcore_contracts::time_model::{EventTime, IngestTime};
 /// Test determinism: production implementations wrap the platform clock;
 /// the in-crate fake ([`crate::fakes::FixedClock`]) returns a fixed,
 /// advanceable instant so application tests are fully deterministic.
-pub trait Clock {
+pub trait Clock: Send + Sync {
     /// The current instant as the contracts `EventTime` (UTC enforced by
     /// the type's constructor).
     fn now_event_time(&self) -> EventTime;

@@ -85,7 +85,10 @@ impl SecureTransportNote {
         open_questions: Vec<String>,
         not_claimed: Vec<String>,
     ) -> Result<Self, PostureError> {
-        if adapter_id.into().trim().is_empty() {
+        // Convert once: the emptiness check and the struct field both need
+        // the owned String (converting twice moves `adapter_id`).
+        let adapter_id: String = adapter_id.into();
+        if adapter_id.trim().is_empty() {
             return Err(PostureError::Incomplete("adapter_id"));
         }
         if open_questions.is_empty() || open_questions.iter().any(|q| q.trim().is_empty()) {
@@ -95,7 +98,7 @@ impl SecureTransportNote {
             return Err(PostureError::Incomplete("not_claimed"));
         }
         Ok(Self {
-            adapter_id: adapter_id.into(),
+            adapter_id,
             posture,
             open_questions,
             not_claimed,

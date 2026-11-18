@@ -132,6 +132,10 @@ fn cleanup(dir: &Path) {
 
 /// A power sample with distinct sequence and ingest time (the canonical
 /// validated constructor — the buffer can never hold an invalid sample).
+/// The ingest offset is EVENT-RELATIVE (ingest = event + offset): an
+/// absolute-from-BASE offset is unconstructible for sequences past 1, since
+/// the P0.09 rule refuses ingest before event (the same helper defect fixed
+/// in buffer_p6_09's power_sample).
 fn power_sample(sequence: u64, ingest_offset_millis: i64) -> EdgeTelemetrySample {
     EdgeTelemetrySample::new(EdgeTelemetrySampleParts {
         asset_key: "ess-01".to_string(),
@@ -141,8 +145,10 @@ fn power_sample(sequence: u64, ingest_offset_millis: i64) -> EdgeTelemetrySample
         source_quality_code: None,
         event_time: EventTime::from_unix_millis(BASE_MILLIS + sequence as i64 * 1_000)
             .expect("valid"),
-        ingest_time: IngestTime::from_unix_millis(BASE_MILLIS + ingest_offset_millis)
-            .expect("valid"),
+        ingest_time: IngestTime::from_unix_millis(
+            BASE_MILLIS + sequence as i64 * 1_000 + ingest_offset_millis,
+        )
+        .expect("valid"),
         source_sequence: sequence,
         source_id: "edge:pilot-site-A:simulated-test/ess0/ActivePower".to_string(),
     })
@@ -193,13 +199,13 @@ fn max_age_retention_boundary_is_hand_computed_inclusive_at_the_limit() {
     let mut buffer =
         FileLocalBuffer::open(&path, 100, Some(Duration::from_millis(5_000)), clock).expect("opens");
     buffer
-        .append(power_sample(1, 3_999)) // ingest at BASE+3_999: one millis OLDER than the limit
+        .append(power_sample(1, 2_999)) // ingest at BASE+3_999: one millis OLDER than the limit
         .expect("appends");
     buffer
-        .append(power_sample(2, 4_000)) // ingest at BASE+4_000: EXACTLY at the limit — kept
+        .append(power_sample(2, 2_000)) // ingest at BASE+4_000: EXACTLY at the limit — kept
         .expect("appends");
     buffer
-        .append(power_sample(3, 6_000)) // ingest at BASE+6_000: fresh
+        .append(power_sample(3, 3_000)) // ingest at BASE+6_000: fresh
         .expect("appends");
     let drained = buffer.drain(10);
     let sequences: Vec<u64> = drained.iter().map(|s| s.source_sequence()).collect();
@@ -289,13 +295,15 @@ fn a_foreign_journal_file_is_refused_not_guessed_at_open() {
     let dir = scratch_dir("foreign");
     let path = dir.join("telemetry.journal");
     std::fs::write(&path, b"not a flexcore journal at all").expect("writes");
-    let error = FileLocalBuffer::open(
+    let error = match FileLocalBuffer::open(
         &path,
         10,
         None,
         Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)) as Arc<dyn Clock + Send + Sync>,
-    )
-    .expect_err("a foreign file is refused");
+    ) {
+        Ok(_) => panic!("a foreign file must never open as a journal"),
+        Err(error) => error,
+    };
     assert!(
         matches!(error, flexcore_edge_agent::buffer_file::FileBufferError::NotAJournal { .. }),
         "named error: {error}"
@@ -365,7 +373,7 @@ fn audit_upload_is_in_order_and_an_out_of_order_commit_is_refused_removing_nothi
     let all = buffer.drain(10);
     buffer.prepend(all);
     let bogus = vec![flexcore_edge_agent::audit_buffer::BufferedAuditRecord {
-        sequence: 3,
+        sequence: 4,
         recorded_at: IngestTime::from_unix_millis(BASE_MILLIS).expect("valid"),
         kind: BufferedAuditKind::DegradedBufferingEntered,
         actor: "edge-agent".to_string(),
@@ -401,7 +409,7 @@ fn audit_records_carry_actor_object_and_timestamp_and_refuse_anonymous_records()
     // An audit record without actor or object is NOT an audit record —
     // refused rather than recorded as a hole (the P6.21 shape).
     let error = buffer
-        .record_event(BufferedAuditKind::ScopeDenied, "  ", "tenant:tenant-B", "refused")
+        .record_event(BufferedAuditKind::ScopeDenied, "  ", "tenant:tenant-B", "refused".to_string())
         .expect_err("an actorless record is refused");
     assert!(
         matches!(error, flexcore_edge_agent::ports::EdgeError::AuditWriteFailed { .. }),
@@ -841,7 +849,7 @@ fn a_full_offline_buffer_never_enables_command_issuance() {
     let runtime = CommandPathRuntime::evaluate(&CommandPathGateInputs::default(), &enablement_key(), BASE_MILLIS);
     let policy = SitePolicyEngine::new(site_policy()).expect("loads");
     let mut receiver = CommandReceiver::new(
-        runtime,
+        runtime.clone(),
         Arc::new(policy),
         Arc::new(InMemoryAuditSink::new()) as Arc<dyn flexcore_edge_agent::ports::AuditSink>,
         Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)),

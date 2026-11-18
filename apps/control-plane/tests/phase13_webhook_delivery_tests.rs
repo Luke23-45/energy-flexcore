@@ -28,7 +28,8 @@ use std::sync::{Arc, Mutex};
 use flexcore_contracts::ids::FlexUuid;
 use flexcore_control_plane::webhook_service::{
     attempt_allowed, backoff_delay_secs, HttpPostOutcome, MemoryWebhookDeliveryStore,
-    OutboundHttpPost, WebhookDeliveryError, WebhookDeliveryRecord, WebhookDispatcher,
+    OutboundHttpPost, WebhookDeliveryError, WebhookDeliveryRecord, WebhookDeliveryStore,
+    WebhookDispatcher,
     WebhookEndpointRecord, WebhookSecretResolver, MAX_ATTEMPTS,
 };
 use flexcore_control_plane::webhook_signing::{WebhookSecretSet, WebhookSigningError, WebhookSigningKey};
@@ -87,17 +88,23 @@ fn the_tolerance_window_accepts_inside_and_rejects_at_the_boundary() {
         .expect("just inside the window verifies");
     set.verify(&header, 1_000_000 - 300 + 1, raw_body)
         .expect("just inside on the past side verifies");
-    // At and beyond the boundary: rejected — FUTURE-stamped deliveries
-    // are equally rejected (the window is absolute, not one-sided).
+    // Exactly AT the boundary: accepted — the window is INCLUSIVE
+    // (the module doc: reject when the timestamp differs by MORE than
+    // 300 s; the lib test pins "boundary inclusive"). Beyond the
+    // boundary: rejected — FUTURE-stamped deliveries are equally
+    // rejected (the window is absolute, not one-sided).
+    set.verify(&header, 1_000_000 + 300, raw_body)
+        .expect("exactly 300 s off is inside the inclusive window");
+    set.verify(&header, 1_000_000 - 300, raw_body)
+        .expect("exactly 300 s off on the past side is inside the window");
     assert_eq!(
-        set.verify(&header, 1_000_000 + 300, raw_body),
+        set.verify(&header, 1_000_000 + 301, raw_body),
         Err(WebhookSigningError::OutsideTolerance {
             header_timestamp: 1_000_000,
-            now_unix_seconds: 1_000_300,
+            now_unix_seconds: 1_000_301,
         }),
-        "the boundary is exclusive: exactly 300 s off rejects"
+        "301 s off rejects"
     );
-    assert!(set.verify(&header, 1_000_000 + 301, raw_body).is_err());
     assert!(set.verify(&header, 1_000_000 - 301, raw_body).is_err());
 }
 
@@ -242,14 +249,14 @@ fn delivery(tenant_id: TenantId, key: &str, body: &str) -> WebhookDeliveryRecord
 fn the_idempotency_key_collapses_duplicate_enqueues() {
     let store = MemoryWebhookDeliveryStore::new();
     let clock = 5_000i64;
+    let http = RecordingHttp::new(vec![]);
+    let secrets = StaticSecrets { material: vec![7u8; 32] };
     let dispatcher = WebhookDispatcher::new(
         &store,
-        &RecordingHttp::new(vec![]),
-        &StaticSecrets {
-            material: vec![7u8; 32],
-        },
+        &http,
+        &secrets,
         Box::new(move || clock),
-        Box::new(|_, _| Ok(endpoint(tenant(tenant_uuid_static())))),
+        &|_, _| Ok(endpoint(tenant(tenant_uuid_static()))),
     );
     let first = dispatcher
         .enqueue(
@@ -284,14 +291,14 @@ fn the_idempotency_key_collapses_duplicate_enqueues() {
 fn the_same_key_with_different_content_is_a_named_conflict() {
     let store = MemoryWebhookDeliveryStore::new();
     let clock = 5_000i64;
+    let http = RecordingHttp::new(vec![]);
+    let secrets = StaticSecrets { material: vec![7u8; 32] };
     let dispatcher = WebhookDispatcher::new(
         &store,
-        &RecordingHttp::new(vec![]),
-        &StaticSecrets {
-            material: vec![7u8; 32],
-        },
+        &http,
+        &secrets,
         Box::new(move || clock),
-        Box::new(|_, _| Ok(endpoint(tenant(tenant_uuid_static())))),
+        &|_, _| Ok(endpoint(tenant(tenant_uuid_static()))),
     );
     dispatcher
         .enqueue(
@@ -326,14 +333,14 @@ fn the_idempotency_key_is_scoped_per_tenant() {
     // (tenant_id, delivery_key) contract, record 21 §1).
     let store = MemoryWebhookDeliveryStore::new();
     let clock = 5_000i64;
+    let http = RecordingHttp::new(vec![]);
+    let secrets = StaticSecrets { material: vec![7u8; 32] };
     let dispatcher = WebhookDispatcher::new(
         &store,
-        &RecordingHttp::new(vec![]),
-        &StaticSecrets {
-            material: vec![7u8; 32],
-        },
+        &http,
+        &secrets,
         Box::new(move || clock),
-        Box::new(|tenant_id, _| {
+        &|tenant_id, _| {
             Ok(WebhookEndpointRecord {
                 endpoint_id: "ep-1".to_string(),
                 tenant_id: *tenant_id,
@@ -342,7 +349,7 @@ fn the_idempotency_key_is_scoped_per_tenant() {
                 secret_previous_ref: None,
                 active: true,
             })
-        }),
+        },
     );
     dispatcher
         .enqueue(
@@ -376,14 +383,13 @@ fn a_failed_attempt_is_booked_before_the_call_and_scheduled_for_retry() {
     let http = RecordingHttp::new(vec![HttpPostOutcome::TransportFailure {
         class: "TIMEOUT".to_string(),
     }]);
+    let secrets = StaticSecrets { material: vec![8u8; 32] };
     let dispatcher = WebhookDispatcher::new(
         &store,
         &http,
-        &StaticSecrets {
-            material: vec![8u8; 32],
-        },
+        &secrets,
         Box::new(move || clock_for_dispatcher.load(Ordering::SeqCst)),
-        Box::new(|tenant_id, _| {
+        &|tenant_id, _| {
             Ok(WebhookEndpointRecord {
                 endpoint_id: "ep-1".to_string(),
                 tenant_id: *tenant_id,
@@ -392,7 +398,7 @@ fn a_failed_attempt_is_booked_before_the_call_and_scheduled_for_retry() {
                 secret_previous_ref: None,
                 active: true,
             })
-        }),
+        },
     );
     let booked = dispatcher
         .enqueue(
@@ -426,14 +432,13 @@ fn exhausting_the_attempts_dead_letters_and_counts() {
     let clock = Arc::new(AtomicI64::new(20_000));
     let clock_for_dispatcher = Arc::clone(&clock);
     let always_fail = FailingHttp;
+    let secrets = StaticSecrets { material: vec![9u8; 32] };
     let dispatcher = WebhookDispatcher::new(
         &store,
         &always_fail,
-        &StaticSecrets {
-            material: vec![9u8; 32],
-        },
+        &secrets,
         Box::new(move || clock_for_dispatcher.load(Ordering::SeqCst)),
-        Box::new(|tenant_id, _| {
+        &|tenant_id, _| {
             Ok(WebhookEndpointRecord {
                 endpoint_id: "ep-1".to_string(),
                 tenant_id: *tenant_id,
@@ -442,7 +447,7 @@ fn exhausting_the_attempts_dead_letters_and_counts() {
                 secret_previous_ref: None,
                 active: true,
             })
-        }),
+        },
     );
     dispatcher
         .enqueue(
@@ -459,7 +464,7 @@ fn exhausting_the_attempts_dead_letters_and_counts() {
     for attempt in 1..=MAX_ATTEMPTS {
         assert!(attempt_allowed(attempt), "attempt {attempt} is within the bound");
         status = dispatcher
-            .run_attempt(&store_due(&clock.load(Ordering::SeqCst), &store))
+            .run_attempt(&store_due(clock.load(Ordering::SeqCst), &store))
             .expect("each scheduled attempt runs");
         // Advance past the backoff window so the next attempt is due.
         let next_delay = backoff_delay_secs(attempt + 1) as i64 * 1_000 + 1;

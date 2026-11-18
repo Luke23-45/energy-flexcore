@@ -25,7 +25,7 @@
 // anyone.
 
 use flexcore_protocol_ports::observability::{
-    BudgetError, FleetConnectionRegistry, MessageRateBudget,
+    BudgetError, FleetConnectionRegistry, MessageRateBudget, RateRefusal,
 };
 
 /// Errors the OpenADR backpressure binding reports. Every failure is
@@ -45,6 +45,12 @@ pub enum VtnBackpressureError {
         agreed_millis: i64,
         floor_millis: i64,
     },
+}
+
+impl From<BudgetError> for VtnBackpressureError {
+    fn from(error: BudgetError) -> Self {
+        VtnBackpressureError::Budget(error)
+    }
 }
 
 impl std::fmt::Display for VtnBackpressureError {

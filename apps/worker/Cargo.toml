@@ -19,6 +19,11 @@ tokio = { workspace = true }
 sqlx = { workspace = true }
 async-nats = { workspace = true }
 serde_json = { workspace = true }
+# Patch B (P2.07): the ephemeral dev-key keypair is generated at startup
+# (`SigningKey::generate` needs the `rand_core` feature, on the workspace
+# pin) and the dev verifying-key bytes feed the envelope authenticator.
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 # P11.05 (Phase 11 wave 1, Agent A) — OpenTelemetry SDK + OTLP export for
@@ -52,6 +57,19 @@ flexcore-storage = { workspace = true }
 flexcore-simulator = { workspace = true }
 flexcore-nats-adapter = { workspace = true }
 flexcore-postgres-adapter = { workspace = true }
+
+[dev-dependencies]
+# Patch B: the sibling test worker's source-auth tests sign envelopes
+# with ephemeral keypairs and need the same crates as the production
+# path (plus an RNG for the test keypairs): ed25519-dalek + rand for
+# keypairs/signing, sha2 for envelope digests, base64 for payload
+# encode/decode.
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+# P2.20: the maintenance test builds partition bounds as OffsetDateTime.
+time = { workspace = true }
 
 [[bin]]
 name = "flexcore-worker"

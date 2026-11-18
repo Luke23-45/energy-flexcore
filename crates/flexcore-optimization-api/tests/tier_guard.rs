@@ -190,12 +190,19 @@ fn structural_scan_no_tier34_entry_point_exists() {
             continue;
         }
         let source = std::fs::read_to_string(&path).expect("source readable");
+        // A `#[test]` function is part of the guard itself (it proves a
+        // Tier 3/4 formulation is REFUSED), not a solver path — the same
+        // reason fixture.rs is excluded above. Only non-test function
+        // declarations can be entry points.
+        let mut previous_trimmed = "";
         for line in source.lines() {
             let trimmed = line.trim_start();
             let is_fn_declaration = trimmed.starts_with("fn ")
                 || trimmed.starts_with("pub fn ")
                 || trimmed.starts_with("pub(crate) fn ");
-            if !is_fn_declaration {
+            let is_test_fn = previous_trimmed == "#[test]";
+            previous_trimmed = trimmed;
+            if !is_fn_declaration || is_test_fn {
                 continue;
             }
             let lowered = line.to_lowercase();

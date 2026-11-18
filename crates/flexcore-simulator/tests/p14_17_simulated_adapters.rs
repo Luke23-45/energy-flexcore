@@ -26,6 +26,7 @@
 // - the whole simulated fleet binds through the kernel's
 //   adapter-permission checks with relay-only authority fleet-wide.
 
+use flexcore_cim_adapter::rdf_profile::RdfProfileSource as _;
 use flexcore_dnp3_adapter::outstation::{OutstationModel, PointAssignment};
 use flexcore_dnp3_adapter::transport::Dnp3Transport as _;
 use flexcore_modbus_adapter::registry::{
@@ -38,7 +39,8 @@ use flexcore_openadr_adapter::vtn::{DeliveryPlanner, VtnRegistry};
 use flexcore_protocol_20305::addressing::AddressPlan;
 use flexcore_protocol_20305::model::{DERControl, DERControlBase, DERControlList, ListMeta, TimeType};
 use flexcore_protocol_20305::server::{
-    AggregatorServer, MtlsRequirements, ResourceRequestHandler as _, ServerLimits, StoredResource,
+    AggregatorServer, AggregatorTransport as _, MtlsRequirements, ResourceRequestHandler as _,
+    ServerLimits, StoredResource,
 };
 use flexcore_simulator::adapters::{
     permissions, sim_20305, sim_cim, sim_dnp3, sim_modbus, sim_mqtt, sim_openadr,
@@ -182,7 +184,7 @@ fn the_simulated_transport_serves_a_scripted_schedule_through_the_seam() {
 #[test]
 fn the_simulated_ven_resolves_its_plan_and_accepts_only_targeted_events() {
     let mut registry = VtnRegistry::new("openadr-vtn");
-    let ven = sim_openadr::SimulatedVen::new("ven-1", 60_000, None, true, vec![
+    let mut ven = sim_openadr::SimulatedVen::new("ven-1", 60_000, None, true, vec![
         DeliveryMode::Polling,
     ])
     .expect("valid simulated ven");
@@ -244,7 +246,7 @@ fn the_simulated_modbus_device_feeds_the_real_decode_path() {
             unit_id: 1,
         },
         40_001,
-        vec![0xFA1C, 0x0001, 0x86A0, 0x0000],
+        vec![0xFA24, 0x0001, 0x86A0, 0x0000],
     )
     .expect("valid simulated device");
     let mut registry = RegisterMapRegistry::new("modbus-client");

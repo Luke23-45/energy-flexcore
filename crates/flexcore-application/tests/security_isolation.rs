@@ -588,6 +588,9 @@ fn the_outbox_record_is_registered_with_the_state_change_in_one_unit_of_work() {
     // root records.
     let fx = fixture();
     let ctx_a = context_for(tenant_a_id(), "user:a-admin");
+    // The fixture seeds both tenants through the shared journal, so the
+    // baseline is 2 tenant-insert ops; the portfolio creation adds 3.
+    let baseline = fx.journal.ops().len();
 
     let portfolio = fx
         .create_portfolio
@@ -596,9 +599,9 @@ fn the_outbox_record_is_registered_with_the_state_change_in_one_unit_of_work() {
     fx.journal.record_commit();
 
     let ops = fx.journal.ops();
-    assert_eq!(ops.len(), 3, "state change, outbox append, commit");
+    assert_eq!(ops.len(), baseline + 3, "state change, outbox append, commit");
     assert_eq!(
-        ops[0],
+        ops[baseline],
         FakeJournalOp::StateChange {
             entity: entities::PORTFOLIOS.to_string(),
             operation: flexcore_ports::state_change::StateChangeOperation::Insert,
@@ -608,7 +611,7 @@ fn the_outbox_record_is_registered_with_the_state_change_in_one_unit_of_work() {
     );
     let expected_key = fx.outbox.writes()[0].idempotency_key().to_string();
     assert_eq!(
-        ops[1],
+        ops[baseline + 1],
         FakeJournalOp::OutboxAppend {
             idempotency_key: expected_key,
             entity: entities::PORTFOLIOS.to_string(),
@@ -616,7 +619,7 @@ fn the_outbox_record_is_registered_with_the_state_change_in_one_unit_of_work() {
         },
         "the outbox append follows, pairing the same state change"
     );
-    assert_eq!(ops[2], FakeJournalOp::Commit, "one commit covers both");
+    assert_eq!(ops[baseline + 2], FakeJournalOp::Commit, "one commit covers both");
 
     // The outbox write itself carries the tenant scope of the context.
     let write = &fx.outbox.writes()[0];

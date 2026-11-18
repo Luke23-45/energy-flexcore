@@ -87,7 +87,7 @@ use flexcore_edge_agent::command_path::{
 use flexcore_edge_agent::command_verify::{
     canonical_command_binding, sign_command, AssetCommandScope, CommandAuthorization,
     CommandSigningKey, CommandVerificationRejection, CommandVerifier, FileSequenceCheckpoint,
-    IncomingCommand,
+    IncomingCommand, SequenceCheckpointStore,
 };
 use flexcore_edge_agent::pilot_rejection_proof::{
     idempotency_binding, FileCommandIdBinding, PilotAttackCase, PilotRejectionProver,
@@ -300,17 +300,17 @@ fn an_expired_command_is_refused_and_the_window_boundary_is_hand_computed() {
     //   now == valid_until     → EXPIRED (exclusive);
     //   now == valid_from - 1  → not yet valid.
     let dir = scratch_dir("expiry-valid");
-    let mut verifier = verifier(&dir, BASE_MILLIS + 3_600_000 - 1);
+    let mut verifier_before_expiry = verifier(&dir, BASE_MILLIS + 3_600_000 - 1);
     let command = incoming("cmd-1", 1, 1.5, true);
-    verifier
+    verifier_before_expiry
         .verify(&receipt, &command, ClockQuality::Synchronized)
         .expect("one millis before expiry the command is still valid");
     cleanup(&dir);
 
     let dir = scratch_dir("expiry-at");
-    let mut verifier = verifier(&dir, BASE_MILLIS + 3_600_000);
+    let mut verifier_at_expiry = verifier(&dir, BASE_MILLIS + 3_600_000);
     let command = incoming("cmd-1", 1, 1.5, true);
-    let rejection = verifier
+    let rejection = verifier_at_expiry
         .verify(&receipt, &command, ClockQuality::Synchronized)
         .expect_err("AT the expiry instant the command is expired");
     assert_eq!(rejection.code(), "expiry");
@@ -461,10 +461,10 @@ fn a_degraded_clock_holds_every_command_fail_closed_even_when_fully_valid() {
     // recorded risk ("an expired command accepted because the edge clock
     // drifted") closes in the SAFE direction: nothing is trusted, not even
     // the valid commands.
-    let mut verifier = verifier(&dir, BASE_MILLIS + 1_000);
+    let mut verifier_drifted = verifier(&dir, BASE_MILLIS + 1_000);
     let receipt = receipt("cmd-1");
     let command = incoming("cmd-1", 1, 1.5, true);
-    let rejection = verifier
+    let rejection = verifier_drifted
         .verify(&receipt, &command, drifted.p6_15_clock_quality(BASE_MILLIS + 1_000))
         .expect_err("the drifted clock holds the command");
     assert_eq!(rejection.code(), "expiry");
@@ -536,10 +536,10 @@ fn the_verifier_refuses_every_non_synchronized_clock_quality_value() {
     // values both fail the expiry check closed. Each iteration gets its own
     // scratch dir (the checkpoint files must not collide).
     let dir_unknown = scratch_dir("clock-verifier-unknown");
-    let mut verifier = verifier(&dir_unknown, BASE_MILLIS + 1_000);
+    let mut verifier_unknown = verifier(&dir_unknown, BASE_MILLIS + 1_000);
     let receipt = receipt("cmd-1");
     let command = incoming("cmd-1", 1, 1.5, true);
-    let rejection = verifier
+    let rejection = verifier_unknown
         .verify(&receipt, &command, ClockQuality::Unknown)
         .expect_err("an unknown clock fails the expiry check closed");
     assert_eq!(rejection.code(), "expiry");
@@ -644,7 +644,10 @@ fn a_wrong_magic_checkpoint_file_is_refused_not_guessed() {
     let dir = scratch_dir("checkpoint-foreign");
     let path = dir.join("not-a-checkpoint");
     std::fs::write(&path, b"something else entirely").expect("writes");
-    let error = FileSequenceCheckpoint::open(&path).expect_err("refused");
+    let error = match FileSequenceCheckpoint::open(&path) {
+        Ok(_) => panic!("a foreign checkpoint file must never open"),
+        Err(error) => error,
+    };
     assert!(matches!(
         error,
         flexcore_edge_agent::command_verify::CheckpointError::NotACheckpointFile { .. }
@@ -709,14 +712,14 @@ fn the_pilot_rejection_prover_rejects_every_attack_case_with_its_expected_code()
     )
     .expect("composes");
     let mut verifier = verifier(&dir, BASE_MILLIS + 1_000);
-    let receipt = receipt("atk-forged");
+    let receipt_forged = receipt("atk-forged");
 
     // ForgedSignature: an unsigned command, fully valid otherwise.
     let forged = incoming("atk-forged", 1, 1.5, false);
     let record = prover
         .run_attack(
             &mut verifier,
-            &receipt,
+            &receipt_forged,
             &forged,
             PilotAttackCase::ForgedSignature,
             ClockQuality::Synchronized,

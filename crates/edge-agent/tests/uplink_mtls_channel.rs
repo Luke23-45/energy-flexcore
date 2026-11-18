@@ -304,14 +304,16 @@ impl FilesystemCredentialStoreLoad for FakeIdentityStore {
 
 #[test]
 fn composition_fails_closed_without_a_stored_identity() {
-    let error = compose_with(
+    let error = match compose_with(
         None,
         Arc::new(Script::default()),
         Arc::new(Counters::default()),
         Box::new(FixedPayloadEncoder),
         Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)),
-    )
-    .expect_err("no identity → no channel (fail closed)");
+    ) {
+        Ok(_) => panic!("no identity → no channel (fail closed)"),
+        Err(error) => error,
+    };
     let rendered = error.to_string();
     assert!(rendered.contains("no device identity is stored"), "{rendered}");
     assert!(rendered.contains("fail closed"), "{rendered}");
@@ -321,29 +323,39 @@ fn composition_fails_closed_without_a_stored_identity() {
 fn composition_fails_closed_without_a_client_certificate() {
     let mut record = complete_record();
     record.certificate_pem = None;
-    let error = compose_with(
+    let error = match compose_with(
         Some(record),
         Arc::new(Script::default()),
         Arc::new(Counters::default()),
         Box::new(FixedPayloadEncoder),
         Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)),
-    )
-    .expect_err("no client certificate → no channel");
+    ) {
+        Ok(_) => panic!("no client certificate → no channel"),
+        Err(error) => error,
+    };
     assert!(error.to_string().contains("no device certificate"), "{}", error);
 }
 
 #[test]
 fn composition_fails_closed_without_the_pinned_root_ca() {
     let mut record = complete_record();
+    // BOTH are absent: the certificate-present/root-absent shape is refused
+    // EARLIER, by DeviceCredentialRecord::validate() ("a certificate
+    // without the pinned platform root") — the compose-level root-CA
+    // refusal (assemble_material, checked before the certificate check)
+    // is exercised by the record carrying neither.
     record.root_ca_pem = None;
-    let error = compose_with(
+    record.certificate_pem = None;
+    let error = match compose_with(
         Some(record),
         Arc::new(Script::default()),
         Arc::new(Counters::default()),
         Box::new(FixedPayloadEncoder),
         Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)),
-    )
-    .expect_err("no pinned root CA → no channel");
+    ) {
+        Ok(_) => panic!("no pinned root CA → no channel"),
+        Err(error) => error,
+    };
     assert!(
         error.to_string().contains("no pinned platform root CA"),
         "{error}"
@@ -354,14 +366,16 @@ fn composition_fails_closed_without_the_pinned_root_ca() {
 fn composition_fails_closed_without_a_key_material_reference() {
     let mut record = complete_record();
     record.private_key_reference = None;
-    let error = compose_with(
+    let error = match compose_with(
         Some(record),
         Arc::new(Script::default()),
         Arc::new(Counters::default()),
         Box::new(FixedPayloadEncoder),
         Arc::new(FixedClock::at_unix_millis(BASE_MILLIS)),
-    )
-    .expect_err("no key reference → no channel");
+    ) {
+        Ok(_) => panic!("no key reference → no channel"),
+        Err(error) => error,
+    };
     assert!(error.to_string().contains("no private-key reference"), "{error}");
 }
 

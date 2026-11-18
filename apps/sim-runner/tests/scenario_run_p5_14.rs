@@ -183,6 +183,7 @@ fn the_composition_runs_the_slice_against_the_real_simulator_and_names_its_adapt
     let verdict = slice
         .command
         .tracking_verdict
+        .as_ref()
         .expect("a polled tracking outcome is recorded");
     assert!(
         matches!(
@@ -423,7 +424,7 @@ fn the_dropout_is_visible_and_triggers_the_real_rolling_roll() {
         .roll_plan
         .as_ref()
         .expect("the recorded dropout triggered the rolling-roll plan");
-    assert_eq!(roll.trigger, "asset_dropout");
+    assert_eq!(roll.trigger, "asset_opt_out_dropout");
     assert!(
         roll.trigger_detail.contains("site-north-bess-1"),
         "the trigger detail names the dropped asset"

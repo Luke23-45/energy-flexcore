@@ -160,7 +160,7 @@ pub struct WeatherSample {
 
 /// Why a weather sample was refused. Every variant is a named, matchable
 /// error; refusals never degrade into a default sample.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum WeatherSampleError {
     /// The value was NaN or infinite.
     NonFiniteValue,
@@ -560,25 +560,30 @@ mod tests {
 
     #[test]
     fn every_error_renders_non_empty_prose() {
+        // Two different error types, so the prose is collected as
+        // Strings: one array cannot hold them together.
         let errors = [
-            WeatherSampleError::NonFiniteValue,
-            WeatherSampleError::FractionOutOfRange { value: 2.0 },
-            WeatherSampleError::NegativeIrradiance { value: -1.0 },
-            WeatherSampleError::EmptySourceRef,
+            WeatherSampleError::NonFiniteValue.to_string(),
+            WeatherSampleError::FractionOutOfRange { value: 2.0 }.to_string(),
+            WeatherSampleError::NegativeIrradiance { value: -1.0 }.to_string(),
+            WeatherSampleError::EmptySourceRef.to_string(),
             WeatherPortError::ProviderUnavailable {
                 code: "E-TEST".to_string(),
                 message: "fixture".to_string(),
-            },
+            }
+            .to_string(),
             WeatherPortError::InvalidWindow {
                 from_millis: 10,
                 until_millis: 5,
-            },
+            }
+            .to_string(),
             WeatherPortError::ProviderDataRefused {
                 reason: "fixture".to_string(),
-            },
+            }
+            .to_string(),
         ];
         for error in errors {
-            assert!(!error.to_string().is_empty());
+            assert!(!error.is_empty());
         }
     }
 

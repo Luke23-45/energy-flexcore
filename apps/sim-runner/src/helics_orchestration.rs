@@ -641,7 +641,7 @@ impl FederateLauncher for ProcessFederateLauncher {
         }
 
         let mut outputs = Vec::new();
-        for entry in running {
+        for mut entry in running {
             let (stdout, stderr, timed_out) = match entry.output.recv_timeout(timeout) {
                 Ok((stdout, stderr)) => (stdout, stderr, false),
                 Err(_) => {

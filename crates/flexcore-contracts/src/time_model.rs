@@ -111,8 +111,7 @@ macro_rules! utc_timestamp_newtype {
         $name:ident
     ) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize)]
-        #[serde(into = "OffsetDateTime", try_from = "OffsetDateTime")]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(OffsetDateTime);
 
         impl $name {
@@ -151,6 +150,42 @@ macro_rules! utc_timestamp_newtype {
         impl From<$name> for OffsetDateTime {
             fn from(t: $name) -> Self {
                 t.0
+            }
+        }
+
+        // RFC 3339 strings in JSON (repo design: root Cargo.toml header).
+        // The `time` crate's own serde form for OffsetDateTime is a
+        // component tuple — and with `serde-human-readable` a
+        // space-separated well-known format — neither of which is RFC 3339,
+        // so the newtypes serialize and parse explicitly. Parsing runs
+        // through `Self::new`, so a non-UTC offset is rejected with the
+        // `NonUtcOffset` message on the deserialization path, never
+        // silently converted.
+        impl ::serde::Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: ::serde::Serializer,
+            {
+                let formatted = self
+                    .0
+                    .format(&::time::format_description::well_known::Rfc3339)
+                    .map_err(::serde::ser::Error::custom)?;
+                serializer.serialize_str(&formatted)
+            }
+        }
+
+        impl<'de> ::serde::Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: ::serde::Deserializer<'de>,
+            {
+                let text = <String as ::serde::Deserialize>::deserialize(deserializer)?;
+                let parsed = ::time::OffsetDateTime::parse(
+                    &text,
+                    &::time::format_description::well_known::Rfc3339,
+                )
+                .map_err(::serde::de::Error::custom)?;
+                Self::new(parsed).map_err(::serde::de::Error::custom)
             }
         }
     };

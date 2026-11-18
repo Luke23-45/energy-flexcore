@@ -82,7 +82,7 @@ use flexcore_domain::dispatch_command::{
 };
 use flexcore_domain::ids::{AssetId, CommandId, PortfolioId, ScheduleId, SiteId, TenantId};
 use flexcore_domain::tenant_context::{AuthenticatedClaims, TenantContext, VerifiedClaims};
-use flexcore_ports::event_outbox::{EventOutboxError, OutboxWrite};
+use flexcore_ports::event_outbox::{EventOutbox, EventOutboxError, OutboxWrite};
 use flexcore_ports::fakes::{CountingIdGenerator, FakeEventOutbox, FakeWriteJournal};
 use flexcore_ports::state_change::{StateChangeOperation, StateChangeReceipt};
 
@@ -1000,7 +1000,8 @@ fn f1b_a_duplicated_publish_under_one_key_is_refused_exactly_one_effective_entry
 fn f2_a_reordered_delivery_is_refused_at_the_receive_point_and_the_guard_never_advances() {
     let inner = FaultTransport::new();
     let keyring = SimulationKeyring::new("p431-recv-key").expect("keyring builds");
-    let receiving = VerifyingDispatchTransport::new(&inner, &PayloadBoundVerifier::new(&keyring));
+    let verifier = PayloadBoundVerifier::new(&keyring);
+    let receiving = VerifyingDispatchTransport::new(&inner, &verifier);
 
     let make_envelope = |command_tag: u8, sequence: u64| {
         let envelope = SimulatorDispatchEnvelope {

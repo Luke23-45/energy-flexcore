@@ -298,7 +298,7 @@ mod tests {
 
         let error = ProtocolPortError::Refused {
             operation: "read",
-            reason: "capability not declared",
+            reason: "capability not declared".to_string(),
         };
         assert!(error.to_string().contains("read"));
         assert!(error.to_string().contains("refused by declared rules"));

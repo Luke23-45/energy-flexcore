@@ -9,12 +9,16 @@
 //
 // 1. **Record assembly** ([`assemble_schedule_result_record`]): a §12.6
 //    result plus the input snapshot it was computed from plus the grid-model
-//    traceability become one [`ScheduleResultRecord`]. The assembly runs the
-//    port-level completeness gate (`flexcore_optimization_api::result`
-//    `OptimizationResult::validate_complete`) FIRST — a result missing any
-//    required field never becomes a schedule record — and then completes the
-//    result's optional wiring fields (`input_snapshot_id`,
-//    `grid_model_version`) from the snapshot and traceability, and merges
+//    traceability become one [`ScheduleResultRecord`]. The assembly
+//    completes the result's optional wiring fields (`input_snapshot_id`,
+//    `grid_model_version`) from the snapshot and traceability FIRST — the
+//    port-level completeness gate
+//    (`flexcore_optimization_api::result`
+//    `OptimizationResult::validate_complete`) requires `input_snapshot_id`,
+//    which is exactly the field assembly supplies, so gating before wiring
+//    could never pass a provider result that leaves it unset — and then
+//    runs that gate over the COMPLETED result, so a result missing any
+//    other required field never becomes a schedule record. It then merges
 //    the recorded warnings (P3.15 [`ScalingWarning`]s; the P3.18
 //    `SOCP_EXACTNESS_CAVEAT` on every Tier 2 result).
 // 2. **Input snapshot** ([`InputSnapshotRecord`]): exactly the constituents
@@ -361,9 +365,11 @@ pub struct ScheduleResultAssemblyInput {
     pub tenant_id: TenantId,
     pub portfolio_id: PortfolioId,
     pub site_id: SiteId,
-    /// The §12.6 result as the provider returned it. It must already
-    /// satisfy the port-level completeness gate; assembly consumes it and
-    /// completes the wiring fields.
+    /// The §12.6 result as the provider returned it. Its wiring fields
+    /// (`input_snapshot_id`, `grid_model_version`) may be unset —
+    /// assembly completes them — but after wiring it must satisfy the
+    /// port-level completeness gate; assembly consumes it and completes
+    /// the wiring fields.
     pub result: OptimizationResult,
     pub grid_model: GridModelTraceability,
     pub input_snapshot: InputSnapshotRecord,
@@ -373,23 +379,25 @@ pub struct ScheduleResultAssemblyInput {
 }
 
 /// Assembles the schedule-result record (§12.6 completion; ledger P3.21
-/// steps 1–2). Runs the port-level completeness gate first, then:
+/// steps 1–2). Order matters: the grid-model site check runs first, then
+/// the wiring fields are completed, and only then does the port-level
+/// completeness gate run — over the COMPLETED result. The gate requires
+/// `input_snapshot_id`, which is exactly the field assembly supplies from
+/// the snapshot, so gating before wiring could never pass a provider
+/// result that leaves it unset.
 ///
+/// - verifies the traceability's site is the record's site;
 /// - completes `result.input_snapshot_id` with the snapshot's deterministic
 ///   reference (the result now references the exact snapshot used);
-/// - completes `result.grid_model_version` from the traceability (and
-///   verifies the traceability's site is the record's site);
+/// - completes `result.grid_model_version` from the traceability;
+/// - runs the port-level completeness gate on the completed result;
 /// - merges the P3.15 scaling warnings and — for every Tier 2 problem
 ///   class — the P3.18 `SOCP_EXACTNESS_CAVEAT` into `result.warnings`
 ///   (idempotently: an already-present statement is not duplicated).
 pub fn assemble_schedule_result_record(
     input: ScheduleResultAssemblyInput,
 ) -> Result<ScheduleResultRecord, ScheduleResultError> {
-    // Gate 1: the port-level §12.6 completeness. A result missing any
-    // required field never becomes a schedule record.
-    input.result.validate_complete()?;
-
-    // Gate 2: the grid-model traceability must name THE record's site —
+    // Gate 1: the grid-model traceability must name THE record's site —
     // a traceability from a different site is a wiring error, not a note.
     if input.grid_model.site_id() != input.site_id {
         return Err(ScheduleResultError::GridModelSiteMismatch {
@@ -426,6 +434,11 @@ pub fn assemble_schedule_result_record(
             });
         }
     }
+
+    // Gate 2: the port-level §12.6 completeness, over the COMPLETED
+    // result. A result missing any required field never becomes a
+    // schedule record.
+    result.validate_complete()?;
 
     // Warnings: the P3.15 scaling warnings, then the SOCP caveat for every
     // Tier 2 result. Deterministic order: provider warnings, scaling
@@ -741,6 +754,12 @@ pub enum ScheduleResultError {
     },
     /// The events crate rejected the assembled envelope.
     EventEnvelopeRejected,
+}
+
+impl From<ResultCompletenessError> for ScheduleResultError {
+    fn from(error: ResultCompletenessError) -> Self {
+        ScheduleResultError::IncompleteResult(error)
+    }
 }
 
 impl std::fmt::Display for ScheduleResultError {

@@ -375,7 +375,7 @@ fn compose_stack(
     let uplink = RecordingUplink::new();
     let runner = EdgeRunner::new(
         RunnerParams::from_config(Duration::from_millis(5_000), 100, 128),
-        source,
+        Box::new(source),
         Box::new(uplink.clone()),
         Box::new(buffer),
         Arc::new(InMemoryAuditSink::new()),
@@ -564,7 +564,8 @@ fn forced_stale_feed_arrives_stale_within_the_freshness_limit_and_never_missing(
     // tick), i.e. within the freshness limit.
     assert_eq!(soc.quality(), TelemetryQuality::Stale);
     assert_eq!(soc.source_quality_code(), Some("STALE"));
-    let event_age = INGEST_MILLIS - soc.event_time().unix_millis();
+    let event_age =
+        INGEST_MILLIS - i64::try_from(soc.event_time().unix_millis()).unwrap_or(i64::MAX);
     assert!(
         event_age > STALE_AFTER_MILLIS,
         "the event age ({event_age} ms) exceeds the declared freshness limit \

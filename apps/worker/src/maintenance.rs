@@ -47,6 +47,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use flexcore_ports::backend_error::BackendError;
+use flexcore_ports::clock::Clock;
+use flexcore_ports::id_generator::IdGenerator;
 use flexcore_postgres_adapter::partition_maintenance::{
     plan_pre_creation, retention_cutoff, retention_eligible, MaintenanceError,
     PartitionAuditContext, PartitionCreateOutcome,
@@ -156,7 +158,7 @@ pub fn pre_creation_pass(
     let unit = store.begin(None).map_err(maintenance_backend)?;
     let shared = Arc::new(unit);
     let existing = shared.list_telemetry_partitions()?;
-    let plan = plan_pre_creation(&existing, now.year(), u8::from(now.month()), months_ahead);
+    let plan = plan_pre_creation(&existing, now.year(), now.month() as u32, months_ahead);
     let mut created = Vec::with_capacity(plan.len());
     for planned in plan {
         match shared.create_telemetry_partition(planned.year, planned.month)? {
@@ -241,7 +243,7 @@ fn execute_detach_only(
     let unit = store.begin(None).map_err(maintenance_backend)?;
     let shared = Arc::new(unit);
     let entries = shared.list_telemetry_partitions()?;
-    let cutoff = retention_cutoff(now.year(), u8::from(now.month()), retention_months)
+    let cutoff = retention_cutoff(now.year(), now.month() as u32, retention_months)
         .ok_or_else(|| MaintenanceError::Refused {
             partition: "*".to_string(),
             reason: "the retention horizon underflows the representable calendar".to_string(),

@@ -72,6 +72,7 @@ use flexcore_storage::command_store::{
 use flexcore_storage::feasibility_check::{
     FeasibilityCheckFilter, FeasibilityCheckRow, FeasibilityCheckStore,
 };
+use flexcore_storage::schedule_revision::ScheduleRevisionChainStore;
 use flexcore_storage::schedule_revision::ScheduleRevisionRow;
 use flexcore_storage::schedule_store::{ScheduleRecordRow, ScheduleRecordStore};
 
@@ -122,7 +123,7 @@ fn fixture_uuid(prefix: u8) -> FlexUuid {
     bytes[6] = (run_key() >> 24) as u8;
     bytes[7] = (run_key() >> 16) as u8;
     bytes[8] = (run_key() >> 8) as u8;
-    bytes[9] = run_key() as u8;
+    bytes[9] = *run_key() as u8;
     let counter = next_counter().to_be_bytes();
     bytes[10..16].copy_from_slice(&counter[2..8]);
     FlexUuid::from_bytes(bytes)
@@ -151,7 +152,7 @@ fn seed_environment(
     let unit: PgUnitOfWork = store.begin(Some(&ctx)).expect("unit of work opens");
     let tenant = Tenant::try_new(
         TenantId::new(tenant_uuid),
-        "p4.31 tenant".to_string(),
+        format!("p4.31 tenant {tenant_uuid}"),
         None,
         format!("idp-{tenant_uuid}"),
         "default".to_string(),
@@ -531,7 +532,7 @@ fn the_p4_vertical_slice_persists_gates_outbox_and_reads_back_end_to_end() {
     // broker publish is the CI/human run (recorded, not faked here).
     {
         let unit = store.begin(Some(&ctx)).expect("unit of work opens");
-        let pending = unit.pending_entries(100).expect("pending reads");
+        let pending = unit.pending(100).expect("pending reads");
         let keys: Vec<&str> = pending
             .iter()
             .map(|entry| entry.idempotency_key())
@@ -603,8 +604,8 @@ fn the_slice_is_append_only_and_tenant_scoped_under_fault_conditions() {
     // PROPOSED → VALIDATED row cannot be journalled. No corruption.
     {
         let unit = store.begin(Some(&ctx)).expect("unit of work opens");
-        assert_eq!(
-            unit.record_command_transition(
+        let error = unit
+            .record_command_transition(
                 &ctx,
                 &transition_record(
                     &ctx,
@@ -615,8 +616,10 @@ fn the_slice_is_append_only_and_tenant_scoped_under_fault_conditions() {
                     Some(Gate::Validation),
                     "evidence:validation-v1",
                 ),
-            ),
-            Err(CommandStoreError::TransitionConflict { .. }),
+            )
+            .expect_err("a redelivered VALIDATED gate message is refused by the CAS");
+        assert!(
+            matches!(error, CommandStoreError::TransitionConflict { .. }),
             "a redelivered VALIDATED gate message is refused by the CAS"
         );
         unit.rollback().expect("rolled back");
@@ -732,7 +735,7 @@ fn the_slice_publish_records_drain_with_zero_loss_and_refuse_redelivery() {
     {
         let unit = store.begin(Some(&ctx)).expect("unit of work opens");
         EventOutbox::record_attempt(&unit, key).expect("the attempt is recorded");
-        let pending = unit.pending_entries(100).expect("pending reads");
+        let pending = unit.pending(100).expect("pending reads");
         let entry = pending
             .iter()
             .find(|entry| entry.idempotency_key() == key)
@@ -747,7 +750,7 @@ fn the_slice_publish_records_drain_with_zero_loss_and_refuse_redelivery() {
         EventOutbox::mark_delivered(&unit, key).expect("the ack is recorded");
         assert!(
             !unit
-                .pending_entries(100)
+                .pending(100)
                 .expect("pending reads")
                 .iter()
                 .any(|entry| entry.idempotency_key() == key),

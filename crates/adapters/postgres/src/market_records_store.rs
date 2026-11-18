@@ -46,6 +46,7 @@
 // received, and no qualification is claimed anywhere (ADR-011;
 // conventions §7.3). Every table starts EMPTY.
 
+use sqlx::Row;
 use crate::error::{is_unique_violation, map_backend};
 use crate::unit_of_work::{tx_ref, PgUnitOfWork};
 use flexcore_storage::market_records_store::{
@@ -165,7 +166,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(&row.audit_record_id)
             .bind(row.recorded_at_unix_ms)
             .bind(&row.recorded_by)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| {
                 insert_conflict_or_backend(err, &row.program_id, &row.tenant_id)
@@ -212,7 +213,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             )
             .bind(tenant_id)
             .bind(limit)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(backend_error)?;
             rows.iter().map(decode_market_program_row).collect()
@@ -255,7 +256,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(&row.audit_record_id)
             .bind(row.recorded_at_unix_ms)
             .bind(&row.recorded_by)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| {
                 insert_conflict_or_backend(err, &row.contract_id, &row.tenant_id)
@@ -303,7 +304,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(tenant_id)
             .bind(program_id)
             .bind(limit)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(backend_error)?;
             rows.iter().map(decode_market_contract_row).collect()
@@ -359,7 +360,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(&row.audit_record_id)
             .bind(row.recorded_at_unix_ms)
             .bind(&row.recorded_by)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| {
                 insert_conflict_or_backend(err, &row.enrollment_id, &row.tenant_id)
@@ -408,7 +409,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(tenant_id)
             .bind(program_id)
             .bind(limit)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(backend_error)?;
             rows.iter().map(decode_market_enrollment_row).collect()
@@ -453,7 +454,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(&row.audit_record_id)
             .bind(row.recorded_at_unix_ms)
             .bind(&row.recorded_by)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| insert_conflict_or_backend(err, &row.event_id, &row.tenant_id))?;
             if result.rows_affected() != 1 {
@@ -499,7 +500,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(tenant_id)
             .bind(program_id)
             .bind(limit)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(backend_error)?;
             rows.iter().map(decode_market_event_row).collect()
@@ -544,7 +545,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(&row.audit_record_id)
             .bind(row.recorded_at_unix_ms)
             .bind(&row.recorded_by)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| {
                 insert_conflict_or_backend(err, &row.delivery_id, &row.tenant_id)
@@ -593,7 +594,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(tenant_id)
             .bind(event_id)
             .bind(limit)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(backend_error)?;
             rows.iter().map(decode_market_delivery_row).collect()
@@ -650,7 +651,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(&row.audit_record_id)
             .bind(row.recorded_at_unix_ms)
             .bind(&row.recorded_by)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|err| {
                 insert_conflict_or_backend(err, &row.settlement_id, &row.tenant_id)
@@ -700,7 +701,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(tenant_id)
             .bind(program_id)
             .bind(limit)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(backend_error)?;
             rows.iter().map(decode_market_settlement_row).collect()
@@ -739,7 +740,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             .bind(row.basis.as_deref())
             .bind(&row.set_by)
             .bind(row.set_at_unix_ms)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(backend_error)?;
             if result.rows_affected() == 0 {
@@ -780,7 +781,7 @@ impl MarketRecordsStore for PgUnitOfWork {
             )
             .bind(tenant_id)
             .bind(limit)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(backend_error)?;
             rows.iter().map(decode_market_retention_config_row).collect()

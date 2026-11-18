@@ -109,7 +109,7 @@ impl InboundProposalMessageName {
 
 /// Errors of the proposal assembly. Every variant names the failure — the
 /// assembly refuses, it never defaults.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EvProposalIngestError {
     /// The domain record construction refused the message (the named
     /// domain error is carried verbatim).
@@ -287,7 +287,7 @@ mod tests {
         // structurally PROPOSED, and the frozen lifecycle refuses every
         // PROPOSED shortcut to an issued state.
         assert_eq!(
-            record.lifecycle_entry_state(),
+            flexcore_domain::ev_proposal_records::EvProposalRecord::lifecycle_entry_state(),
             flexcore_domain::command_state::CommandState::Proposed
         );
         assert!(flexcore_domain::command_state::try_transition(

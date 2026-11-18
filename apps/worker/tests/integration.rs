@@ -246,5 +246,5 @@ async fn outbox_publish_and_idempotent_consume_end_to_end() {
         "two deliveries produced exactly ONE side effect"
     );
 
-    store.pool().close();
+    store.pool().close().await;
 }

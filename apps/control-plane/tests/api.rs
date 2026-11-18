@@ -204,9 +204,16 @@ fn create_tenant_body() -> Value {
 }
 
 async fn create_tenant_a(router: &Router) {
+    // Tenant creation is a PLATFORM act: record 41 (P13.15) pins
+    // `tenant.create` to PlatformAdmin, and phase1_default_policies
+    // grants it to PlatformAdmin only — a TenantAdmin creating a tenant
+    // is denied 403 (the old form used "caller-a" and every test built
+    // on this helper failed at setup). "platform-a" is bound to tenant
+    // A, so the created tenant is still the counting generator's first
+    // identifier (...0001 = tenant A).
     let (status, _) = call(
         router,
-        post_json("/api/v1/tenants", Some("caller-a"), create_tenant_body()),
+        post_json("/api/v1/tenants", Some("platform-a"), create_tenant_body()),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "tenant A setup");
@@ -219,9 +226,10 @@ async fn create_tenant_a(router: &Router) {
 #[tokio::test]
 async fn create_tenant_happy_path_is_201_and_writes_the_outbox() {
     let (router, outbox, journal, _telemetry) = composed_router();
+    // Tenant creation is a platform act (record 41; see create_tenant_a).
     let (status, body) = call(
         &router,
-        post_json("/api/v1/tenants", Some("caller-a"), create_tenant_body()),
+        post_json("/api/v1/tenants", Some("platform-a"), create_tenant_body()),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
@@ -249,9 +257,11 @@ async fn create_tenant_happy_path_is_201_and_writes_the_outbox() {
 async fn duplicate_tenant_registration_is_422() {
     let (router, _outbox, _journal, _telemetry) = composed_router();
     create_tenant_a(&router).await;
+    // The duplicate posts as the platform caller too: a TenantAdmin
+    // post would 403 at the policy gate before the duplicate check runs.
     let (status, body) = call(
         &router,
-        post_json("/api/v1/tenants", Some("caller-a"), create_tenant_body()),
+        post_json("/api/v1/tenants", Some("platform-a"), create_tenant_body()),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -386,8 +396,12 @@ async fn tenant_scoped_reads_return_the_callers_own_tenant() {
     let (router, _outbox, _journal, _telemetry) = composed_router();
     create_tenant_a(&router).await;
 
-    // List: exactly the caller's own tenant.
-    let (status, body) = call(&router, get("/api/v1/tenants", Some("caller-a"))).await;
+    // List: exactly the caller's own tenant. TenantRead is a
+    // PlatformAdmin-only grant (the p10_04 allow table transcribes it
+    // verbatim from phase1_default_policies) — the route still scopes
+    // the list to the caller's own tenant, so the platform caller bound
+    // to tenant A sees exactly tenant A.
+    let (status, body) = call(&router, get("/api/v1/tenants", Some("platform-a"))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"].as_array().expect("list").len(), 1);
 
@@ -398,7 +412,7 @@ async fn tenant_scoped_reads_return_the_callers_own_tenant() {
         .to_string();
     let (status, body) = call(
         &router,
-        get(&format!("/api/v1/tenants/{other}"), Some("caller-a")),
+        get(&format!("/api/v1/tenants/{other}"), Some("platform-a")),
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -557,7 +571,7 @@ fn asset_uuid(raw: &str) -> AssetId {
 // maximum), covering the seeded event times.
 const QUERY_FROM: &str = "2023-11-13T00:00:00Z";
 const QUERY_UNTIL: &str = "2023-11-16T00:00:00Z";
-const SEED_BASE_MILLIS: i64 = 1_699_900_000_000;
+const SEED_BASE_MILLIS: i64 = 1_699_999_900_000;
 
 #[tokio::test]
 async fn restrict_rule_blocks_deleting_a_non_empty_site_or_portfolio() {

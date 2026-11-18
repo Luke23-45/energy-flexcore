@@ -46,7 +46,7 @@
 
 use flexcore_contracts::time_model::EventTime;
 
-use crate::fixed_decimal::{FixedDecimal, FixedDecimalError, MoneyAmount};
+use crate::fixed_decimal::{FixedDecimal, MoneyAmount};
 
 /// The settlement-ingestion model schema version (a change is a NEW
 /// version, never a silent edit).
@@ -575,7 +575,7 @@ pub fn extract_ebgl_isp_row(text: &str) -> Result<EbglIspImbalanceRecord, Settle
 
 // Re-export so the reconciliation layer's use of the decimal error type
 // stays on one home.
-pub use FixedDecimalError as SettlementDecimalError;
+pub use crate::fixed_decimal::FixedDecimalError as SettlementDecimalError;
 
 // ---------------------------------------------------------------------------
 // Tests (WRITTEN-UNRUN — no cargo command was executed in this loop; the
@@ -737,7 +737,7 @@ SYNTH-STMT-1,SYN_CHARGE_B,-40.50,USD
         assert_eq!(record.interval_start.unix_millis(), 0);
         assert_eq!(
             record.interval_end.unix_millis() - record.interval_start.unix_millis(),
-            CAISO_SQMD_INTERVAL_MILLIS
+            CAISO_SQMD_INTERVAL_MILLIS.into()
         );
         assert_eq!(record.meter_quantity.canonical_string(), "0.125");
         assert_eq!(record.quantity_basis, "kWh-upr");

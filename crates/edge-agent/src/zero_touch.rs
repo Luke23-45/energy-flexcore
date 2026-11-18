@@ -493,7 +493,9 @@ impl<'a> ZeroTouchClaimFlow<'a> {
             });
         }
         let Some(voucher) = self.vouchers.voucher(&self.tenant_id, &self.device_identity) else {
-            return Err(ZeroTouchError::NoVoucherForDevice);
+            // A refusal like every other in this step: the flow is refused
+            // (the manual path is the fallback for this device).
+            return Err(self.refuse(ZeroTouchError::NoVoucherForDevice));
         };
         let outcome = if voucher.state == VoucherState::Invalidated {
             Err(ZeroTouchError::DeviceRevoked)
@@ -594,22 +596,27 @@ impl<'a> ZeroTouchClaimFlow<'a> {
                 step: "HAND_TO_CEREMONY",
             });
         }
+        // Input validation refuses the ATTEMPT, not the flow: a malformed
+        // token record is caller-correctable (retry with a live record),
+        // so the state stays OwnershipConfirmed. Only substantive
+        // refusals (no voucher, revoked, mismatch, scope, rendezvous)
+        // mark the flow Refused.
         if token_reference.trim().is_empty() {
-            return Err(self.refuse(ZeroTouchError::InvalidClaimInput {
+            return Err(ZeroTouchError::InvalidClaimInput {
                 reason: "the handoff token reference is mandatory".to_string(),
-            }));
+            });
         }
         if issued_by.trim().is_empty() {
-            return Err(self.refuse(ZeroTouchError::InvalidClaimInput {
+            return Err(ZeroTouchError::InvalidClaimInput {
                 reason: "the handoff token must name its issuing authority (an \
                          un-attributable token is refused, mirroring the ceremony)"
                     .to_string(),
-            }));
+            });
         }
         if expires_at_unix_millis <= now_unix_millis {
-            return Err(self.refuse(ZeroTouchError::InvalidClaimInput {
+            return Err(ZeroTouchError::InvalidClaimInput {
                 reason: "the handoff token is already expired at handoff".to_string(),
-            }));
+            });
         }
         self.state = ClaimFlowState::CeremonyHandoff;
         Ok(())

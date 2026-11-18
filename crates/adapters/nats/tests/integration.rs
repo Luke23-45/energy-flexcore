@@ -86,7 +86,7 @@ fn run_suffix() -> u64 {
 /// Appends one complete outbox write (the test stands in for the §6.3
 /// step-1 composition root; the atomicity of that write is the P1.13
 /// adapter's tested obligation, not this test's subject).
-fn append_entry(outbox: &FakeEventOutbox, key: &str, subject: &str, payload: &str) {
+fn append_entry(outbox: &dyn EventOutbox, key: &str, subject: &str, payload: &str) {
     let clock = FixedClock::at_unix_millis(0);
     let receipt = StateChangeReceipt::new(
         flexcore_ports::state_change::entities::ASSETS.to_string(),
@@ -264,7 +264,7 @@ async fn kill_between_publish_and_mark_republish_is_deduplicated() {
     let key = format!("key-{suffix}");
 
     let outbox = Arc::new(CrashyMarkOutbox::new());
-    append_entry(&outbox, &key, &subject, r#"{"event":"AssetRegistered"}"#);
+    append_entry(outbox.as_ref(), &key, &subject, r#"{"event":"AssetRegistered"}"#);
 
     // First drain: publish succeeds on the broker, then the process "dies"
     // before mark_delivered — drain_once surfaces the store failure and the
@@ -330,8 +330,8 @@ async fn crash_mid_batch_leaves_all_entries_pending_and_recovers_without_loss() 
     let subject_b = format!("flexcore.v1.registry.test_batch_b_{suffix}");
 
     let outbox = Arc::new(CrashyMarkOutbox::new());
-    append_entry(&outbox, &format!("batch-a-{suffix}"), &subject_a, r#"{"n":1}"#);
-    append_entry(&outbox, &format!("batch-b-{suffix}"), &subject_b, r#"{"n":2}"#);
+    append_entry(outbox.as_ref(), &format!("batch-a-{suffix}"), &subject_a, r#"{"n":1}"#);
+    append_entry(outbox.as_ref(), &format!("batch-b-{suffix}"), &subject_b, r#"{"n":2}"#);
 
     outbox.fail_marks.store(true, Ordering::SeqCst);
     let publisher = OutboxPublisher::new(&js, outbox.as_ref(), PublisherConfig::default());
@@ -557,7 +557,7 @@ async fn poison_message_reaches_flexcore_dlq_after_max_deliver() {
 
     // A handler that always fails (the poison).
     let mut poison_handler = |_message: &DeliveredMessage,
-                              _inbox: &flexcore_nats_adapter::inbox::InboxStore|
+                              _inbox: &dyn flexcore_nats_adapter::inbox::InboxStore|
      -> Result<(), HandlerError> { Err(HandlerError("poison: always fails".to_string())) };
 
     // Attempt 1 → below max_deliver → NAK, prompt redelivery.

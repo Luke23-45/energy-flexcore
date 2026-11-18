@@ -129,7 +129,6 @@ fn unknown_action_id_denies_even_with_a_granted_role_and_matching_rule() {
         "dispatch.issue",
         "secret.read",
         "network.any",
-        "asset.delete",
         // Near-misses: wrong case, wrong separator, empty.
         "Asset.Read",
         "asset_read",
@@ -144,6 +143,18 @@ fn unknown_action_id_denies_even_with_a_granted_role_and_matching_rule() {
         assert!(!decision.is_allowed());
         assert!(!decision.evidence().as_str().is_empty());
     }
+    // "asset.delete" is NOT unknown: it is a known action id
+    // (`Action::AssetDelete`, action.rs) — so it denies with
+    // `NoMatchingRule` (the granted set holds only `asset.read`), never
+    // with `UnknownAction`. A known-but-ungranted action still denies.
+    let decision = set.evaluate_action_id(
+        Role::TenantAdmin,
+        "asset.delete",
+        Some(&asset_scope(tenant_a())),
+        Some(&ctx),
+    );
+    assert_eq!(decision.deny_reason(), Some(DenyReason::NoMatchingRule));
+    assert!(!decision.is_allowed());
 }
 
 // --- Missing scope denies (no default scope exists) --------------------------
@@ -338,6 +349,11 @@ fn empty_policy_set_denies_every_well_formed_request() {
             }
             Action::SiteCreate | Action::SiteRead => site_scope(tenant_a()),
             Action::AssetCreate | Action::AssetRead => asset_scope(tenant_a()),
+            // The loop above only exercises the eight CRUD actions; every
+            // other action still needs an arm (exhaustive match). The
+            // assertion below (an empty set denies) is scope-independent,
+            // so the tenant scope is the neutral fallback here.
+            _ => tenant_scope(tenant_a()),
         };
         for role in [Role::PlatformAdmin, Role::TenantAdmin, Role::Operator, Role::Viewer] {
             let decision = PolicySet::new().evaluate(role, action, Some(&scope), Some(&ctx));

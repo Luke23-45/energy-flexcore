@@ -57,8 +57,6 @@
 // evaluation result is a RECORD about forecast quality, never a command
 // and never a market/conformance claim.
 
-use serde::Serialize;
-
 /// The frozen eval-set version id (mirrors the P8.19 benchmark-set
 /// versioning; the artifact is `benchmarks/forecast-eval-set-v1.json`).
 pub const FORECAST_EVAL_SET_VERSION: &str = "forecast-eval-set-v1";
@@ -78,8 +76,7 @@ pub const EVALUATION_STATEMENT: &str = "every forecast evaluation cell is EMPTY 
 
 /// The closed metric vocabulary (X-8: the names are registered, the
 /// thresholds are pre-registered, the observed values are EMPTY).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ForecastMetric {
     /// Mean absolute error of the forecast vs the observations, MW.
     MaeMw,
@@ -236,7 +233,7 @@ pub fn skill_score_vs_persistence(
 /// value that would compare against it lives in a gated
 /// [`EvaluationRunRecord`], structurally separate — never in this type,
 /// never in the frozen artifact (a filled run never edits the artifact).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RegisteredThreshold {
     /// The metric the threshold applies to (closed vocabulary).
     pub metric: ForecastMetric,
@@ -258,8 +255,7 @@ pub struct RegisteredThreshold {
 }
 
 /// The direction of "better" for a threshold (closed).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThresholdDirection {
     /// Lower observed values are better (MAE, RMSE).
     LowerIsBetter,
@@ -359,7 +355,7 @@ impl RegisteredThreshold {
 /// (the P8.06 discipline applied to time series — a forecaster is
 /// evaluated only on windows it did not see). Windows are DECLARED in the
 /// frozen artifact; they are never chosen after seeing a model's outputs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BacktestWindow {
     /// The window id (e.g. `window/da-2026-06-01`).
     pub window_id: String,
@@ -473,7 +469,7 @@ pub struct EvaluationRunGate {
 /// shape is REVIEWED and FROZEN before the first run (X-8: the record
 /// vocabulary is registered, the values are EMPTY), and so any code that
 /// would fabricate a filled record cannot compile.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EvaluationRunRecord {
     /// The eval-set version id the run cites (a run row without the
     /// version id is invalid and must not be entered — the P8.19
@@ -664,33 +660,41 @@ mod tests {
 
     #[test]
     fn every_metric_and_window_error_renders_non_empty_prose() {
+        // Three different error types, so the prose is collected as
+        // Strings: one array cannot hold ForecastMetricError,
+        // ThresholdError, and BacktestWindowError together.
         let errors = [
-            ForecastMetricError::NonFiniteInput { index: 0 },
-            ForecastMetricError::EmptyInput,
-            ForecastMetricError::PersistenceReferenceUndefined { persistence_mae_mw: 0.0 },
+            ForecastMetricError::NonFiniteInput { index: 0 }.to_string(),
+            ForecastMetricError::EmptyInput.to_string(),
+            ForecastMetricError::PersistenceReferenceUndefined { persistence_mae_mw: 0.0 }
+                .to_string(),
             ForecastMetricError::LengthMismatch {
                 forecast_len: 1,
                 observation_len: 2,
-            },
-            ThresholdError::NonFiniteBound,
+            }
+            .to_string(),
+            ThresholdError::NonFiniteBound.to_string(),
             ThresholdError::EvalSetVersionMismatch {
                 expected: "a".to_string(),
                 found: "b".to_string(),
-            },
-            ThresholdError::EmptyRegisteredDate,
-            BacktestWindowError::EmptyWindowId,
+            }
+            .to_string(),
+            ThresholdError::EmptyRegisteredDate.to_string(),
+            BacktestWindowError::EmptyWindowId.to_string(),
             BacktestWindowError::InvertedTrainWindow {
                 from_millis: 1,
                 until_millis: 0,
-            },
+            }
+            .to_string(),
             BacktestWindowError::InvertedTestWindow {
                 from_millis: 1,
                 until_millis: 0,
-            },
-            BacktestWindowError::TestOverlapsTrain,
+            }
+            .to_string(),
+            BacktestWindowError::TestOverlapsTrain.to_string(),
         ];
         for error in errors {
-            assert!(!error.to_string().is_empty());
+            assert!(!error.is_empty());
         }
     }
 

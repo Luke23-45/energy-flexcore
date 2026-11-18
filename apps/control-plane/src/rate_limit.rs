@@ -58,7 +58,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use axum::extract::{Request, State};
@@ -216,7 +216,15 @@ impl RateLimitState {
             }
         }
         let bucket = buckets.entry(key).or_insert_with(|| TokenBucket::new(class));
-        bucket.try_consume()
+        // The rejection decision owns its counter: the count moves
+        // wherever the method is called (middleware or direct), and the
+        // middleware no longer increments (it used to be the only place,
+        // so a direct caller saw a counter that never moved).
+        let outcome = bucket.try_consume();
+        if outcome.is_err() {
+            self.rejected_total.fetch_add(1, Ordering::Relaxed);
+        }
+        outcome
     }
 
     /// The in-flight gate for one command-submission request: `Ok(())`
@@ -228,6 +236,8 @@ impl RateLimitState {
         let mut in_flight = self.in_flight.lock().expect("rate-limit mutex poisoned");
         let current = in_flight.entry(tenant.to_string()).or_insert(0);
         if *current >= class.max_in_flight_command_submissions() {
+            self.in_flight_rejected_total
+                .fetch_add(1, Ordering::Relaxed);
             return Err(());
         }
         *current += 1;
@@ -302,11 +312,19 @@ impl Drop for InFlightGuard {
 /// Renders the 429 response: `Retry-After` (whole seconds) plus the stable
 /// error envelope (`rate_limited`). The [S-85] contract shape.
 fn rate_limited_response(retry_after_seconds: u64) -> Response {
+    // A u64 renders as digits only, so the parse cannot fail; the expect
+    // documents that instead of silently falling back to a wrong value.
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        "Retry-After",
+        retry_after_seconds
+            .to_string()
+            .parse()
+            .expect("a u64 renders as digits, always a valid header value"),
+    );
     (
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            [("Retry-After", retry_after_seconds.to_string())],
-        ),
+        StatusCode::TOO_MANY_REQUESTS,
+        headers,
         Json(ErrorEnvelope {
             error: crate::error::ErrorBody {
                 code: "rate_limited".to_string(),
@@ -349,12 +367,8 @@ pub async fn rate_limit_middleware(
     let tenant = caller.ctx.tenant_id().uuid().to_hyphenated();
     let class = classify_principal(caller.ctx.subject());
 
-    // Token bucket.
+    // Token bucket (the rejection counter moves inside try_consume).
     if let Err(retry_after) = state.rate_limit.try_consume(class, &tenant) {
-        state
-            .rate_limit
-            .rejected_total
-            .fetch_add(1, Ordering::Relaxed);
         return rate_limited_response(retry_after);
     }
 
@@ -364,11 +378,9 @@ pub async fn rate_limit_middleware(
     if is_command_submission {
         let entered = state.rate_limit.enter_in_flight(class, &tenant);
         if entered.is_err() {
-            state
-                .rate_limit
-                .in_flight_rejected_total
-                .fetch_add(1, Ordering::Relaxed);
             // Poll-style retry: the cap releases as requests complete.
+            // (The in-flight rejection counter moves inside
+            // enter_in_flight.)
             return rate_limited_response(1);
         }
         // The guard holds an Arc clone: its lifetime never borrows the
@@ -492,7 +504,8 @@ mod tests {
         }
         let _ = state.try_consume(class, "tenant-a"); // 429 (bucket empty)
         let _ = state.enter_in_flight(class, "tenant-a");
-        let _ = state.enter_in_flight(class, "tenant-a"); // over the cap
+        let _ = state.enter_in_flight(class, "tenant-a");
+        let _ = state.enter_in_flight(class, "tenant-a"); // over the cap (2)
         let body = state.render_rejection_metrics();
         assert!(
             body.contains("flexcore_rate_limit_rejections_total 1"),

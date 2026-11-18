@@ -92,7 +92,7 @@ fn fixture_uuid(prefix: u8) -> FlexUuid {
     bytes[6] = (run_key() >> 24) as u8;
     bytes[7] = (run_key() >> 16) as u8;
     bytes[8] = (run_key() >> 8) as u8;
-    bytes[9] = run_key() as u8;
+    bytes[9] = *run_key() as u8;
     let counter = next_counter().to_be_bytes();
     bytes[10..16].copy_from_slice(&counter[2..8]);
     FlexUuid::from_bytes(bytes)
@@ -116,7 +116,7 @@ fn seed_chain(store: &FlexCoreStore, tenant_uuid: FlexUuid) -> (TenantContext, F
         let unit: PgUnitOfWork = store.begin(Some(&ctx)).expect("unit of work opens");
         let tenant = Tenant::try_new(
             TenantId::new(tenant_uuid),
-            "p3.22 tenant".to_string(),
+            format!("p3.22 tenant {tenant_uuid}"),
             None,
             format!("idp-{tenant_uuid}"),
             "default".to_string(),
@@ -656,7 +656,22 @@ fn the_comparison_record_round_trips_and_is_tenant_scoped() {
             .find_schedule_comparison(&ctx, &comparison.to_string())
             .expect("read succeeds")
             .expect("the committed comparison is visible");
-        assert_eq!(found, row);
+        // The payload travels through jsonb, which normalizes key
+        // order, so the round-trip comparison is semantic (parsed JSON),
+        // not string equality; every other field must match exactly.
+        let mut expected = row.clone();
+        expected.comparison_payload_json = found.comparison_payload_json.clone();
+        assert_eq!(found, expected);
+        let found_payload: serde_json::Value = serde_json::from_str(
+            &found.comparison_payload_json,
+        )
+        .expect("stored payload parses as JSON");
+        let row_payload: serde_json::Value =
+            serde_json::from_str(&row.comparison_payload_json).expect("seed payload parses as JSON");
+        assert_eq!(
+            found_payload, row_payload,
+            "the comparison payload round-trips semantically"
+        );
         unit.rollback().expect("read-only unit rolled back");
     }
 

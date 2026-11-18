@@ -350,12 +350,16 @@ fn backpressure_first_and_drop_oldest_last_with_latched_counters() {
     // Capacity 2, batch size 1, uplink NEVER succeeds, ONE point per poll:
     // tick 1 buffers 1; tick 2 buffers 1 (buffer now full); tick 3 hits
     // full backpressure — polling pauses, NOTHING is dropped (the P6.05
-    // first line).
+    // first line). The scenario tick MUST advance between runner ticks:
+    // the ingest source dedups exact re-reads (P4.24), so a second poll
+    // at the same scenario tick returns the same reading and buffers 0.
+    let sim = SimulatedEmsSource::new(fixture());
+    let control = sim.control();
     {
         let mut runner = EdgeRunner::new(
             RunnerParams::from_config(Duration::from_millis(5_000), 1, 2),
             Box::new(AdapterIngestSource::new(
-                Box::new(SimulatedEmsSource::new(fixture())),
+                Box::new(sim),
                 acl(),
                 acl_mappings(),
                 Arc::new(FixedClock::at_unix_millis(EDGE_INGEST_MILLIS)),
@@ -377,6 +381,9 @@ fn backpressure_first_and_drop_oldest_last_with_latched_counters() {
         let report = runner.tick();
         assert_eq!(report.buffered, 1);
         assert_eq!(report.forwarded, 0);
+        // Fresh scenario tick, so the next poll reads a NEW value (1600,
+        // sequence 2) instead of re-reading tick 0 (deduped to 0).
+        control.advance_tick();
         let report = runner.tick();
         assert_eq!(report.buffered, 1);
         assert_eq!(runner.buffered_len(), 2, "the buffer is now full");

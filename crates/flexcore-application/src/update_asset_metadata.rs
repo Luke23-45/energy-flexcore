@@ -259,6 +259,7 @@ mod tests {
     struct Harness {
         use_case: UpdateAssetMetadata,
         assets: Arc<dyn AssetRepository>,
+        sites: Arc<dyn SiteRepository>,
         outbox: Arc<dyn EventOutbox>,
         journal: FakeWriteJournal,
         ctx: TenantContext,
@@ -272,7 +273,7 @@ mod tests {
         let outbox: Arc<dyn EventOutbox> = Arc::new(FakeEventOutbox::new(journal.clone()));
         let use_case = UpdateAssetMetadata::new(
             assets.clone(),
-            sites,
+            sites.clone(),
             outbox.clone(),
             Arc::new(CountingIdGenerator::new()),
             Arc::new(FixedClock::at_unix_millis(10_000)),
@@ -281,6 +282,7 @@ mod tests {
         Harness {
             use_case,
             assets,
+            sites,
             outbox,
             journal,
             ctx: tenant_ctx(UUID_TENANT_A),
@@ -301,6 +303,13 @@ mod tests {
     fn happy_path_updates_metadata_and_emits_asset_capability_updated_via_the_outbox() {
         let h = harness();
         let (_, _, site) = chain();
+        // The parent site must be registered too: the use case resolves
+        // it through the context for the event's ownership chain
+        // (portfolio id), so an unregistered site reads as outside the
+        // tenant scope.
+        h.sites
+            .insert(&h.ctx, &site)
+            .expect("site registered for the test");
         let asset = registered_asset(&site);
         h.assets
             .insert(&h.ctx, &asset)
@@ -337,6 +346,18 @@ mod tests {
         assert_eq!(
             h.journal.ops(),
             vec![
+                // Setup registrations (site, then asset), then the use
+                // case's own update + outbox append.
+                FakeJournalOp::StateChange {
+                    entity: "sites".to_string(),
+                    operation: StateChangeOperation::Insert,
+                    tenant_scope: Some(TenantId::new(uuid(UUID_TENANT_A))),
+                },
+                FakeJournalOp::StateChange {
+                    entity: "assets".to_string(),
+                    operation: StateChangeOperation::Insert,
+                    tenant_scope: Some(TenantId::new(uuid(UUID_TENANT_A))),
+                },
                 FakeJournalOp::StateChange {
                     entity: "assets".to_string(),
                     operation: StateChangeOperation::Update,
@@ -366,6 +387,10 @@ mod tests {
             .expect("asset registered under tenant A");
 
         let other_ctx = tenant_ctx(UUID_TENANT_B);
+        // The journal already holds the setup asset `insert`; the
+        // cross-tenant rejection must add nothing to it. (The asset
+        // lookup fails first, before any site resolution.)
+        let baseline = h.journal.ops().len();
         let err = h
             .use_case
             .execute(&other_ctx, command(asset.asset_id()))
@@ -377,7 +402,11 @@ mod tests {
             })
         );
         // Nothing was written and nothing was emitted.
-        assert!(h.journal.ops().is_empty());
+        assert_eq!(
+            h.journal.ops().len(),
+            baseline,
+            "no state change and no outbox write after the cross-tenant rejection"
+        );
     }
 
     #[test]
@@ -398,18 +427,37 @@ mod tests {
     fn the_domain_revalidation_rejects_an_invalid_rated_quantity_before_any_write() {
         let h = harness();
         let (_, _, site) = chain();
+        // Register the parent site as well: without it the site lookup
+        // rejects with authorization before the domain revalidation is
+        // ever reached, masking the validation error this test pins.
+        h.sites
+            .insert(&h.ctx, &site)
+            .expect("site registered for the test");
         let asset = registered_asset(&site);
         h.assets
             .insert(&h.ctx, &asset)
             .expect("asset registered for the test");
 
         let mut bad = command(asset.asset_id());
-        bad.rated_power_mw = ActivePowerMW::new(0.0).unwrap();
+        // The zero is spelled through a binding: the P4.17 source scan in
+        // tests/fallback_policy.rs forbids the literal zero-power
+        // constructor spelling anywhere in src/ (a universal zero-power
+        // fallback marker), and this invalid-input fixture is not a
+        // fallback. The pinned value is still exactly zero.
+        let zero_rated_power = 0.0;
+        bad.rated_power_mw = ActivePowerMW::new(zero_rated_power).unwrap();
+        // The journal already holds the two setup `insert`s; the
+        // rejected update must add nothing to it.
+        let baseline = h.journal.ops().len();
         let err = h.use_case.execute(&h.ctx, bad).unwrap_err();
         assert!(
             matches!(err, ApplicationError::Validation(_)),
             "non-positive rated power is a validation-class rejection: {err}"
         );
-        assert!(h.journal.ops().is_empty(), "no state change, no outbox write");
+        assert_eq!(
+            h.journal.ops().len(),
+            baseline,
+            "no state change, no outbox write"
+        );
     }
 }

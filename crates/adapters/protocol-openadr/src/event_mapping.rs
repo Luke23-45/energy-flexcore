@@ -269,7 +269,10 @@ impl OpenAdrEventMapper {
             .intervals
             .iter()
             .map(|interval| {
-                let mw = match signal.units {
+                // `signal` is borrowed across the closure (one match per
+                // interval), so the units are matched by reference — moving
+                // them out would consume the borrowed signal.
+                let mw = match &signal.units {
                     SignalUnits::Kilowatts => interval.payload_value / 1_000.0,
                     SignalUnits::Megawatts => interval.payload_value,
                     other => {
@@ -304,8 +307,8 @@ impl OpenAdrEventMapper {
             .max()
             .unwrap_or_default();
         let validity = ValidityWindow::new(
-            ValidFrom::from_unix_millis(first_start),
-            ValidUntil::from_unix_millis(last_end),
+            ValidFrom::from_unix_millis(first_start).map_err(MappingError::InvalidValidityWindow)?,
+            ValidUntil::from_unix_millis(last_end).map_err(MappingError::InvalidValidityWindow)?,
         )
         .map_err(MappingError::InvalidValidityWindow)?;
         Ok(ExternalCommandProposal {

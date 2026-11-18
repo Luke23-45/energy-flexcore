@@ -334,19 +334,7 @@ pub fn resolve(
         }
     }
 
-    // 3. Platform API gate: every manifest must cover the pinned platform
-    //    plugin-API version (§9.3 compatibility matrix baseline).
-    for (id, m) in &by_id {
-        if !m.covers_api_version(CURRENT_PLATFORM_API_VERSION) {
-            return Err(ResolveError::PlatformApiUnsupported {
-                plugin_id: (*id).to_string(),
-                declared_range: m.api_version.source().to_string(),
-                current_version: CURRENT_PLATFORM_API_VERSION.to_string(),
-            });
-        }
-    }
-
-    // 4. Provider map: contract → sorted providing plugin ids.
+    // 3. Provider map: contract → sorted providing plugin ids.
     let mut providers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (id, m) in &by_id {
         for contract in &m.provider_of {
@@ -357,7 +345,7 @@ pub fn resolve(
         list.sort();
     }
 
-    // 5. Explicit selections must reference real contracts and real providers.
+    // 4. Explicit selections must reference real contracts and real providers.
     for (contract, plugin_id) in selections.iter() {
         match providers.get(contract.as_str()) {
             None => {
@@ -380,7 +368,7 @@ pub fn resolve(
         }
     }
 
-    // 6. Resolve every provided contract. Conflicts without an explicit
+    // 5. Resolve every provided contract. Conflicts without an explicit
     //    selection are an error — never a silent first-wins (§5.5).
     let mut resolved: BTreeMap<&str, (&str, SelectionBasis)> = BTreeMap::new();
     for (contract, list) in &providers {
@@ -407,7 +395,7 @@ pub fn resolve(
         }
     }
 
-    // 7. Consumer pass: missing providers, api-version compatibility, and
+    // 6. Consumer pass: missing providers, api-version compatibility, and
     //    the dependency edges (consumer → providing plugin, contract-mediated).
     let mut depends_on: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for (id, m) in &by_id {
@@ -459,6 +447,25 @@ pub fn resolve(
                 });
             }
             node.insert(provider);
+        }
+    }
+
+    // 7. Platform API gate: every manifest must cover the pinned platform
+    //    plugin-API version (§9.3 compatibility matrix baseline). This runs
+    //    AFTER the consumer pass on purpose: any two ranges that both cover
+    //    the platform version necessarily intersect at it, so a platform
+    //    gate placed before the pairwise check would shadow
+    //    `UnsupportedApiVersion` out of existence — every disjoint pair
+    //    would be reported as `PlatformApiUnsupported` instead. Pairwise
+    //    §9.3 compatibility is named first; a manifest outside the platform
+    //    window with no disjoint pair still fails here.
+    for (id, m) in &by_id {
+        if !m.covers_api_version(CURRENT_PLATFORM_API_VERSION) {
+            return Err(ResolveError::PlatformApiUnsupported {
+                plugin_id: (*id).to_string(),
+                declared_range: m.api_version.source().to_string(),
+                current_version: CURRENT_PLATFORM_API_VERSION.to_string(),
+            });
         }
     }
 

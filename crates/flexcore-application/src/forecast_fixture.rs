@@ -679,7 +679,7 @@ impl ForecastFixture {
                     ev.window_first_interval
                 ));
                 lines.push(format!(
-                    "    \"window_last_exclusive\": {}",
+                    "    \"window_last_exclusive\": {},",
                     ev.window_last_exclusive
                 ));
                 lines.push(format!("    \"note\": {}", jstr(&ev.note)));

@@ -969,9 +969,12 @@ impl WorkerPool {
     ) -> Result<(), SupervisionError> {
         self.crashes_recorded += 1;
         {
+            // Hoisted: `worker_mut` borrows `self` mutably, so the
+            // threshold (u32: Copy) is read out first.
+            let failure_threshold = self.policy.failure_threshold;
             let worker = self.worker_mut(worker_id)?;
             worker.state = SupervisedWorkerState::Failed;
-            worker.consecutive_failures = self.policy.failure_threshold;
+            worker.consecutive_failures = failure_threshold;
         }
         self.audit(
             audit,

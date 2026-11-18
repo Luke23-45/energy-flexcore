@@ -812,7 +812,7 @@ fn the_target_guard_refuses_every_non_simulator_kind() {
         NonSimulatorTargetKind::FieldEndpoint,
     ] {
         let endpoint = format!("tcp://field-endpoint/{}", kind.label());
-        let error = SimulatorDispatchAdapter::configure(
+        let error = match SimulatorDispatchAdapter::configure(
             &h.gates,
             AdapterTargetCandidate::NonSimulator {
                 kind,
@@ -821,8 +821,10 @@ fn the_target_guard_refuses_every_non_simulator_kind() {
             h.transport,
             SimulationKeyring::new(SIM_KEY_ID).unwrap(),
             criterion(1),
-        )
-        .expect_err("every non-simulator target is refused");
+        ) {
+            Ok(_) => panic!("every non-simulator target is refused"),
+            Err(error) => error,
+        };
         let text = error.to_string();
         match error {
             DispatchAdapterError::NonSimulatorTargetRefused { kind: label, endpoint: recorded } => {
@@ -837,7 +839,7 @@ fn the_target_guard_refuses_every_non_simulator_kind() {
     }
 
     // An empty simulator id is refused too (an unattributable target).
-    let error = SimulatorDispatchAdapter::configure(
+    let error = match SimulatorDispatchAdapter::configure(
         &h.gates,
         AdapterTargetCandidate::Simulator {
             simulator_id: "   ".to_string(),
@@ -845,8 +847,10 @@ fn the_target_guard_refuses_every_non_simulator_kind() {
         h.transport,
         SimulationKeyring::new(SIM_KEY_ID).unwrap(),
         criterion(1),
-    )
-    .expect_err("an empty simulator id is refused");
+    ) {
+        Ok(_) => panic!("an empty simulator id is refused"),
+        Err(error) => error,
+    };
     assert!(matches!(error, DispatchAdapterError::InvalidCriterion { .. }));
 
     // The accepted target records the simulator identity.

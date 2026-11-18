@@ -362,11 +362,17 @@ pub fn collect_normalized(scenario_json: &str) -> Result<Vec<NormalizedTelemetry
         TelemetryQuantity::ConnectionState,
         TelemetryQuantity::BaselineReference,
     ];
+    // The "end of time" for the whole-horizon query: 9999-12-31T23:59:59.999Z,
+    // the largest whole-millisecond instant the `time` crate's `OffsetDateTime`
+    // can represent. (`i64::MAX / 2` was used here before and is NOT
+    // representable — `EventTime::from_unix_millis` rejects it with
+    // `InvalidTimestamp`; the simulator hit the same bug in Batch 56.)
+    const END_OF_TIME_MILLIS: i64 = 253402300799999;
     let query = TelemetryQuery::new(
         &ctx,
         asset_ids,
         EventTime::from_unix_millis(0).map_err(|e| ReplayError::Config(e.to_string()))?,
-        EventTime::from_unix_millis(i64::MAX / 2)
+        EventTime::from_unix_millis(END_OF_TIME_MILLIS)
             .map_err(|e| ReplayError::Config(e.to_string()))?,
         all_quantities,
     )

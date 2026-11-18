@@ -42,7 +42,8 @@ use std::sync::Mutex;
 use flexcore_application::command_gates::{
     ApprovalScope, AssetCapabilitySource, AssetGateStatus, AuthorizationDecision,
     AuthorizationDecisionRecord, CommandAuthorizationEvaluator, CommandAuthorizationRequest,
-    CommandAuthzAction, CommandFeasibilityRefs, CommandGatePolicy, CommandGateStore,
+    CommandAuthzAction, CommandFeasibilityRefs, CommandFeasibilityRunner, CommandGatePolicy,
+    CommandGateStore,
     CommandGateStoreError, CommandGateView, CommandGates, DeclaredQuantities,
     EnvelopeGateFreshness, FeasibilityGateVerdict, GateSeamError, ModelVersionGateStatus,
     ModelVersionSource, ProposedCommandRecord, ProposeCommandInput, ScheduleEnvelopeSource,
@@ -828,8 +829,8 @@ fn a_wrong_key_signature_is_refused() {
     .expect_err("a signature from a foreign key is refused");
     match error {
         DispatchSecurityError::ForeignKey {
-            expected_key_id,
-            presented_key_id,
+            ref expected_key_id,
+            ref presented_key_id,
             ..
         } => {
             assert_eq!(expected_key_id, SIM_KEY_ID);
@@ -1061,7 +1062,7 @@ fn a_cross_tenant_read_attempt_is_denied_existence_never_leaks_and_the_denial_is
         5_000,
     );
     assert_eq!(denial.caller_tenant_id, other_tenant_context().tenant_id());
-    assert_eq!(denial.owner_tenant_id, command.scope().tenant_id());
+    assert_eq!(denial.owner_tenant_id, command.scope().tenant_id);
     assert_ne!(denial.caller_tenant_id, denial.owner_tenant_id);
     assert_eq!(denial.kind, TenantDenialKind::Read);
     assert!(denial.denial_reference.starts_with("tenant-denial:command/"));
@@ -1160,14 +1161,14 @@ fn a_cross_tenant_issue_attempt_is_denied_and_audited() {
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].kind, TenantDenialKind::Issue);
     assert_eq!(records[0].command_id, command.command_id());
-    assert_eq!(records[0].asset_id, command.scope().asset_id());
+    assert_eq!(records[0].asset_id, command.scope().asset_id);
 
     // The audit text is stable, identifier-only, and never caller-visible
     // output (the caller saw only the named NotFound).
     let text = records[0].audit_text();
     assert!(text.contains("tenant_denial kind=issue"));
     assert!(text.contains(&command.command_id().to_string()));
-    assert!(text.contains(&command.scope().asset_id().to_string()));
+    assert!(text.contains(&command.scope().asset_id.to_string()));
 }
 
 // ============================================================================

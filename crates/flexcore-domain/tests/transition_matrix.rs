@@ -102,7 +102,7 @@ const TERMINAL_STATES: [CommandState; 5] = [Completed, Rejected, Cancelled, Supe
 
 /// The per-state outgoing-edge counts recorded in the freeze document §2.1
 /// (the second mechanical cross-check pass over the §14.1 diagram).
-const FREEZE_OUTGOING_COUNTS: [(CommandState, &[CommandState]); 10] = [
+const FREEZE_OUTGOING_COUNTS: [(CommandState, &[CommandState]); 9] = [
     (Proposed, &[Validated, Rejected]),
     (Validated, &[Feasible, Rejected, Superseded]),
     (Feasible, &[Approved, Rejected, Superseded]),
@@ -270,7 +270,7 @@ fn all_transitions_out_of_terminal_states_are_illegal_cells() {
 fn the_ledgers_named_gate_skipping_shortcuts_are_illegal_cells() {
     // Ledger P4.33 step 2 names the skips explicitly; each is an illegal
     // cell of the matrix and is rejected by the oracle.
-    for &(from, to) in [
+    for (from, to) in [
         (Proposed, Approved),   // skips validation + feasibility + authorization
         (Proposed, Issued),     // skips everything
         (Validated, Issued),    // skips feasibility + authorization

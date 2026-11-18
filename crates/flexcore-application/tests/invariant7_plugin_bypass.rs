@@ -565,6 +565,9 @@ fn event_name_of(debug_payload: &str) -> &'static str {
         "DispatchApproved",
         "DispatchIssued",
         "DispatchAcknowledged",
+        // The §15.3 grid-validation event the feasibility gate emits on
+        // the pass path (P4.30), between Proposed and Approved.
+        "FeasibilityCheckCompleted",
     ] {
         if debug_payload.starts_with(candidate) {
             return candidate;
@@ -793,11 +796,14 @@ fn a_research_plugin_proposal_reaches_issued_only_through_the_full_gate_chain() 
         flexcore_application::dispatch_simulator::SimulatorTargetValue::ActivePowerMW(1.5)
     );
 
-    // The emitted event set is the frozen one for the walked chain.
+    // The emitted event set is the frozen one for the walked chain:
+    // the feasibility gate's completed-check event sits between the
+    // proposal and the approval (P4.30).
     assert_eq!(
         emitted_events(&h),
         vec![
             "DispatchProposed",
+            "FeasibilityCheckCompleted",
             "DispatchApproved",
             "DispatchIssued",
             "DispatchAcknowledged",
@@ -886,7 +892,7 @@ fn the_only_dispatch_target_is_the_simulator_every_non_simulator_target_is_refus
     ];
     for (kind, label) in kinds {
         let endpoint = format!("{label}://field-endpoint.example");
-        let error = SimulatorDispatchAdapter::configure(
+        let error = match SimulatorDispatchAdapter::configure(
             &h.gates,
             AdapterTargetCandidate::NonSimulator {
                 kind,
@@ -895,8 +901,10 @@ fn the_only_dispatch_target_is_the_simulator_every_non_simulator_target_is_refus
             h.transport,
             SimulationKeyring::new(SIM_KEY_ID).unwrap(),
             criterion(1),
-        )
-        .expect_err("every non-simulator target is refused");
+        ) {
+            Ok(_) => panic!("every non-simulator target is refused"),
+            Err(error) => error,
+        };
         match error {
             DispatchAdapterError::NonSimulatorTargetRefused {
                 kind: refused_kind,

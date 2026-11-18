@@ -221,6 +221,7 @@ fn a_capability_update_invalidates() {
         &EnvelopeTriggerEvent::AssetCapabilityUpdated(AssetCapabilityUpdatedPayload {
             correlation_id: uid(0xC001),
             tenant_id: tenant(),
+            portfolio_id: portfolio(),
             site_id: flexcore_domain::ids::SiteId::new(uid(0xA300)),
             asset_id: asset_a(),
             event_time: at(HORIZON_START_MILLIS as i64 + 120_000),

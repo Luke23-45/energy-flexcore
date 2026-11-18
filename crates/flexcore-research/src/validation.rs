@@ -793,7 +793,7 @@ impl<'a> ValidationHarness<'a> {
                 seam: error.seam,
                 detail: error.detail,
             })?;
-        let validated = match verdict {
+        let validated = match &verdict {
             IndependentVerdict::Passed {
                 attempt_id,
                 model_id,
@@ -808,24 +808,28 @@ impl<'a> ValidationHarness<'a> {
                     proposal_id: proposal.proposal_id.clone(),
                     result_kind: proposal.result_kind,
                     payload: proposal.payload.clone(),
-                    model_content_hash,
+                    model_content_hash: model_content_hash.clone(),
                     evidence_reference: reference,
-                    harness_version: HARNESS_VERSION,
+                    harness_version: HARNESS_VERSION.to_string(),
                     producer_deterministic: proposal.provenance.deterministic,
                     seal: (),
                 }
             }
             IndependentVerdict::LimitViolated { constraint, .. } => {
-                return Err(Refusal::PhysicalRevalidationLimitViolated { constraint });
+                return Err(Refusal::PhysicalRevalidationLimitViolated {
+                    constraint: constraint.clone(),
+                });
             }
             IndependentVerdict::FailClosed { reason, .. } => {
-                return Err(Refusal::PhysicalRevalidationFailClosed { reason });
+                return Err(Refusal::PhysicalRevalidationFailClosed {
+                    reason: reason.clone(),
+                });
             }
         };
         stages_passed.push(STAGE_ORDER[5]);
 
         Ok(ValidationReport {
-            harness_version: HARNESS_VERSION,
+            harness_version: HARNESS_VERSION.to_string(),
             proposal_id: proposal.proposal_id.clone(),
             result_kind: proposal.result_kind,
             stages_passed,

@@ -28,10 +28,12 @@
 
 use std::sync::Mutex;
 
-use flexcore_domain::ids::FlexUuid;
+use flexcore_contracts::ids::FlexUuid;
 use flexcore_domain::tenant_context::TenantContext;
 use flexcore_ports::backend_error::BackendError;
 use flexcore_ports::event_outbox::{EventOutbox, EventOutboxError, OutboxWrite, PendingOutboxEntry};
+use flexcore_ports::fakes::{FakeJournalOp, FakeWriteJournal};
+use flexcore_ports::state_change::StateChangeOperation;
 use flexcore_storage::envelope_store::{
     EnvelopeListFilter, EnvelopeRecordReceipt, EnvelopeRecordRow, EnvelopeRecordStore,
     EnvelopeStoreError,
@@ -44,6 +46,13 @@ use flexcore_storage::schedule_revision::{
 use flexcore_storage::schedule_store::{
     ScheduleRecordReceipt, ScheduleRecordRow, ScheduleRecordStore, ScheduleStoreError,
 };
+
+/// The journal entity names for the three Phase 3 record tables
+/// (D-P3.28-4 — table names, not the registry names in
+/// `flexcore_ports::state_change::entities`).
+const ENTITY_FLEXIBILITY_ENVELOPES: &str = "flexibility_envelopes";
+const ENTITY_SCHEDULE_RESULTS: &str = "schedule_results";
+const ENTITY_SCHEDULE_REVISIONS: &str = "schedule_revisions";
 
 fn tenant_matches(ctx: &TenantContext, row_tenant: FlexUuid) -> bool {
     row_tenant == ctx.tenant_id().uuid()
@@ -75,12 +84,21 @@ fn opaque_backend() -> BackendError {
 #[derive(Default)]
 pub struct FakeEnvelopeRecordStore {
     rows: Mutex<Vec<EnvelopeRecordRow>>,
+    journal: FakeWriteJournal,
 }
 
 impl FakeEnvelopeRecordStore {
     /// Creates an empty fake.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates the fake journalled into `journal` (the shared ordering evidence — without it, no `StateChange` precedes the paired outbox append and the §15.5 pairing assertion cannot see the state change).
+    pub fn with_journal(journal: FakeWriteJournal) -> Self {
+        Self {
+            rows: Mutex::new(Vec::new()),
+            journal,
+        }
     }
 
     /// A snapshot of every stored row (test inspection helper).
@@ -107,6 +125,11 @@ impl EnvelopeRecordStore for FakeEnvelopeRecordStore {
             });
         }
         rows.push(row.clone());
+        self.journal.record(FakeJournalOp::StateChange {
+            entity: ENTITY_FLEXIBILITY_ENVELOPES.to_string(),
+            operation: StateChangeOperation::Insert,
+            tenant_scope: Some(ctx.tenant_id()),
+        });
         Ok(EnvelopeRecordReceipt::new(
             row.envelope_id.clone(),
             ctx.tenant_id(),
@@ -161,12 +184,21 @@ impl EnvelopeRecordStore for FakeEnvelopeRecordStore {
 #[derive(Default)]
 pub struct FakeScheduleRecordStore {
     rows: Mutex<Vec<ScheduleRecordRow>>,
+    journal: FakeWriteJournal,
 }
 
 impl FakeScheduleRecordStore {
     /// Creates an empty fake.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates the fake journalled into `journal` (see [`FakeEnvelopeRecordStore::with_journal`]).
+    pub fn with_journal(journal: FakeWriteJournal) -> Self {
+        Self {
+            rows: Mutex::new(Vec::new()),
+            journal,
+        }
     }
 
     /// A snapshot of every stored row (test inspection helper).
@@ -190,6 +222,11 @@ impl ScheduleRecordStore for FakeScheduleRecordStore {
             });
         }
         rows.push(row.clone());
+        self.journal.record(FakeJournalOp::StateChange {
+            entity: ENTITY_SCHEDULE_RESULTS.to_string(),
+            operation: StateChangeOperation::Insert,
+            tenant_scope: Some(ctx.tenant_id()),
+        });
         Ok(ScheduleRecordReceipt::new(
             row.candidate_id.clone(),
             ctx.tenant_id(),
@@ -263,12 +300,21 @@ struct StoredRevision {
 #[derive(Default)]
 pub struct FakeScheduleRevisionStore {
     rows: Mutex<Vec<StoredRevision>>,
+    journal: FakeWriteJournal,
 }
 
 impl FakeScheduleRevisionStore {
     /// Creates an empty fake.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates the fake journalled into `journal` (see [`FakeEnvelopeRecordStore::with_journal`]).
+    pub fn with_journal(journal: FakeWriteJournal) -> Self {
+        Self {
+            rows: Mutex::new(Vec::new()),
+            journal,
+        }
     }
 
     /// A snapshot of every stored record (test inspection helper).
@@ -348,6 +394,11 @@ impl ScheduleRevisionChainStore for FakeScheduleRevisionStore {
         )
         .map_err(|_| ScheduleRevisionError::InvalidRevision { field: "row" })?;
         rows.push(StoredRevision { record });
+        self.journal.record(FakeJournalOp::StateChange {
+            entity: ENTITY_SCHEDULE_REVISIONS.to_string(),
+            operation: StateChangeOperation::Insert,
+            tenant_scope: Some(ctx.tenant_id()),
+        });
         Ok(ScheduleRevisionReceipt::new(
             row.schedule_id.clone(),
             row.revision,

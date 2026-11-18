@@ -286,10 +286,14 @@ fn assert_s126_complete(
     }
     // primal and dual diagnostics: available, or explicitly not available
     // with a reason.
-    for (name, diagnostic) in [("primal", &result.primal), ("dual", &result.dual)] {
-        if let Some(reason) = diagnostic.not_available_reason() {
-            assert!(!reason.trim().is_empty(), "{name} not available WITHOUT a reason");
-        }
+    // Primal and dual diagnostics are different types
+    // (Diagnostics<PrimalDiagnostics> vs Diagnostics<DualDiagnostics>),
+    // so they cannot share one array; the check is the same per side.
+    if let Some(reason) = result.primal.not_available_reason() {
+        assert!(!reason.trim().is_empty(), "primal not available WITHOUT a reason");
+    }
+    if let Some(reason) = result.dual.not_available_reason() {
+        assert!(!reason.trim().is_empty(), "dual not available WITHOUT a reason");
     }
     // constraint residuals and violations: populated, or explicitly not
     // available with a reason (per solver).

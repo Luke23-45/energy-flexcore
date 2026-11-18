@@ -87,7 +87,7 @@ fn apparent_power_limit_holds_and_is_boundary_inclusive() {
     let envelope = envelope();
     // Exactly on the circle: p² + q² = S_max², with q = 1.5 (the declared Q
     // maximum, within the window) and p = √(9 − 2.25) inside the P window.
-    let p = (9.0 - 1.5 * 1.5).sqrt();
+    let p = (9.0f64 - 1.5 * 1.5).sqrt();
     let evaluation = envelope.evaluate(&point("DISCHARGE", p, 1.5, None)).unwrap();
     assert!(evaluation.violations.is_empty(), "{:?}", evaluation.violations);
     assert!((evaluation.apparent_power_mva - 3.0).abs() <= TOL);
@@ -98,7 +98,7 @@ fn apparent_power_limit_holds_and_is_boundary_inclusive() {
     let evaluation = envelope.evaluate(&point("DISCHARGE", 2.5, 2.0, None)).unwrap();
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, PqViolation::ApparentPowerExceeded { .. })),
-        Some(PqViolation::ApparentPowerExceeded { s_mva, s_max_mva: 3.0 } if *s_mva > 3.0)
+        Some(PqViolation::ApparentPowerExceeded { s_mva, s_max_mva: 3.0 }) if *s_mva > 3.0
     ));
 
     // The helper and the evaluation agree.
@@ -206,7 +206,7 @@ fn missing_voltage_defaults_to_the_most_restrictive_documented_value() {
     assert!((evaluation.effective_limits.p_max_mw - 1.0).abs() <= TOL);
     assert!(matches!(
         evaluation.violations.first(),
-        Some(PqViolation::PAboveMax { limit_mw, .. } if (limit_mw - 1.0).abs() <= TOL)
+        Some(PqViolation::PAboveMax { limit_mw, .. }) if (*limit_mw - 1.0).abs() <= TOL
     ));
     assert!(matches!(
         evaluation.provenance.voltage_treatment,
@@ -239,7 +239,7 @@ fn undeclared_mode_credits_nothing() {
     let evaluation = envelope.evaluate(&point("GRID_SUPPORT", 0.0, 0.0, None)).unwrap();
     assert!(matches!(
         evaluation.violations.first(),
-        Some(PqViolation::ModeNotDeclared { mode } if mode == "GRID_SUPPORT")
+        Some(PqViolation::ModeNotDeclared { mode }) if mode == "GRID_SUPPORT"
     ));
     assert_eq!(evaluation.provenance.mode_provenance, Provenance::Unknown);
 }
@@ -262,7 +262,7 @@ fn unknown_provenance_mode_credits_nothing() {
     let evaluation = envelope.evaluate(&point("WATT_VAR", 0.0, 0.0, None)).unwrap();
     assert!(matches!(
         evaluation.violations.first(),
-        Some(PqViolation::ModeNotCredited { mode, .. } if mode == "WATT_VAR")
+        Some(PqViolation::ModeNotCredited { mode, .. }) if mode == "WATT_VAR"
     ));
     assert_eq!(evaluation.provenance.mode_provenance, Provenance::Unknown);
 }
@@ -285,7 +285,7 @@ fn uncovered_q_point_collapses_to_zero_never_unconstrained() {
     assert!((evaluation.effective_limits.q_max_mvar - 0.0).abs() <= TOL);
     assert!(matches!(
         evaluation.violations.iter().find(|v| matches!(v, PqViolation::QAboveMax { .. })),
-        Some(PqViolation::QAboveMax { limit_mvar, .. } if (limit_mvar - 0.0).abs() <= TOL)
+        Some(PqViolation::QAboveMax { limit_mvar, .. }) if (*limit_mvar - 0.0).abs() <= TOL
     ));
     assert!(evaluation
         .provenance

@@ -845,7 +845,7 @@ mod tests {
 
     #[test]
     fn an_empty_scope_id_is_refused() {
-        let record = ForecastArtifactProvenance::new(
+        let err = ForecastArtifactProvenance::new(
             ARTIFACT_REF.to_string(),
             ForecastArtifactKind::PvGeneration,
             ForecastScope::PerPortfolio {
@@ -869,13 +869,54 @@ mod tests {
     fn the_default_verifier_refuses_everything_fail_closed() {
         // A record that would verify under the test-grade verifier STILL
         // fails under the default: the absence of signing infrastructure
-        // can never look like success.
+        // can never look like success. The refusal carries the
+        // ALGORITHM_MISMATCH tag, not VERIFIER_REFUSED: the default
+        // verifier declares algorithm "none" (the mirrored P8.32 posture),
+        // which no valid record can declare, so the algorithm gate
+        // refuses first — still a refusal, never an accept.
         let record = parsed_record(b"forecast-artifact-bytes");
         let verdict = verify_forecast_artifact(
             &record,
             ARTIFACT_REF,
             b"forecast-artifact-bytes",
             &NoForecastVerifier,
+        );
+        match &verdict {
+            ForecastProvenanceVerdict::Refused { reason } => {
+                assert!(reason.starts_with(FORECAST_REFUSAL_ALGORITHM_MISMATCH));
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    /// A test-only verifier that declares the test algorithm but refuses
+    /// every artifact: the only way to reach the verifier-refusal branch,
+    /// since the default verifier's "none" algorithm never matches a
+    /// valid record (mirrored P8.32 posture).
+    struct RefusingTestOnlyForecastDigest;
+
+    impl ForecastDigestVerifier for RefusingTestOnlyForecastDigest {
+        fn algorithm_name(&self) -> &'static str {
+            FORECAST_DIGEST_ALGORITHM_FNV1A64_TEST
+        }
+
+        fn verify(&self, _artifact: &[u8], _declared_digest_hex: &str) -> ForecastDigestVerdict {
+            ForecastDigestVerdict::Refused {
+                reason: "test-only refusal".to_string(),
+            }
+        }
+    }
+
+    #[test]
+    fn a_verifier_refusal_carries_the_verifier_refused_tag() {
+        // The VERIFIER_REFUSED tag is pinned here, via a verifier whose
+        // algorithm matches the record but which refuses anyway.
+        let record = parsed_record(b"forecast-artifact-bytes");
+        let verdict = verify_forecast_artifact(
+            &record,
+            ARTIFACT_REF,
+            b"forecast-artifact-bytes",
+            &RefusingTestOnlyForecastDigest,
         );
         match &verdict {
             ForecastProvenanceVerdict::Refused { reason } => {

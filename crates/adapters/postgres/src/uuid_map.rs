@@ -18,7 +18,7 @@ pub(crate) fn uuid_text(id: FlexUuid) -> String {
 
 /// Parses an identifier read back from a `::text` selection.
 pub(crate) fn uuid_from_text(raw: &str) -> Result<FlexUuid, String> {
-    FlexUuid::parse(raw)
+    FlexUuid::parse(raw).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

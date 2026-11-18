@@ -199,7 +199,7 @@ fn unknown_before_first_observation_fails_the_p6_15_expiry_check_closed() {
     assert!(audit
         .events()
         .iter()
-        .any(|e| e.kind.name() == "EDGE_COMMAND_VERIFICATION_REJECTED"
+        .any(|e| e.detail.starts_with("EDGE_COMMAND_VERIFICATION_REJECTED")
             && e.detail.contains("Unknown")));
 }
 
@@ -222,7 +222,7 @@ fn forced_offset_beyond_tolerance_degrades_and_holds_commands() {
 
     // The audited hold-on-drift gate refuses with its named reason.
     let hold_audit = Arc::new(InMemoryAuditSink::new());
-    let error = audited_expiry_check(&monitor, &hold_audit, BASE_MILLIS)
+    let error = audited_expiry_check(&monitor, &*hold_audit, BASE_MILLIS)
         .expect_err("a Degraded clock holds commands");
     assert!(error.contains("DEGRADED"));
     assert!(error.contains("NOT trusted"));
@@ -242,7 +242,7 @@ fn forced_offset_beyond_tolerance_degrades_and_holds_commands() {
     assert!(verify_audit
         .events()
         .iter()
-        .any(|e| e.kind.name() == "EDGE_COMMAND_VERIFICATION_REJECTED"
+        .any(|e| e.detail.starts_with("EDGE_COMMAND_VERIFICATION_REJECTED")
             && e.detail.contains("Unsynchronized")));
 }
 
@@ -290,16 +290,27 @@ fn recovery_restores_synchronized_and_command_trust() {
     let monitor = monitor_with(Arc::new(InMemoryAuditSink::new()), BASE_MILLIS);
     monitor.observe_pair(pair(900, BASE_MILLIS)).expect("drift");
     assert_eq!(monitor.quality_at(BASE_MILLIS), ClockQualityState::Degraded);
-    // Recovery: a fresh in-tolerance pair (the offset was corrected).
+    // Recovery: fresh in-tolerance pairs (the offset was corrected).
+    // One pair is NOT enough: the estimate is the MEDIAN of the window,
+    // and the median of [900, 5] is 452 ms — still beyond tolerance.
+    // Three in-tolerance pairs make the window [900, 5, 5, 5], whose
+    // median is 5 ms, inside tolerance.
     let state = monitor
         .observe_pair(pair(5, BASE_MILLIS + 5_000))
         .expect("pair");
+    assert_eq!(state, ClockQualityState::Degraded, "median still beyond tolerance");
+    monitor
+        .observe_pair(pair(5, BASE_MILLIS + 6_000))
+        .expect("pair");
+    let state = monitor
+        .observe_pair(pair(5, BASE_MILLIS + 7_000))
+        .expect("pair");
     assert_eq!(state, ClockQualityState::Synchronized);
-    assert!(monitor.expiry_check_allowed(BASE_MILLIS + 5_000).is_ok());
+    assert!(monitor.expiry_check_allowed(BASE_MILLIS + 7_000).is_ok());
 
     let mut verifier = verifier(&scratch, Arc::new(InMemoryAuditSink::new()));
     let verified = verifier
-        .verify(&receipt(), &signed_incoming(1), monitor.p6_15_clock_quality(BASE_MILLIS + 5_000))
+        .verify(&receipt(), &signed_incoming(1), monitor.p6_15_clock_quality(BASE_MILLIS + 7_000))
         .expect("a recovered clock verifies the command (test env only)");
     assert_eq!(verified.command_id, "cmd-1");
 }
@@ -339,9 +350,19 @@ fn clock_quality_surfaces_through_the_closed_health_vocabulary() {
     assert_eq!(record.status_name(), "DEGRADED_CLOCK_DRIFT");
     assert!(record.detail.contains("BEYOND"));
     // Synchronized → HEALTHY (reached only through the positive check).
+    // One in-tolerance pair is NOT enough: the estimate is the MEDIAN of
+    // the window, and the median of [900, 5] is 452 ms — still Degraded.
+    // Three in-tolerance pairs make the window [900, 5, 5, 5], median 5.
     monitor.observe_pair(pair(5, BASE_MILLIS + 1_000)).expect("pair");
     assert_eq!(
         monitor.health_record(BASE_MILLIS + 1_000).status_name(),
+        "DEGRADED_CLOCK_DRIFT",
+        "median still beyond tolerance"
+    );
+    monitor.observe_pair(pair(5, BASE_MILLIS + 2_000)).expect("pair");
+    monitor.observe_pair(pair(5, BASE_MILLIS + 3_000)).expect("pair");
+    assert_eq!(
+        monitor.health_record(BASE_MILLIS + 3_000).status_name(),
         "HEALTHY"
     );
 
