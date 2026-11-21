@@ -448,6 +448,13 @@ pub fn node_command_topic_filter(plan: &SparkplugUplinkPlan) -> String {
 /// an in-memory duplex in the socket-free tests).
 pub trait BrokerStream: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
 
+// Batch 68: the blanket implementation the trait needs — every
+// AsyncRead + AsyncWrite + Unpin + Send stream IS a broker stream (the
+// production TLS client stream, the plaintext TCP stream, and the
+// in-memory duplex of the socket-free tests). Without it the trait had
+// no implementations and neither `Box::new(stream)` cast compiled.
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> BrokerStream for T {}
+
 /// The broker connector seam: `connect()` yields one established stream.
 /// The production implementation dials OUT (TCP + TLS, the P6.07 rule);
 /// the socket-free tests inject an in-memory duplex. NEVER a listener.
@@ -1095,8 +1102,12 @@ async fn serve(
                         }
                     }
                 }
-                Err(std_mpsc::TryRecvError::Empty) => break,
-                Err(std_mpsc::TryRecvError::Disconnected) => {
+                // Batch 68: `tok_rx` is a TOKIO mpsc receiver, so the
+                // error arms must name tokio's `TryRecvError`, not
+                // `std_mpsc`'s — the two types share a name and variants
+                // but are distinct types.
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => {
                     // The facade is gone: an UNCLEAN shutdown — the
                     // engine exits WITHOUT a DISCONNECT, so the broker
                     // publishes the NDEATH will (the FIM-F05.04
@@ -1235,7 +1246,7 @@ async fn serve(
 async fn engine_main(
     connector: Arc<dyn BrokerConnector>,
     config: LiveMqttConfig,
-    tok_rx: mpsc::Receiver<EngineRequest>,
+    mut tok_rx: mpsc::Receiver<EngineRequest>,
     inbox: Arc<Mutex<VecDeque<SparkplugCommandDelivery>>>,
     connected: Arc<AtomicBool>,
     ready_tx: std_mpsc::Sender<Result<(), LiveUplinkError>>,
@@ -1345,8 +1356,11 @@ impl LiveMqttUplinkTransport {
                 let bridge = std::thread::spawn(move || {
                     for request in request_rx {
                         if let Err(request) = tok_tx.blocking_send(request) {
+                            // Batch 68: `blocking_send` returns
+                            // `SendError<EngineRequest>`; the failed request
+                            // itself is its `.0` field.
                             reply_request_error(
-                                request,
+                                request.0,
                                 &LiveUplinkError::NotConnected {
                                     reason: "the uplink engine has shut down".to_string(),
                                 },

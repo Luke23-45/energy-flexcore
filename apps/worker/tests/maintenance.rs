@@ -82,6 +82,10 @@ fn db_lock() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+// Batch 68: this helper builds the throwaway runtime used ONLY inside `block_in_place` — the callers are async tests
+    // and the sync adapter API / throwaway-runtime `block_on` refuses
+    // from inside a tokio runtime (see the fault_suite `blocking_runtime`
+    // note).
 fn test_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -94,31 +98,49 @@ fn test_runtime() -> tokio::runtime::Runtime {
 /// platform-level audit record, P1.12 §5.2 — see the adapter test file for
 /// the same bootstrap).
 fn ensure_test_roles(pool: &PgPool) {
-    let result = test_runtime().block_on(async {
-        sqlx::query(
-            "ALTER ROLE flexcore_migrator WITH LOGIN PASSWORD 'flexcore_migrator_test_only' \
-             BYPASSRLS",
-        )
-        .execute(pool)
-        .await?;
-        Ok::<(), sqlx::Error>(())
+    // Batch 68: inside `block_in_place` (see the `test_runtime` note).
+    let result = tokio::task::block_in_place(|| {
+        test_runtime().block_on(async {
+            sqlx::query(
+                "ALTER ROLE flexcore_migrator WITH LOGIN PASSWORD 'flexcore_migrator_test_only' \
+                 BYPASSRLS",
+            )
+            .execute(pool)
+            .await?;
+            Ok::<(), sqlx::Error>(())
+        })
     });
     result.expect("the maintenance role must be grantable from the admin connection");
 }
 
-fn maintenance_store(url: &str) -> FlexCoreStore {
-    FlexCoreStore::connect(&url_as(
-        url,
-        "flexcore_migrator",
-        "flexcore_migrator_test_only",
-    ))
-    .expect("maintenance store")
+/// The process-wide shared maintenance store (Batch 68): a
+/// `FlexCoreStore` owns a tokio `Runtime`, whose drop shuts its blocking
+/// pool down and PANICS in an async context. The async tests would drop
+/// a per-test store when the test future ends — including while unwinding
+/// after a failed assertion. The store is therefore created once and
+/// intentionally never dropped. Call only inside `block_in_place`:
+/// `connect` blocks on the store's runtime.
+fn maintenance_store(url: &str) -> &'static FlexCoreStore {
+    static STORE: std::sync::OnceLock<FlexCoreStore> = std::sync::OnceLock::new();
+    STORE.get_or_init(|| {
+        FlexCoreStore::connect(&url_as(
+            url,
+            "flexcore_migrator",
+            "flexcore_migrator_test_only",
+        ))
+        .expect("maintenance store")
+    })
 }
 
 fn attached_names(store: &FlexCoreStore) -> Vec<(String, Option<(i64, i64)>)> {
-    let unit = store.begin(None).expect("unit of work");
-    let entries = unit.list_telemetry_partitions().expect("listing");
-    unit.commit().expect("commit");
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `test_runtime` note).
+    let entries = tokio::task::block_in_place(|| {
+        let unit = store.begin(None).expect("unit of work");
+        let entries = unit.list_telemetry_partitions().expect("listing");
+        unit.commit().expect("commit");
+        entries
+    });
     entries
         .into_iter()
         .map(|entry: flexcore_postgres_adapter::partition_maintenance::PartitionEntry| {
@@ -133,7 +155,9 @@ fn attached_names(store: &FlexCoreStore) -> Vec<(String, Option<(i64, i64)>)> {
 }
 
 fn audit_count_for(pool: &PgPool, action: &str, object_id: &str) -> i64 {
-    test_runtime().block_on(async {
+    // Batch 68: inside `block_in_place` (see the `test_runtime` note).
+    tokio::task::block_in_place(|| {
+        test_runtime().block_on(async {
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM audit_records WHERE action = $1 AND object_id = $2",
         )
@@ -142,16 +166,20 @@ fn audit_count_for(pool: &PgPool, action: &str, object_id: &str) -> i64 {
         .fetch_one(pool)
         .await
         .expect("audit count query")
+        })
     })
 }
 
 fn relation_exists(pool: &PgPool, name: &str) -> bool {
-    test_runtime().block_on(async {
+    // Batch 68: inside `block_in_place` (see the `test_runtime` note).
+    tokio::task::block_in_place(|| {
+        test_runtime().block_on(async {
         sqlx::query_scalar::<_, bool>("SELECT to_regclass($1) IS NOT NULL")
             .bind(format!("public.{name}"))
             .fetch_one(pool)
             .await
             .expect("to_regclass query")
+        })
     })
 }
 
@@ -171,11 +199,14 @@ fn reattach(pool: &PgPool, name: &str, bounds: (i64, i64)) {
     // from the database's own partition listing (never user input) and the
     // dates are computed from unix-timestamp bounds; identifiers and
     // literal bounds cannot be bind parameters in ATTACH PARTITION.
-    test_runtime().block_on(async {
-        sqlx::query(sqlx::AssertSqlSafe(ddl.as_str()))
-            .execute(pool)
-            .await
-            .expect("re-attach DDL");
+    // Batch 68: inside `block_in_place` (see the `test_runtime` note).
+    tokio::task::block_in_place(|| {
+        test_runtime().block_on(async {
+            sqlx::query(sqlx::AssertSqlSafe(ddl.as_str()))
+                .execute(pool)
+                .await
+                .expect("re-attach DDL");
+        })
     });
 }
 
@@ -234,8 +265,18 @@ async fn pre_creation_pass_creates_partitions_ahead_of_the_frontier() {
         return;
     };
     let _db = db_lock();
-    let admin_store = FlexCoreStore::connect(&url).expect("admin store");
-    admin_store.run_migrations().expect("migrations");
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `test_runtime` note). The admin store is intentionally NEVER
+    // dropped (same `FlexCoreStore`-owns-a-`Runtime` rule as
+    // `maintenance_store` above): created once, leaked for the test
+    // process.
+    let admin_store: &'static FlexCoreStore = tokio::task::block_in_place(|| {
+        static ADMIN_STORE: std::sync::OnceLock<FlexCoreStore> = std::sync::OnceLock::new();
+        let admin_store = ADMIN_STORE
+            .get_or_init(|| FlexCoreStore::connect(&url).expect("admin store"));
+        admin_store.run_migrations().expect("migrations");
+        admin_store
+    });
     ensure_test_roles(admin_store.pool());
     let store = maintenance_store(&url);
 
@@ -272,8 +313,18 @@ async fn no_retention_configured_reports_and_deletes_nothing() {
         return;
     };
     let _db = db_lock();
-    let admin_store = FlexCoreStore::connect(&url).expect("admin store");
-    admin_store.run_migrations().expect("migrations");
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `test_runtime` note). The admin store is intentionally NEVER
+    // dropped (same `FlexCoreStore`-owns-a-`Runtime` rule as
+    // `maintenance_store` above): created once, leaked for the test
+    // process.
+    let admin_store: &'static FlexCoreStore = tokio::task::block_in_place(|| {
+        static ADMIN_STORE: std::sync::OnceLock<FlexCoreStore> = std::sync::OnceLock::new();
+        let admin_store = ADMIN_STORE
+            .get_or_init(|| FlexCoreStore::connect(&url).expect("admin store"));
+        admin_store.run_migrations().expect("migrations");
+        admin_store
+    });
     ensure_test_roles(admin_store.pool());
     let store = maintenance_store(&url);
 
@@ -304,8 +355,18 @@ async fn configured_but_unapproved_retention_deletes_nothing() {
         return;
     };
     let _db = db_lock();
-    let admin_store = FlexCoreStore::connect(&url).expect("admin store");
-    admin_store.run_migrations().expect("migrations");
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `test_runtime` note). The admin store is intentionally NEVER
+    // dropped (same `FlexCoreStore`-owns-a-`Runtime` rule as
+    // `maintenance_store` above): created once, leaked for the test
+    // process.
+    let admin_store: &'static FlexCoreStore = tokio::task::block_in_place(|| {
+        static ADMIN_STORE: std::sync::OnceLock<FlexCoreStore> = std::sync::OnceLock::new();
+        let admin_store = ADMIN_STORE
+            .get_or_init(|| FlexCoreStore::connect(&url).expect("admin store"));
+        admin_store.run_migrations().expect("migrations");
+        admin_store
+    });
     ensure_test_roles(admin_store.pool());
     let store = maintenance_store(&url);
 
@@ -338,15 +399,27 @@ async fn approved_pass_detaches_only_out_of_window_partitions_with_audit() {
         return;
     };
     let _db = db_lock();
-    let admin_store = FlexCoreStore::connect(&url).expect("admin store");
-    admin_store.run_migrations().expect("migrations");
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `test_runtime` note). The admin store is intentionally NEVER
+    // dropped (same `FlexCoreStore`-owns-a-`Runtime` rule as
+    // `maintenance_store` above): created once, leaked for the test
+    // process.
+    let admin_store: &'static FlexCoreStore = tokio::task::block_in_place(|| {
+        static ADMIN_STORE: std::sync::OnceLock<FlexCoreStore> = std::sync::OnceLock::new();
+        let admin_store = ADMIN_STORE
+            .get_or_init(|| FlexCoreStore::connect(&url).expect("admin store"));
+        admin_store.run_migrations().expect("migrations");
+        admin_store
+    });
     ensure_test_roles(admin_store.pool());
     let admin_pool = admin_store.pool();
     let store = maintenance_store(&url);
 
     // The test's OWN old month (no other suite uses 2019-05): entirely
     // outside any plausible retention window.
-    {
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `test_runtime` note).
+    tokio::task::block_in_place(|| {
         let unit = store.begin(None).expect("unit of work");
         let shared = Arc::new(unit);
         flexcore_postgres_adapter::PgUnitOfWork::create_telemetry_partition(&shared, 2019, 5)
@@ -355,7 +428,7 @@ async fn approved_pass_detaches_only_out_of_window_partitions_with_audit() {
             .expect("unique")
             .commit()
             .expect("commit");
-    }
+    });
 
     let now = SystemClock.now_event_time().timestamp();
     let cutoff = retention_cutoff(now.year(), now.month() as u32, 2).expect("cutoff");
@@ -430,8 +503,18 @@ async fn drop_step_refuses_attached_partitions_and_drops_detached_ones() {
         return;
     };
     let _db = db_lock();
-    let admin_store = FlexCoreStore::connect(&url).expect("admin store");
-    admin_store.run_migrations().expect("migrations");
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `test_runtime` note). The admin store is intentionally NEVER
+    // dropped (same `FlexCoreStore`-owns-a-`Runtime` rule as
+    // `maintenance_store` above): created once, leaked for the test
+    // process.
+    let admin_store: &'static FlexCoreStore = tokio::task::block_in_place(|| {
+        static ADMIN_STORE: std::sync::OnceLock<FlexCoreStore> = std::sync::OnceLock::new();
+        let admin_store = ADMIN_STORE
+            .get_or_init(|| FlexCoreStore::connect(&url).expect("admin store"));
+        admin_store.run_migrations().expect("migrations");
+        admin_store
+    });
     ensure_test_roles(admin_store.pool());
     let admin_pool = admin_store.pool();
     let store = maintenance_store(&url);
@@ -441,13 +524,15 @@ async fn drop_step_refuses_attached_partitions_and_drops_detached_ones() {
 
     // An ATTACHED partition: drop is refused (detach first, D-R2), no
     // audit record is written, the table remains.
-    {
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `test_runtime` note).
+    tokio::task::block_in_place(|| {
         let unit = store.begin(None).expect("unit of work");
         let shared = Arc::new(unit);
         flexcore_postgres_adapter::PgUnitOfWork::create_telemetry_partition(&shared, 2019, 7)
             .expect("create 2019-07");
         Arc::into_inner(shared).expect("unique").commit().expect("commit");
-    }
+    });
     let before_drop =
         audit_count_for(admin_pool, "telemetry.partition.drop", "telemetry_y2019m07");
     let refused = flexcore_worker::maintenance::drop_step(

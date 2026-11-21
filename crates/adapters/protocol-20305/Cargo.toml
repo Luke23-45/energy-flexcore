@@ -62,6 +62,12 @@ hyper = { version = "1.12.0", default-features = false, features = [
     "http1",
     "server",
 ] }
+# - hyper-util 0.1.21 (lock, already a transitive dependency via axum):
+#   the `TokioIo` bridge from tokio streams to hyper 1.x's `hyper::rt`
+#   traits (Batch 68). `tokio` feature only; no new crate enters the lock.
+hyper-util = { version = "0.1.21", default-features = false, features = [
+    "tokio",
+] }
 # - http 1.5.0 (lock): the wire request/response types of the HTTP mapping.
 http = "1.5.0"
 # - http-body 1.1.0 (lock) + http-body-util 0.1.5 (lock): the body trait

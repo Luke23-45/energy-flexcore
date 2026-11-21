@@ -131,11 +131,21 @@ fn sample_tenant_entity(tenant_id: TenantId) -> Tenant {
     .expect("valid test tenant")
 }
 
-fn test_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("test runtime")
+// Batch 67 (same as Batch 66 fix D): a per-call runtime kills every pool
+// created under it — `PoolOptions::connect` opens one connection eagerly
+// against the creating runtime's I/O driver, and dropping that runtime
+// makes the next query on the pooled connection fail with
+// "a Tokio 1.x context was found, but it is being shutdown". One shared
+// multi-thread runtime per binary, built once and never dropped, keeps
+// every pool valid for the binary's life.
+fn test_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+    })
 }
 
 fn url_as(url: &str, user: &str, password: &str) -> String {
@@ -826,26 +836,43 @@ fn cursor_precision_subsecond_event_times_round_trip() {
             "sub-second event_times must round-trip in sort order without collapsing onto the same second"
         );
         seen_millis.push(rec.event_time().unix_millis());
-        let page_cursor = page
-            .next_cursor()
-            .expect("a limit-1 page over remaining rows must carry a cursor");
-        // The cursor is the sort key of the last record, and it parses back.
-        assert_eq!(
-            page_cursor.key(),
-            sort_key(rec),
-            "the page cursor must be the sort key of the last record of the page"
-        );
-        assert_eq!(
-            TelemetryCursor::parse(page_cursor.key()),
-            Some(page_cursor.to_owned()),
-            "a cursor produced by the reader must parse back to itself"
-        );
-        assert_eq!(
-            TelemetryCursor::for_record(rec).key(),
-            page_cursor.key(),
-            "TelemetryCursor::for_record must agree with the reader's page cursor"
-        );
-        cursor = Some(page_cursor.to_owned());
+        // Batch 67: the page cursor is `Some` IFF more rows follow (the
+        // brief's strict semantics; the production reader's LIMIT limit+1
+        // lookahead). Pages 1–3 carry the cursor of their last record;
+        // the 4th (last) page carries NONE — the old code demanded a
+        // cursor on every page including the last, which contradicts the
+        // contract and this test's own tail ("past the last row there
+        // must be no next cursor"). The cursor FOR the last record is
+        // still well-defined (for_record), so the tail query below keeps
+        // using it to step past the final row.
+        let record_cursor = TelemetryCursor::for_record(rec);
+        if expected_offset == 750 {
+            assert!(
+                page.next_cursor().is_none(),
+                "the last page must carry no cursor (no rows follow)"
+            );
+        } else {
+            let page_cursor = page
+                .next_cursor()
+                .expect("a limit-1 page over remaining rows must carry a cursor");
+            // The cursor is the sort key of the last record, and it parses back.
+            assert_eq!(
+                page_cursor.key(),
+                sort_key(rec),
+                "the page cursor must be the sort key of the last record of the page"
+            );
+            assert_eq!(
+                TelemetryCursor::parse(page_cursor.key()),
+                Some(page_cursor.to_owned()),
+                "a cursor produced by the reader must parse back to itself"
+            );
+            assert_eq!(
+                record_cursor.key(),
+                page_cursor.key(),
+                "TelemetryCursor::for_record must agree with the reader's page cursor"
+            );
+        }
+        cursor = Some(record_cursor);
     }
     assert_eq!(
         seen_millis,

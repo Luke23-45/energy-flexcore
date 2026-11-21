@@ -276,13 +276,22 @@ fn decode_stored_version(row: &PgRow) -> Result<StoredTelemetryVersion, Telemetr
     })
 }
 
-/// The as-of visibility predicate (D-C4): row `telemetry` is visible iff NO
-/// strictly-newer version of the same storage identity is visible at the
-/// as-of instant. `$SUPERSEDED` is replaced with the builder's as-of
-/// parameter index (always bound — `NULL` means "no as-of", which lets every
-/// newer version supersede). A version >= 2 superseder always carries
-/// `corrected_at` (the 0012 CHECK), so the comparison is total.
-pub(crate) const NOT_SUPERSEDED_AT_AS_OF: &str = "AND NOT EXISTS ( \
+/// The as-of visibility predicate (D-C4): row `telemetry` is visible iff it
+/// was itself current at the as-of instant AND no strictly-newer version of
+/// the same storage identity is visible at that instant. `$SUPERSEDED` is
+/// replaced with the builder's as-of parameter index (always bound — `NULL`
+/// means "no as-of", which lets every newer version supersede). A version
+/// >= 2 superseder always carries `corrected_at` (the 0012 CHECK), so the
+/// comparison is total; version 1 carries `corrected_at IS NULL` and is
+/// always itself-visible.
+/// Batch 67: the predicate previously checked ONLY the superseder half —
+/// a version-2 row was visible at every as-of instant before its own
+/// `corrected_at`, so an as-of read at T1 returned BOTH versions (the
+/// `as_of_query` test: 2 rows, expected 1). The own-visibility conjunct
+/// below closes that half: a version is visible at as-of iff its own
+/// `corrected_at` is NULL (the original) or <= as-of.
+pub(crate) const NOT_SUPERSEDED_AT_AS_OF: &str = "AND ($SUPERSEDED::timestamptz IS NULL OR telemetry.corrected_at IS NULL OR telemetry.corrected_at <= $SUPERSEDED) \
+         AND NOT EXISTS ( \
          SELECT 1 FROM telemetry sup \
          WHERE sup.asset_id = telemetry.asset_id \
            AND sup.event_time = telemetry.event_time \
@@ -804,7 +813,12 @@ mod tests {
     fn the_visibility_predicate_names_the_bound_parameter_once_per_occurrence() {
         // The predicate is a constant; the as-of parameter it references must
         // be the documented one so the SQL builders bind it correctly.
-        assert_eq!(NOT_SUPERSEDED_AT_AS_OF.matches("$SUPERSEDED").count(), 2);
+        // Batch 67: FOUR occurrences, not two — the predicate has TWO halves
+        // (the own-visibility conjunct and the superseder half), and each
+        // half names the parameter twice (the IS NULL check and the <=
+        // comparison). The builders replace every occurrence with the one
+        // bound as-of parameter ($5), so all four reference the same value.
+        assert_eq!(NOT_SUPERSEDED_AT_AS_OF.matches("$SUPERSEDED").count(), 4);
         assert!(NOT_SUPERSEDED_AT_AS_OF.contains("sup.telemetry_version > telemetry.telemetry_version"));
     }
 }

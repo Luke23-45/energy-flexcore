@@ -23,6 +23,7 @@
 // `schedule_store.rs` modules use for their `impl PgUnitOfWork` blocks.
 
 use sqlx::Row;
+use std::sync::atomic::{AtomicU64, Ordering};
 use crate::error::{is_unique_violation, map_backend};
 use crate::unit_of_work::{tx_ref, PgUnitOfWork};
 use crate::uuid_map::{uuid_from_text, uuid_text};
@@ -31,6 +32,10 @@ use flexcore_storage::feasibility_check::{
     FeasibilityCheckFilter, FeasibilityCheckRow, FeasibilityCheckStore,
     FeasibilityCheckStoreError,
 };
+
+/// Savepoint names must be unique per transaction lifetime (the recorded
+/// `telemetry.rs` rule; a process-wide counter, same reasoning).
+static FEASIBILITY_SAVEPOINT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// The column projection of one feasibility-check record (uuid columns
 /// selected back as `::text` — the recorded FlexUuid mapping).
@@ -172,7 +177,28 @@ impl FeasibilityCheckStore for PgUnitOfWork {
             // re-checked candidate is a NEW check id). The verdict-shape
             // rules were validated by the row constructor; the migration's
             // CHECKs re-state them as defence in depth.
-            sqlx::query(
+            // Batch 67: the insert runs inside a SAVEPOINT — a failed
+            // statement aborts the whole PostgreSQL transaction (25P02),
+            // so without it a duplicate insert poisoned the caller's unit
+            // of work: the unit's commit silently lost the ORIGINAL row
+            // too, and the test's later read found nothing (the
+            // `feasibility_check_records_are_append_only` failure: the
+            // row was absent from the database after the test). The
+            // savepoint is rolled back on a classified failure and
+            // released either way, so the surrounding transaction stays
+            // usable (the recorded `telemetry.rs` / `corrections.rs`
+            // pattern).
+            let savepoint = format!(
+                "feasibility_check_insert_{}",
+                FEASIBILITY_SAVEPOINT_COUNTER.fetch_add(1, Ordering::SeqCst)
+            );
+            // sqlx 0.9 audit: the savepoint name is counter-generated
+            // (`feasibility_check_insert_<u64>`), never user input.
+            sqlx::query(sqlx::AssertSqlSafe(format!("SAVEPOINT {savepoint}")))
+                .execute(&mut **tx)
+                .await
+                .map_err(|err| map_backend_error(err, &row.check_id))?;
+            let insert = sqlx::query(
                 "INSERT INTO feasibility_check_records \
                      (check_id, tenant_id, command_id, portfolio_id, site_id, asset_id, \
                       schedule_id, schedule_revision, model_id, model_version, \
@@ -201,9 +227,33 @@ impl FeasibilityCheckStore for PgUnitOfWork {
             .bind(&row.correlation_id)
             .bind(row.checked_at_unix_millis)
             .execute(&mut **tx)
-            .await
-            .map_err(|err| map_backend_error(err, &row.check_id))?;
-            Ok(())
+            .await;
+            match insert {
+                Ok(_) => {
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "RELEASE SAVEPOINT {savepoint}"
+                    )))
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|err| map_backend_error(err, &row.check_id))?;
+                    Ok(())
+                }
+                Err(err) => {
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "ROLLBACK TO SAVEPOINT {savepoint}"
+                    )))
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|err| map_backend_error(err, &row.check_id))?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "RELEASE SAVEPOINT {savepoint}"
+                    )))
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|err| map_backend_error(err, &row.check_id))?;
+                    Err(map_backend_error(err, &row.check_id))
+                }
+            }
         })
     }
 

@@ -98,7 +98,6 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -110,6 +109,10 @@ use http_body::Body as HttpBody;
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
+// Batch 68: the hyper 1.x bridge from tokio streams to hyper's
+// `hyper::rt::Read + Write` (see the `TokioIo` note in
+// `protocol-openadr/src/transport.rs`).
+use hyper_util::rt::TokioIo;
 use rustls::RootCertStore;
 use rustls::pki_types::CertificateDer;
 use serde::{Deserialize, Serialize};
@@ -646,13 +649,12 @@ where
     type Error = Infallible;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + 'h>>;
 
-    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        // The design-surface handler is always ready to accept a request
-        // (its refusals are named statuses, not backpressure).
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, request: HttpRequest<B>) -> Self::Future {
+    // Batch 68: this implements `hyper::service::Service` (hyper 1.x),
+    // whose `call` takes `&self` and which has NO `poll_ready` — the
+    // previous `poll_ready` + `call(&mut self)` shape was tower's
+    // `Service`, not hyper's. The body only clones the shared handler,
+    // so `&self` is sufficient.
+    fn call(&self, request: HttpRequest<B>) -> Self::Future {
         let handler = Rc::clone(&self.handler);
         Box::pin(async move {
             let response = serve_wire_request(request, handler).await;
@@ -750,7 +752,7 @@ impl HyperTransport {
                             let acceptor = acceptor.clone();
                             let allowlist = allowlist.clone();
                             let handler = Rc::clone(&handler);
-                            connections.push(Box::pin(serve_one_connection(
+                            connections.push(Box::pin(Self::serve_one_connection(
                                 acceptor, allowlist, handler, stream,
                             )));
                         }
@@ -794,8 +796,11 @@ impl HyperTransport {
         let (_io, server_connection) = tls_stream.get_ref();
         authorize_client_certificate(server_connection.peer_certificates(), &allowlist)?;
         let service = AggregatorHttpService::new(handler);
+        // Batch 68: `TokioIo` bridges the tokio-rustls stream to hyper
+        // 1.x's `hyper::rt::Read + Write` (the stream implements tokio's
+        // `AsyncRead/AsyncWrite`, not hyper's traits).
         http1::Builder::new()
-            .serve_connection(tls_stream, service)
+            .serve_connection(TokioIo::new(tls_stream), service)
             .await
             .map_err(|error| TransportError::TransportClosed {
                 reason: format!("http1 connection error: {error}"),

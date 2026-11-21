@@ -49,7 +49,14 @@ tracing-opentelemetry = "0.34.0"
 # (default-features off; blocking for the sync-port bridge; rustls without
 # a compiled-in provider — the CryptoProvider install is a DEPLOYMENT
 # concern recorded in the vendor_ingestion module header).
-reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "rustls-no-provider"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "query", "rustls-no-provider"] }
+# - rustls 0.23.46 (lock): the CryptoProvider install for the reqwest
+#   `rustls-no-provider` edge above (Batch 68 — without it every client
+#   build panics at first use: "No rustls crypto provider is
+#   configured"). `ring` keeps the resolved provider IDENTICAL to the
+#   committed lock graph (FIM standing decision 1: aws-lc-rs is not in
+#   the lock). Same declaration as the protocol-openadr edge.
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "tls12"] }
 # FIM-F10 — the forecast artifact digest chain (SHA-256, FIM-F10.04; the
 # P15.06 chain shape upgraded from the test-grade FNV-1a 64 per the FIM
 # instruction). Workspace-catalogued crate (sha2 = "0.11"), already in the

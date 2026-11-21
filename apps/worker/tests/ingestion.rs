@@ -147,6 +147,16 @@ fn url_as(url: &str, user: &str, password: &str) -> String {
     format!("{url}?user={user}&password={password}")
 }
 
+// Batch 68: the tests are `#[tokio::test]` (async), so NO helper may
+// `block_on` a fresh runtime from inside them — tokio refuses with
+// "Cannot start a runtime from within a runtime". Pure-sqlx setup
+// (`ensure_test_roles`, `ensure_partitions`, pool connects) is `async`
+// and awaited directly. The postgres adapter's SYNC API
+// (`FlexCoreStore::connect/begin`, `unit.commit`, `store.pending`)
+// `block_on`s on the store's own runtime, so those calls run inside
+// `tokio::task::block_in_place` (multi-thread test runtime), which moves
+// them onto a thread with no runtime context entered. This helper builds
+// the throwaway runtime used ONLY inside `block_in_place` closures.
 fn blocking_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -157,54 +167,67 @@ fn blocking_runtime() -> tokio::runtime::Runtime {
 /// Grants LOGIN and test-only passwords to the service roles the harness
 /// connects as (credentials never live in a migration — the recorded
 /// P2.06 harness deviation pattern).
-fn ensure_test_roles(pool: &PgPool) {
-    blocking_runtime()
-        .block_on(async {
-            for (role, password) in [
-                ("flexcore_app", "flexcore_app_test_only"),
-                ("flexcore_migrator", "flexcore_migrator_test_only"),
-            ] {
-                // SAFETY (sqlx 0.9 SqlSafeStr): `role` and `password` are
-                // fixed test-only literals from the list above — no user
-                // input reaches this DDL, and role names/passwords cannot
-                // be bind parameters in ALTER ROLE.
-                sqlx::query(sqlx::AssertSqlSafe(format!(
-                    "ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"
-                )))
-                .execute(pool)
-                .await?;
-            }
-            Ok::<(), sqlx::Error>(())
-        })
+async fn ensure_test_roles(pool: &PgPool) {
+    // Batch 68: serialized with the recorded advisory lock (key
+    // `20261118`, the B66 rule) — the tests run in parallel and their
+    // concurrent ALTER ROLEs collided on pg_authid ("tuple concurrently
+    // updated"). Same shape as the postgres adapter's `ensure_test_roles`.
+    let mut tx = pool.begin().await.expect("role setup tx");
+    sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+        .execute(&mut *tx)
+        .await
+        .expect("role setup lock");
+    for (role, password) in [
+        ("flexcore_app", "flexcore_app_test_only"),
+        ("flexcore_migrator", "flexcore_migrator_test_only"),
+    ] {
+        // SAFETY (sqlx 0.9 SqlSafeStr): `role` and `password` are
+        // fixed test-only literals from the list above — no user
+        // input reaches this DDL, and role names/passwords cannot
+        // be bind parameters in ALTER ROLE.
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "ALTER ROLE {role} WITH LOGIN PASSWORD '{password}'"
+        )))
+        .execute(&mut *tx)
+        .await
         .expect("test roles must be grantable from the migration/admin connection");
+    }
+    tx.commit().await.expect("role setup commit");
 }
 
 /// Creates the fixed 2030 monthly partitions as the migrator role (the
 /// parent table's owner). Idempotent across runs. MUST run after
 /// [`ensure_test_roles`].
-fn ensure_partitions(url: &str) {
-    let migrator_pool = blocking_runtime()
-        .block_on(PgPool::connect(&url_as(
-            url,
-            "flexcore_migrator",
-            "flexcore_migrator_test_only",
+async fn ensure_partitions(url: &str) {
+    let migrator_pool = PgPool::connect(&url_as(
+        url,
+        "flexcore_migrator",
+        "flexcore_migrator_test_only",
+    ))
+    .await
+    .expect("connect as flexcore_migrator");
+    // Batch 68: serialized with the recorded advisory lock (key
+    // `20261118`, the B66 rule) — CREATE TABLE IF NOT EXISTS is not
+    // concurrency-safe across the parallel tests.
+    let mut tx = migrator_pool.begin().await.expect("partition setup tx");
+    sqlx::query("SELECT pg_advisory_xact_lock(20261118)")
+        .execute(&mut *tx)
+        .await
+        .expect("partition setup lock");
+    for (name, from, to) in PARTITION_MONTHS {
+        // SAFETY (sqlx 0.9 SqlSafeStr): `name`/`from`/`to` are fixed
+        // literals from the PARTITION_MONTHS const above — no user
+        // input reaches this DDL, and partition names/bounds cannot
+        // be bind parameters in CREATE TABLE.
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "CREATE TABLE IF NOT EXISTS {name} PARTITION OF telemetry \
+             FOR VALUES FROM ('{from}') TO ('{to}')"
         )))
-        .expect("connect as flexcore_migrator");
-    blocking_runtime().block_on(async {
-        for (name, from, to) in PARTITION_MONTHS {
-            // SAFETY (sqlx 0.9 SqlSafeStr): `name`/`from`/`to` are fixed
-            // literals from the PARTITION_MONTHS const above — no user
-            // input reaches this DDL, and partition names/bounds cannot
-            // be bind parameters in CREATE TABLE.
-            sqlx::query(sqlx::AssertSqlSafe(format!(
-                "CREATE TABLE IF NOT EXISTS {name} PARTITION OF telemetry \
-                 FOR VALUES FROM ('{from}') TO ('{to}')"
-            )))
-            .execute(&migrator_pool)
-            .await
-            .expect("partition DDL as the table owner");
-        }
-    });
+        .execute(&mut *tx)
+        .await
+        .expect("partition DDL as the table owner");
+    }
+    tx.commit().await.expect("partition setup commit");
 }
 
 /// Seeds one tenant with one portfolio/site/asset chain (the P2.06
@@ -286,6 +309,24 @@ fn seed_registry(
 
 const SOURCE_ID: &str = "sim://exit-gate";
 
+/// The process-wide shared UUIDv7 generator (Batch 68): a
+/// `UuidV7Generator` owns its own tokio `Runtime` (it `block_on`s a
+/// `SELECT uuidv7()`), and dropping that runtime in an async context
+/// panics the same way a `FlexCoreStore` drop does ("Cannot drop a
+/// runtime in a context where blocking is not allowed"). Every
+/// `IngestionTask` built in this binary shares one generator, created
+/// once and never dropped; the pool is the shared store's pool either
+/// way. Building the runtime is fine in async context — only `block_on`
+/// and the drop are restricted.
+fn shared_id_generator(
+    pool: &sqlx::PgPool,
+) -> Arc<dyn flexcore_ports::id_generator::IdGenerator> {
+    static GENERATOR: std::sync::OnceLock<
+        Arc<dyn flexcore_ports::id_generator::IdGenerator>,
+    > = std::sync::OnceLock::new();
+    Arc::clone(GENERATOR.get_or_init(|| Arc::new(UuidV7Generator::new(pool.clone()))))
+}
+
 fn provider_declaration() -> ProviderDeclaration {
     ProviderDeclaration::new(
         SOURCE_ID.to_string(),
@@ -325,7 +366,11 @@ fn record(
 
 /// `count(*)` over telemetry under the tenant's RLS scope.
 fn count_telemetry(store: &FlexCoreStore, ctx: &TenantContext) -> i64 {
-    blocking_runtime().block_on(async {
+    // Batch 68: raw sqlx via a throwaway runtime, inside
+    // `block_in_place` — the callers are async tests (see the
+    // `blocking_runtime` note).
+    tokio::task::block_in_place(|| {
+        blocking_runtime().block_on(async {
         let mut tx = store.pool().begin().await.expect("transaction");
         sqlx::query("SELECT set_config('flexcore.tenant_id', $1, true)")
             .bind(ctx.tenant_id().uuid().to_hyphenated().to_string())
@@ -338,18 +383,23 @@ fn count_telemetry(store: &FlexCoreStore, ctx: &TenantContext) -> i64 {
             .expect("count query");
         tx.commit().await.expect("commit");
         count
+        })
     })
 }
 
 /// The pending outbox idempotency keys (the events the publisher will
 /// deliver — published via the OUTBOX port only).
 fn pending_outbox_keys(store: &FlexCoreStore) -> Vec<String> {
-    store
-        .pending(1000)
-        .expect("outbox pending read")
-        .into_iter()
-        .map(|entry| entry.idempotency_key().to_string())
-        .collect()
+    // Batch 68: `store.pending` is the sync adapter API — inside
+    // `block_in_place` (see the `blocking_runtime` note).
+    tokio::task::block_in_place(|| {
+        store
+            .pending(1000)
+            .expect("outbox pending read")
+            .into_iter()
+            .map(|entry| entry.idempotency_key().to_string())
+            .collect()
+    })
 }
 
 /// Permissive source-auth double (Patch B): passes raw frames through
@@ -399,7 +449,7 @@ fn build_task(
         PgIngestionInbox::new(inbox),
         Arc::new(JsonEventPayloadEncoder),
         Arc::new(SystemClock),
-        Arc::new(UuidV7Generator::new(store.pool().clone())),
+        shared_id_generator(store.pool()),
         IngestionConfig {
             channel_capacity: 100,
             trusted_source_id,
@@ -427,26 +477,55 @@ fn subscription_query(ctx: &TenantContext, asset_id: AssetId) -> TelemetryQuery 
 /// The shared harness prefix: roles, partitions, stores, registry seed,
 /// inbox. Returns everything the tests need.
 struct Harness {
-    store: FlexCoreStore,
+    store: &'static FlexCoreStore,
     ctx: TenantContext,
     asset_id: AssetId,
     inbox: PgInboxStore,
 }
 
-fn harness(test: &str, prefix: u8) -> Option<Harness> {
+/// The process-wide shared store for this binary (Batch 68): a
+/// `FlexCoreStore` owns a tokio `Runtime`, whose drop shuts its blocking
+/// pool down and PANICS in an async context ("Cannot drop a runtime in a
+/// context where blocking is not allowed"). The async tests would drop a
+/// per-test store when the test future ends — including while unwinding
+/// after a failed assertion (panic-in-panic aborts the process). The
+/// store is therefore created once and intentionally never dropped; the
+/// per-test isolation is the tenant, not the connection (every test
+/// already seeds its own tenant). Call only inside `block_in_place`:
+/// `connect` blocks on the store's runtime.
+fn shared_store(url: &str) -> &'static FlexCoreStore {
+    static STORE: std::sync::OnceLock<FlexCoreStore> = std::sync::OnceLock::new();
+    STORE.get_or_init(|| FlexCoreStore::connect(url).expect("shared store"))
+}
+
+async fn harness(test: &str, prefix: u8) -> Option<Harness> {
     let url = require_db(test)?;
-    ensure_test_roles(
-        &blocking_runtime()
-            .block_on(PgPool::connect(&url))
-            .expect("admin pool"),
-    );
-    ensure_partitions(&url);
-    let admin_store = FlexCoreStore::connect(&url).expect("admin store");
-    let store = FlexCoreStore::connect(&url).expect("app store");
-    let tenant_id = TenantId::new(fixture_uuid(prefix));
-    let asset_id = AssetId::new(fixture_uuid(prefix + 1));
-    let ctx = seed_registry(&admin_store, &store, tenant_id, asset_id);
-    let inbox = PgInboxStore::new(store.pool().clone()).expect("inbox store");
+    let admin_pool = PgPool::connect(&url).await.expect("admin pool");
+    // Batch 68: the migrations were NEVER run by this harness (the suite
+    // was "gated-blocked" since B63 and never executed with services up)
+    // — the partition DDL then failed 42501 because the CREATE ON SCHEMA
+    // public grant (migration 0010) and the `telemetry` table did not
+    // exist. Migrations run first (they create the roles), then the
+    // password grants, then the partitions. `run_migrations` is the sync
+    // adapter API, so it runs inside `block_in_place`.
+    let store = tokio::task::block_in_place(|| {
+        let store = shared_store(&url);
+        store.run_migrations().expect("migrations apply");
+        store
+    });
+    ensure_test_roles(&admin_pool).await;
+    ensure_partitions(&url).await;
+    // The registry seed is the sync adapter API, so it runs inside
+    // `block_in_place` (see the `blocking_runtime` note). The admin and
+    // app stores are the same shared store (both connected over the
+    // admin URL; the tenant scoping is the context, not the role).
+    let (ctx, asset_id, inbox) = tokio::task::block_in_place(|| {
+        let tenant_id = TenantId::new(fixture_uuid(prefix));
+        let asset_id = AssetId::new(fixture_uuid(prefix + 1));
+        let ctx = seed_registry(store, store, tenant_id, asset_id);
+        let inbox = PgInboxStore::new(store.pool().clone()).expect("inbox store");
+        (ctx, asset_id, inbox)
+    });
     // FRV1-R5-004: the inbox table is owned by the embedded migration
     // 0024_worker_inbox_p1_16 (the harness connects to a
     // migration-provisioned database, the same provisioning every other
@@ -464,11 +543,11 @@ fn harness(test: &str, prefix: u8) -> Option<Harness> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn happy_path_batch_stores_rows_and_publishes_via_the_outbox() {
-    let Some(h) = harness("ingestion_happy_path", 0x10) else {
+    let Some(h) = harness("ingestion_happy_path", 0x10).await else {
         return;
     };
     let record = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 1, 1.5);
-    let (task, _source, metrics) = build_task(h.store.clone(), vec![record], None, h.inbox.clone());
+    let (task, _source, metrics) = build_task((*h.store).clone(), vec![record], None, h.inbox.clone());
 
     // The loop against the fake source; one frame offered through the
     // bounded queue (the source-bridge boundary).
@@ -505,10 +584,10 @@ async fn happy_path_batch_stores_rows_and_publishes_via_the_outbox() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mixed_batch_stores_valid_and_quarantines_out_of_range() {
-    let Some(h) = harness("ingestion_mixed_batch", 0x12) else {
+    let Some(h) = harness("ingestion_mixed_batch", 0x12).await else {
         return;
     };
-    let (task, _source, metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     // One valid record (January 2030, partition exists) and one whose
     // event_time falls outside every partition (June 2031) — the storage
@@ -526,10 +605,15 @@ async fn mixed_batch_stores_valid_and_quarantines_out_of_range() {
     assert_eq!(count_telemetry(&h.store, &h.ctx), 1);
 
     // The quarantine evidence trail names the stage and the reason.
-    let unit = h.store.begin(Some(&h.ctx)).expect("unit of work");
-    let quarantined = PgUnitOfWork::list_telemetry_quarantine(&unit, &h.ctx, 100)
-        .expect("quarantine list");
-    unit.commit().expect("commit read");
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `blocking_runtime` note).
+    let quarantined = tokio::task::block_in_place(|| {
+        let unit = h.store.begin(Some(&h.ctx)).expect("unit of work");
+        let quarantined = PgUnitOfWork::list_telemetry_quarantine(&unit, &h.ctx, 100)
+            .expect("quarantine list");
+        unit.commit().expect("commit read");
+        quarantined
+    });
     assert_eq!(quarantined.len(), 1);
     assert_eq!(quarantined[0].entry.stage, "5-duplicate-handling");
     assert!(
@@ -545,10 +629,10 @@ async fn mixed_batch_stores_valid_and_quarantines_out_of_range() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn duplicate_batch_stores_one_row() {
-    let Some(h) = harness("ingestion_duplicate_batch", 0x14) else {
+    let Some(h) = harness("ingestion_duplicate_batch", 0x14).await else {
         return;
     };
-    let (task, _source, _metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, _metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     let first = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 20, 1.5);
     let second = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 20, 1.5);
@@ -565,10 +649,10 @@ async fn duplicate_batch_stores_one_row() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn out_of_order_batch_is_stored_and_the_current_state_never_regresses() {
-    let Some(h) = harness("ingestion_out_of_order", 0x16) else {
+    let Some(h) = harness("ingestion_out_of_order", 0x16).await else {
         return;
     };
-    let (task, _source, _metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, _metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     // Arrival order: the CURRENT record (Feb), then a LATE OLDER record
     // (Jan), then a late NEWER record (Mar — partition y2030m03 exists).
@@ -595,10 +679,15 @@ async fn out_of_order_batch_is_stored_and_the_current_state_never_regresses() {
     // Three rows (valid history); the current-state read reports the NEWER
     // record (latest event_time, never latest arrival).
     assert_eq!(count_telemetry(&h.store, &h.ctx), 3);
-    let unit = h.store.begin(Some(&h.ctx)).expect("unit of work");
-    let latest = PgUnitOfWork::latest_telemetry_per_asset(&unit, &h.ctx, &[h.asset_id], None)
-        .expect("latest query");
-    unit.commit().expect("commit read");
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `blocking_runtime` note).
+    let latest = tokio::task::block_in_place(|| {
+        let unit = h.store.begin(Some(&h.ctx)).expect("unit of work");
+        let latest = PgUnitOfWork::latest_telemetry_per_asset(&unit, &h.ctx, &[h.asset_id], None)
+            .expect("latest query");
+        unit.commit().expect("commit read");
+        latest
+    });
     let active: Vec<_> = latest
         .into_iter()
         .filter(|row| row.quantity == PgQuantity::ActivePower)
@@ -613,10 +702,10 @@ async fn out_of_order_batch_is_stored_and_the_current_state_never_regresses() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn forced_redelivery_is_detected_by_the_inbox_and_not_re_stored() {
-    let Some(h) = harness("ingestion_redelivery", 0x18) else {
+    let Some(h) = harness("ingestion_redelivery", 0x18).await else {
         return;
     };
-    let (task, _source, _metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, _metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     let record = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 40, 1.5);
     let first = task.process_batch(&h.ctx, &[record.clone()], None).expect("first");
@@ -632,14 +721,14 @@ async fn forced_redelivery_is_detected_by_the_inbox_and_not_re_stored() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn source_auth_failure_rejects_the_source_and_records_the_envelope_status() {
-    let Some(h) = harness("ingestion_source_auth", 0x1A) else {
+    let Some(h) = harness("ingestion_source_auth", 0x1A).await else {
         return;
     };
     // A configured trusted source that does NOT match the fake provider's
     // declaration: the stage-1 health + trusted-source-id check must reject
     // the task at startup, before any decode or store runs.
     let (task, _source, metrics) = build_task(
-        h.store.clone(),
+        (*h.store).clone(),
         vec![record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 50, 1.5)],
         Some("sim://other".to_string()),
         h.inbox.clone(),
@@ -668,10 +757,10 @@ async fn source_auth_failure_rejects_the_source_and_records_the_envelope_status(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn decode_failure_is_quarantined_and_never_stored() {
-    let Some(h) = harness("ingestion_decode_failure", 0x1C) else {
+    let Some(h) = harness("ingestion_decode_failure", 0x1C).await else {
         return;
     };
-    let (task, source, metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, source, metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
     source.set_fail_decode(true);
 
     // Stages 2+3 reject the undecodable frame through the SAME run-loop
@@ -696,10 +785,15 @@ async fn decode_failure_is_quarantined_and_never_stored() {
     assert_eq!(metrics.snapshot().records_quarantined, 1);
     assert_eq!(count_telemetry(&h.store, &h.ctx), 0);
 
-    let unit = h.store.begin(Some(&h.ctx)).expect("unit of work");
-    let quarantined = PgUnitOfWork::list_telemetry_quarantine(&unit, &h.ctx, 100)
-        .expect("quarantine list");
-    unit.commit().expect("commit read");
+    // Batch 68: the sync adapter API inside `block_in_place` (see the
+    // `blocking_runtime` note).
+    let quarantined = tokio::task::block_in_place(|| {
+        let unit = h.store.begin(Some(&h.ctx)).expect("unit of work");
+        let quarantined = PgUnitOfWork::list_telemetry_quarantine(&unit, &h.ctx, 100)
+            .expect("quarantine list");
+        unit.commit().expect("commit read");
+        quarantined
+    });
     assert_eq!(quarantined.len(), 1);
     assert_eq!(quarantined[0].entry.stage, "2-validate");
 }
@@ -763,10 +857,10 @@ fn envelope_of(entry: &flexcore_ports::event_outbox::PendingOutboxEntry) -> serd
 /// previous and the new states (the P2.16 payload revision).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn quality_change_event_carries_previous_and_new_states() {
-    let Some(h) = harness("p216_quality_change_event", 0x1E) else {
+    let Some(h) = harness("p216_quality_change_event", 0x1E).await else {
         return;
     };
-    let (task, _source, metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     let good = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 60, 1.5);
     task.process_batch(&h.ctx, &[good], None).expect("batch 1");
@@ -805,10 +899,10 @@ async fn quality_change_event_carries_previous_and_new_states() {
 /// repeated identical signal does NOT produce another one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn availability_change_emits_the_event_only_on_a_change() {
-    let Some(h) = harness("p216_availability_event", 0x20) else {
+    let Some(h) = harness("p216_availability_event", 0x20).await else {
         return;
     };
-    let (task, _source, metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     // First signal: the asset reports available (GOOD, true). Pre-batch:
     // no availability record at all -> Unknown -> Available is a change.
@@ -868,10 +962,10 @@ async fn availability_change_emits_the_event_only_on_a_change() {
 /// no `AssetAvailabilityChanged` event (the P2.16 rule's STALE branch).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stale_availability_signal_does_not_change_the_availability() {
-    let Some(h) = harness("p216_availability_stale", 0x24) else {
+    let Some(h) = harness("p216_availability_stale", 0x24).await else {
         return;
     };
-    let (task, _source, metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     let up = availability_record(
         h.ctx.tenant_id(),
@@ -908,10 +1002,10 @@ async fn a_stale_availability_signal_does_not_change_the_availability() {
 /// outbox regardless (report §6.3, P1.16).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn redelivery_does_not_duplicate_events() {
-    let Some(h) = harness("p216_redelivery_events", 0x26) else {
+    let Some(h) = harness("p216_redelivery_events", 0x26).await else {
         return;
     };
-    let (task, _source, metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     let first = availability_record(
         h.ctx.tenant_id(),
@@ -955,10 +1049,10 @@ async fn redelivery_does_not_duplicate_events() {
 /// conflicting duplicate.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_mixed_batch_produces_exactly_the_expected_outbox_events() {
-    let Some(h) = harness("p216_mixed_batch_events", 0x28) else {
+    let Some(h) = harness("p216_mixed_batch_events", 0x28).await else {
         return;
     };
-    let (task, _source, metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     // Establish the current state (GOOD, seq 90).
     let good = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 90, 1.0);
@@ -1017,10 +1111,10 @@ async fn a_mixed_batch_produces_exactly_the_expected_outbox_events() {
 /// handle the run loop drives.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pipeline_metrics_record_ingestion_delay_and_quality_states() {
-    let Some(h) = harness("p221_delay_quality_metrics", 0x2C) else {
+    let Some(h) = harness("p221_delay_quality_metrics", 0x2C).await else {
         return;
     };
-    let (task, _source, metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     // Two GOOD records store (both partitions exist); the delay summary
     // covers stored records only.
@@ -1058,12 +1152,12 @@ async fn pipeline_metrics_record_ingestion_delay_and_quality_states() {
 /// never hard-coded.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_staleness_signal_fires_against_the_configured_freshness_limit() {
-    let Some(h) = harness("p221_staleness_signal", 0x2E) else {
+    let Some(h) = harness("p221_staleness_signal", 0x2E).await else {
         return;
     };
     // A task WITHOUT the limit configured: no staleness evaluation happens.
     let (unlimited, _source, unlimited_metrics) =
-        build_task(h.store.clone(), vec![], None, h.inbox.clone());
+        build_task((*h.store).clone(), vec![], None, h.inbox.clone());
     // A task WITH the deployment freshness limit (one minute).
     let source = Arc::new(flexcore_ports::fakes::FakeTelemetrySource::new(
         provider_declaration(),
@@ -1072,11 +1166,11 @@ async fn the_staleness_signal_fires_against_the_configured_freshness_limit() {
     let limited_metrics = Arc::new(IngestionMetrics::default());
     let limited = Arc::new(IngestionTask::new(
         Arc::clone(&source) as Arc<dyn TelemetrySource>,
-        h.store.clone(),
+        (*h.store).clone(),
         PgIngestionInbox::new(h.inbox.clone()),
         Arc::new(JsonEventPayloadEncoder),
         Arc::new(SystemClock),
-        Arc::new(UuidV7Generator::new(h.store.pool().clone())),
+        shared_id_generator(h.store.pool()),
         IngestionConfig {
             stale_freshness_limit_millis: Some(60_000),
             ..Default::default()
@@ -1121,10 +1215,10 @@ async fn the_staleness_signal_fires_against_the_configured_freshness_limit() {
 /// closed reason class (the free-text rejection reason is never a label).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn quarantine_metrics_carry_the_closed_reason_class() {
-    let Some(h) = harness("p221_quarantine_reason_class", 0x30) else {
+    let Some(h) = harness("p221_quarantine_reason_class", 0x30).await else {
         return;
     };
-    let (task, _source, metrics) = build_task(h.store.clone(), vec![], None, h.inbox.clone());
+    let (task, _source, metrics) = build_task((*h.store).clone(), vec![], None, h.inbox.clone());
 
     let valid = record(h.ctx.tenant_id(), h.asset_id, JAN_2030_MS, 120, 1.0);
     let out_of_range = record(h.ctx.tenant_id(), h.asset_id, JUN_2031_MS, 121, 2.0);

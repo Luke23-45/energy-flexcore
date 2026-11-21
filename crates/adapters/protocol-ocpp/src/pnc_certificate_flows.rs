@@ -676,7 +676,9 @@ impl PncCertificateSurface {
         // The V2G hierarchy must exist in the store before an EV-certificate
         // request can even be recorded (fail-closed: an empty store refuses
         // by name).
-        trust_store.require_any_anchor()?;
+        trust_store
+            .require_any_anchor()
+            .map_err(PncCertificateError::TrustStore)?;
         self.ledger.open_ev_certificate_request(
             charge_point_id,
             CertificateType::V2gCertificate,

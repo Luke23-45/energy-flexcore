@@ -157,7 +157,7 @@ impl ProvisioningTokenValidator for StaticEnrollmentTokens {
 /// TEST SUPPORT — an in-memory [`EdgeEnrollmentStore`] (the
 /// `phase4_fakes` pattern, local to this module). Tenant-scoped by the
 /// context; enforces the one-ACTIVE-term rule and the seq semantics the
-/// real store's partial unique index enforces.
+/// real store's trigger enforces (migration 0028: the CURRENT term only).
 #[derive(Default)]
 pub struct FakeEdgeEnrollmentStore {
     inner: Mutex<FakeInner>,
@@ -199,18 +199,22 @@ impl EdgeEnrollmentStore for FakeEdgeEnrollmentStore {
                 field: "enrollment_seq",
             });
         }
-        // The one-active-term rule is the migration 0018 PARTIAL
-        // unique index: it constrains ACTIVE rows only. Appending a
-        // REVOKED/EXPIRED term while an ACTIVE term exists is legal
-        // (rotation after REVOKED/EXPIRED inserts legally under the
-        // partial index) — the old form refused ANY append while an
-        // ACTIVE row existed, which made decommission unrepresentable.
+        // The one-active-term rule is migration 0028's BEFORE INSERT
+        // trigger: it constrains the CURRENT term (highest sequence)
+        // only. Appending a REVOKED/EXPIRED term while an ACTIVE term
+        // exists is legal (rotation after REVOKED/EXPIRED inserts
+        // legally) — and a new ACTIVE term after a REVOKED/EXPIRED
+        // current term is legal too. The old form refused a new ACTIVE
+        // term whenever ANY historical row was ACTIVE, which made
+        // rotation unrepresentable (Batch 67: the 0018 partial unique
+        // index had the same defect in the real store).
         let duplicate_active = row.status == "ACTIVE"
-            && inner.devices.iter().any(|d| {
-                d.tenant_id == ctx.tenant_id()
-                    && d.device_id == row.device_id
-                    && d.status == "ACTIVE"
-            });
+            && inner
+                .devices
+                .iter()
+                .filter(|d| d.tenant_id == ctx.tenant_id() && d.device_id == row.device_id)
+                .max_by_key(|d| d.enrollment_seq)
+                .is_some_and(|current| current.status == "ACTIVE");
         if duplicate_active {
             return Err(EdgeEnrollmentStoreError::Conflict {
                 device_id: row.device_id.clone(),

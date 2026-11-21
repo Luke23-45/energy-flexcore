@@ -121,11 +121,20 @@ fn context_for(tenant_id: TenantId) -> TenantContext {
     ))
 }
 
-fn test_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("test runtime")
+// Batch 67 (fix-D pattern, same as the telemetry_reader_* files): ONE
+// shared multi-thread runtime for the whole test process. The previous
+// `test_runtime()` built a NEW current-thread runtime per call, so a pool
+// created under runtime #1 was used under runtime #2 after #1 was dropped
+// — sqlx then failed with "A Tokio 1.x context was found, but it is being
+// shutdown" (the `ensure_partitions` migrator pool in the as-of tests).
+fn test_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+    })
 }
 
 fn url_as(url: &str, user: &str, password: &str) -> String {

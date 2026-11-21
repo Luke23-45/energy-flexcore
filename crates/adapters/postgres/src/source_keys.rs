@@ -304,12 +304,28 @@ impl SourceAuthenticator for PgSourceAuthenticator {
         if computed != parsed.payload_digest {
             return Err(SourceAuthError::BadDigest);
         }
-        // Time window: ±window around the receiver's clock.
+        // Time window: ±window around the receiver's clock. The window
+        // is specified in whole SECONDS (port contract:
+        // `DEFAULT_AUTH_WINDOW_SECS` = 300, "within ±300 s of the
+        // receiver's clock"), so the comparison is in whole seconds,
+        // ROUNDED to the nearest second. A strict-millisecond comparison
+        // flaked the edge-accept test: the sender signs at its own
+        // `now - 300_000 ms` and the receiver reads its clock a few
+        // milliseconds later (after the key lookup), so the past-edge
+        // frame was 300_000 + delta ms old and rejected as outside the
+        // window (the test file's TOLERANCE NOTE names the implementation
+        // as the thing to fix). Rounding keeps the specified semantics —
+        // exactly ±300 s accepts, ±301 s rejects — and absorbs the
+        // sub-second receiver skew on both sides (a plain truncation
+        // widened the future side by up to 999 ms and let a +301 s frame
+        // through). The residual flake window is a sign-to-check latency
+        // above 500 ms, far outside the normal millisecond key lookup.
         let now_millis = now_unix_millis();
-        let window_millis =
-            self.window.as_secs() as i128 * 1000 + self.window.subsec_millis() as i128;
-        let age = (parsed.event_time_unix_millis as i128 - now_millis as i128).abs();
-        if age > window_millis {
+        let window_secs = self.window.as_secs() as i128;
+        let age_millis =
+            (parsed.event_time_unix_millis as i128 - now_millis as i128).abs();
+        let age_secs = (age_millis + 500) / 1000;
+        if age_secs > window_secs {
             return Err(SourceAuthError::OutsideTimeWindow);
         }
         // Watermark (early filter only — the batch advance is the

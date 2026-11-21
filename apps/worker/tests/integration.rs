@@ -81,8 +81,23 @@ async fn outbox_publish_and_idempotent_consume_end_to_end() {
 
     // --- Stores -----------------------------------------------------------
 
-    let store = FlexCoreStore::connect(&db_url).expect("store connects");
-    store.run_migrations().expect("migrations apply");
+    // Batch 68: the sync adapter API inside `block_in_place` — this test
+    // is `#[tokio::test]` and the store's `connect`/`run_migrations`
+    // `block_on` internally (the same "Cannot start a runtime from
+    // within a runtime" the publisher drain below already avoids with
+    // `block_in_place`). The store is intentionally NEVER dropped: a
+    // `FlexCoreStore` owns a tokio `Runtime`, whose drop shuts its
+    // blocking pool down and panics in an async context — the test
+    // future's end would drop it. A process-wide shared store (created
+    // once, leaked for the test process) avoids that class entirely.
+    let store: &'static FlexCoreStore = tokio::task::block_in_place(|| {
+        static STORE: std::sync::OnceLock<FlexCoreStore> = std::sync::OnceLock::new();
+        let store = STORE.get_or_init(|| {
+            FlexCoreStore::connect(&db_url).expect("store connects")
+        });
+        store.run_migrations().expect("migrations apply");
+        store
+    });
     // FRV1-R5-004: the inbox table is created by migration
     // 0024_worker_inbox_p1_16 (applied by the migrations above); the
     // runtime `ensure_table` was removed with the promotion.
@@ -126,32 +141,34 @@ async fn outbox_publish_and_idempotent_consume_end_to_end() {
     let subject = "flexcore.v1.registry.worker_probe_event";
     let created_at =
         EventTime::from_unix_millis(1_732_000_000_000).expect("fixed timestamp");
-    let uow = store.begin(None).expect("unit of work opens");
-    uow.append(
-        OutboxWrite::new(
-            // Intended for repository implementations and test fakes —
-            // this is the test-fake use.
-            StateChangeReceipt::new("assets".to_string(), StateChangeOperation::Insert, None),
-            key.clone(),
-            subject.to_string(),
-            probe_payload(),
-            created_at,
+    tokio::task::block_in_place(|| {
+        let uow = store.begin(None).expect("unit of work opens");
+        uow.append(
+            OutboxWrite::new(
+                // Intended for repository implementations and test fakes —
+                // this is the test-fake use.
+                StateChangeReceipt::new("assets".to_string(), StateChangeOperation::Insert, None),
+                key.clone(),
+                subject.to_string(),
+                probe_payload(),
+                created_at,
+            )
+            .expect("outbox write assembles"),
         )
-        .expect("outbox write assembles"),
-    )
-    .expect("outbox row appends inside the unit of work");
-    uow.commit().expect("state change + outbox row commit");
+        .expect("outbox row appends inside the unit of work");
+        uow.commit().expect("state change + outbox row commit");
+    });
 
     // The entry is pending before the publisher runs.
     assert_eq!(
-        store.pending(10).expect("pending reads").len(),
+        tokio::task::block_in_place(|| store.pending(10).expect("pending reads")).len(),
         1,
         "the outbox entry is pending before publication"
     );
 
     // --- Publisher: drain once, mark delivered only after ack --------------
 
-    let publisher = OutboxPublisher::new(&jetstream, &store, publisher_config(Duration::from_millis(50)));
+    let publisher = OutboxPublisher::new(&jetstream, store, publisher_config(Duration::from_millis(50)));
     let report = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(publisher.drain_once())
     })
@@ -160,7 +177,7 @@ async fn outbox_publish_and_idempotent_consume_end_to_end() {
     assert_eq!(report.published, 1, "the broker acknowledged a fresh publish");
     assert_eq!(report.marked_delivered, 1, "delivered is marked after the ack");
     assert!(
-        store.pending(10).expect("pending reads").is_empty(),
+        tokio::task::block_in_place(|| store.pending(10).expect("pending reads")).is_empty(),
         "the entry left pending only if unacknowledged — it was acknowledged"
     );
 

@@ -85,7 +85,6 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -97,6 +96,11 @@ use http_body::Body as HttpBody;
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
+// Batch 68: the hyper 1.x bridge from tokio streams to hyper's
+// `hyper::rt::Read + Write` — tokio's `TcpStream` and tokio-rustls'
+// `TlsStream` implement tokio's `AsyncRead/AsyncWrite`, not hyper's
+// traits, so `serve_connection` needs the `TokioIo` wrapper.
+use hyper_util::rt::TokioIo;
 use serde::{Deserialize, Serialize};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Notify;
@@ -833,13 +837,13 @@ where
     type Error = Infallible;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + 's>>;
 
-    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        // The serving state is always ready to accept a request (its
-        // refusals are named statuses, not backpressure).
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, request: HttpRequest<B>) -> Self::Future {
+    // Batch 68: this implements `hyper::service::Service` (hyper 1.x),
+    // whose `call` takes `&self` and which has NO `poll_ready` — the
+    // previous `poll_ready` + `call(&mut self)` shape was tower's
+    // `Service`, not hyper's. The body only clones the shared state, so
+    // `&self` is sufficient (the serving state is always ready; refusals
+    // are named statuses, not backpressure).
+    fn call(&self, request: HttpRequest<B>) -> Self::Future {
         let state = Rc::clone(&self.state);
         let design = Arc::clone(&self.design);
         Box::pin(async move {
@@ -974,7 +978,7 @@ impl LiveVtnTransport {
                             let acceptor = acceptor.clone();
                             let state = Rc::clone(&state);
                             let design = Arc::clone(&self.design);
-                            connections.push(Box::pin(serve_one_connection(
+                            connections.push(Box::pin(Self::serve_one_connection(
                                 acceptor, state, design, stream,
                             )));
                         }
@@ -1018,7 +1022,7 @@ impl LiveVtnTransport {
                         reason: format!("tls handshake failed: {error}"),
                     })?;
                 http1::Builder::new()
-                    .serve_connection(tls_stream, service)
+                    .serve_connection(TokioIo::new(tls_stream), service)
                     .await
                     .map_err(|error| TransportError::TransportClosed {
                         reason: format!("http1 connection error: {error}"),
@@ -1028,7 +1032,7 @@ impl LiveVtnTransport {
                 // The recorded plaintext posture: served as configured —
                 // never a silently downgraded mTLS deployment.
                 http1::Builder::new()
-                    .serve_connection(stream, service)
+                    .serve_connection(TokioIo::new(stream), service)
                     .await
                     .map_err(|error| TransportError::TransportClosed {
                         reason: format!("http1 connection error: {error}"),

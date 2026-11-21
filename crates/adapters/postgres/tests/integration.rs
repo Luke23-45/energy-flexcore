@@ -56,7 +56,7 @@ use sqlx::PgPool;
 // The recorded down files (P1.12 §7: every migration has a down file or a
 // recorded irreversible reason; the only irreversible part — role removal —
 // is documented in 0001's down file).
-const DOWN_FILES: [&str; 26] = [
+const DOWN_FILES: [&str; 28] = [
     include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0001_quality_enum.down.sql"
@@ -173,6 +173,19 @@ const DOWN_FILES: [&str; 26] = [
     include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0026_source_signing_keys_p2_07.down.sql"
+    )),
+    // Batch 67: migration 0027 (journal immutability trigger) — the down
+    // pass must drop it, or the re-up fails with "already exists" on the
+    // trigger function (the down list had lagged at 0026).
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0027_journal_immutability_trigger_p4_10.down.sql"
+    )),
+    // Batch 67: migration 0028 (one-ACTIVE-term trigger) — the down pass
+    // must drop it and restore the 0018 partial unique index.
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0028_one_active_term_trigger_p6_06.down.sql"
     )),
 ];
 
@@ -670,23 +683,22 @@ fn rls_isolates_tenant_a_from_tenant_b_for_the_runtime_role() {
     // the application layer (P1.12 §5.3); nothing to assert here beyond the
     // refusal itself.
 
-    // Owner-role case (P1.12 §5.3 / P0.16 rule 2.4): FORCE RLS applies to
-    // the migrator owner too — no context, zero rows; with the context, its
-    // own tenant's rows.
-    let migrator_pool = rt
-        .block_on(PgPool::connect(&url_as(
-            &admin_url,
-            "flexcore_migrator",
-            "flexcore_migrator_test_only",
-        )))
-        .expect("migrator pool");
-    rt.block_on(async {
-        assert_eq!(count_portfolios_as(&migrator_pool, None).await, 0);
-        assert_eq!(
-            count_portfolios_as(&migrator_pool, Some(&tenant_a.to_string())).await,
-            1
-        );
-    });
+    // Owner-role case REMOVED (Batch 67): the migrator assertions that
+    // stood here — no context, zero rows; with the context, its own
+    // tenant's rows — cannot hold for this role, and the isolation
+    // property they were meant to prove is already proven above as the
+    // runtime role (the database-level app-pool counts). The migrator
+    // carries the BYPASSRLS ops-path grant
+    // (`partition_maintenance.rs::ensure_test_roles`, recorded P1.12
+    // §5.2): the platform-level retention audit record (`tenant_id`
+    // NULL) is writable only through a session that bypasses the
+    // tenant_isolation policy, and BYPASSRLS bypasses even FORCE RLS —
+    // so the migrator sees every portfolio row whenever that grant has
+    // landed, which depends on test-binary run order. The patch plan
+    // states the rule directly (PATCH_PLAN_HIGH_GAPS.md): "Test RLS as
+    // the application role, never as the migration owner". The
+    // migrator's row visibility is a property of the ops-path grant,
+    // not of RLS, so no count is asserted for it here.
 }
 
 // --- 3. Outbox atomicity ---------------------------------------------------------------
@@ -840,8 +852,14 @@ fn outbox_write_is_atomic_with_the_state_change() {
             flexcore_ports::state_change::StateChangeOperation::Insert,
             Some(tenant_a),
         );
+        // Batch 66 fix F (never landed in b8012e7 — applied here in Batch
+        // 67): the doomed transaction above ROLLED BACK, so its outbox
+        // row never committed and this key is free — the append must
+        // SUCCEED. The old `expect_err` believed the first append was
+        // "still-pending", but the test itself already proved nothing
+        // survived the rollback (`after.len() == baseline` above).
         EventOutbox::append(&unit, sample_outbox_write(receipt, &rolled_back_key))
-            .expect_err("the same key collides with the still-pending original");
+            .expect("the rolled-back key is free again after the rollback");
         unit.rollback().expect("rollback");
     }
     let final_count = EventOutbox::pending(&app_store, 100).expect("pending scan").len();
@@ -857,14 +875,19 @@ fn soc_outside_the_unit_interval_is_rejected_by_the_database() {
         return;
     }
     let (tenant_a, asset_id) = seed_full_chain(admin_url.clone(), 0xD1);
-    let app_pool = test_runtime()
+    // Batch 67 (same class as Batch 66 fix D): the pool is created AND
+    // used under ONE runtime held in a variable — a per-call temporary
+    // runtime is dropped at the end of its statement, killing the pooled
+    // connection's I/O driver ("Tokio 1.x context ... being shutdown").
+    let rt = test_runtime();
+    let app_pool = rt
         .block_on(PgPool::connect(&url_as(
             &admin_url,
             "flexcore_app",
             "flexcore_app_test_only",
         )))
         .expect("app pool");
-    test_runtime().block_on(async move {
+    rt.block_on(async move {
         let mut tx = app_pool.begin().await.expect("transaction");
         sqlx::query("SELECT set_config('flexcore.tenant_id', $1, true)")
             .bind(tenant_a.to_string())
@@ -969,14 +992,17 @@ fn a_seventh_quality_value_is_rejected_by_the_database() {
         return;
     }
     let (tenant_a, asset_id) = seed_full_chain(admin_url.clone(), 0xE1);
-    let app_pool = test_runtime()
+    // Batch 67 (same class as Batch 66 fix D — see the SOC test above):
+    // the pool is created AND used under ONE runtime held in a variable.
+    let rt = test_runtime();
+    let app_pool = rt
         .block_on(PgPool::connect(&url_as(
             &admin_url,
             "flexcore_app",
             "flexcore_app_test_only",
         )))
         .expect("app pool");
-    test_runtime().block_on(async move {
+    rt.block_on(async move {
         let mut tx = app_pool.begin().await.expect("transaction");
         sqlx::query("SELECT set_config('flexcore.tenant_id', $1, true)")
             .bind(tenant_a.to_string())
@@ -984,13 +1010,39 @@ fn a_seventh_quality_value_is_rejected_by_the_database() {
             .await
             .expect("set_config");
         // Source states (P0.08 §3) are adapter-mapped and never stored.
+        // The `$1::telemetry_quality` cast is load-bearing: sqlx binds a
+        // Rust &str as `text`, and PostgreSQL has no assignment cast from
+        // `text` to an enum (42804) — without the cast even GOOD is
+        // refused, and the rejected probes below would "pass" on the
+        // type error instead of the intended enum-value error (22P02).
+        // Batch 67: each rejected probe runs under its own SAVEPOINT — a
+        // failed statement aborts the whole PostgreSQL transaction
+        // (25P02), so probing three bad values in one transaction left
+        // the accepted values below unreachable ("quality GOOD must be
+        // accepted" was the aborted-transaction error, not an enum
+        // error). The savepoint is rolled back on a probe failure and
+        // released either way.
         for rejected in ["SUBSTITUTED", "OUT_OF_RANGE", "good"] {
+            sqlx::query("SAVEPOINT quality_probe")
+                .execute(&mut *tx)
+                .await
+                .expect("savepoint opens");
             let result =
-                sqlx::query("UPDATE asset_state SET quality = $1 WHERE asset_id = $2::uuid")
+                sqlx::query("UPDATE asset_state SET quality = $1::telemetry_quality WHERE asset_id = $2::uuid")
                     .bind(rejected)
                     .bind(asset_id.to_string())
                     .execute(&mut *tx)
                     .await;
+            if result.is_err() {
+                sqlx::query("ROLLBACK TO SAVEPOINT quality_probe")
+                    .execute(&mut *tx)
+                    .await
+                    .expect("savepoint rolls back");
+            }
+            sqlx::query("RELEASE SAVEPOINT quality_probe")
+                .execute(&mut *tx)
+                .await
+                .expect("savepoint releases");
             assert!(
                 result.is_err(),
                 "quality value {rejected} must be rejected by the enum (D-S4)"
@@ -998,12 +1050,12 @@ fn a_seventh_quality_value_is_rejected_by_the_database() {
         }
         // All six canonical states are accepted, in P0.08 order.
         for accepted in ["GOOD", "SUSPECT", "BAD", "MISSING", "ESTIMATED", "STALE"] {
-            sqlx::query("UPDATE asset_state SET quality = $1 WHERE asset_id = $2::uuid")
+            sqlx::query("UPDATE asset_state SET quality = $1::telemetry_quality WHERE asset_id = $2::uuid")
                 .bind(accepted)
                 .bind(asset_id.to_string())
                 .execute(&mut *tx)
                 .await
-                .unwrap_or_else(|_| panic!("quality {accepted} must be accepted"));
+                .unwrap_or_else(|e| panic!("quality {accepted} must be accepted: {e:?}"));
         }
         tx.commit().await.expect("commit");
     });
@@ -1077,14 +1129,17 @@ fn audit_records_are_append_only_and_tenant_scoped() {
     // Tenant scoping: tenant B sees none of tenant A's records; tenant A
     // sees both the original and the correction (the correction row's
     // corrected_audit_id references the original).
-    let app_pool = test_runtime()
+    // Batch 67 (same class as Batch 66 fix D — see the SOC test): the
+    // pools are created AND used under ONE runtime held in a variable.
+    let rt = test_runtime();
+    let app_pool = rt
         .block_on(PgPool::connect(&url_as(
             &admin_url,
             "flexcore_app",
             "flexcore_app_test_only",
         )))
         .expect("app pool");
-    test_runtime().block_on(async {
+    rt.block_on(async {
         async fn count_chain(pool: &PgPool, tenant: &str, original: FlexUuid) -> i64 {
             let mut tx = pool.begin().await.expect("transaction");
             sqlx::query("SELECT set_config('flexcore.tenant_id', $1, true)")
@@ -1111,7 +1166,7 @@ fn audit_records_are_append_only_and_tenant_scoped() {
 
     // Append-only layer 1: the runtime role has no UPDATE grant.
     // Layer 2: even the owner is blocked by the defence-in-depth trigger.
-    test_runtime().block_on(async {
+    rt.block_on(async {
         let app_update = sqlx::query(
             "UPDATE audit_records SET action = 'tampered' WHERE audit_id = $1::uuid",
         )
@@ -1129,14 +1184,14 @@ fn audit_records_are_append_only_and_tenant_scoped() {
 
     // Owner path: FORCE RLS applies, so the owner also needs the context —
     // and the trigger still refuses mutation.
-    let migrator_pool = test_runtime()
+    let migrator_pool = rt
         .block_on(PgPool::connect(&url_as(
             &admin_url,
             "flexcore_migrator",
             "flexcore_migrator_test_only",
         )))
         .expect("migrator pool");
-    test_runtime().block_on(async {
+    rt.block_on(async {
         let mut tx = migrator_pool.begin().await.expect("transaction");
         sqlx::query("SELECT set_config('flexcore.tenant_id', $1, true)")
             .bind(tenant_a.to_string())

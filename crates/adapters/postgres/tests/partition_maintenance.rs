@@ -34,10 +34,17 @@ use sqlx::PgPool;
 // --- Fixed test months (2027–2029, UTC) ------------------------------------------
 
 /// 2027-01-01T00:00:00Z and 2028-04-10T12:00:00Z (Unix seconds).
-const JAN_2027: i64 = 1_799_865_600;
+/// Batch 67: both literals were WRONG — `APR_2028` decoded to
+/// 2028-03-15T09:20:00Z (mid-March, not mid-April) and `JAN_2027` to
+/// 2027-01-13T18:40:00Z, so the retention "now" was March and
+/// `retention_cutoff(2028, 3, 2)` returned 2028-01-01 instead of the
+/// 2028-02-01 the test's own comment states. Values verified with
+/// `date -u -d "2027-01-01 00:00:00 UTC" +%s` /
+/// `date -u -d "2028-04-10 12:00:00 UTC" +%s`.
+const JAN_2027: i64 = 1_798_761_600;
 /// The "now" of the retention scenarios: mid-April 2028 — every detach in
 /// this file uses this CONSTANT, never the wall clock.
-const APR_2028: i64 = 1_836_724_800;
+const APR_2028: i64 = 1_838_980_800;
 
 fn now_of_test() -> time::OffsetDateTime {
     time::OffsetDateTime::from_unix_timestamp(APR_2028).expect("constant timestamp")
@@ -315,7 +322,31 @@ fn retention_detaches_only_out_of_window_partitions_and_refuses_the_rest() {
     let unit = store.begin(None).expect("unit of work");
     let shared = Arc::new(unit);
     let entries = PgUnitOfWork::list_telemetry_partitions(&shared).expect("listing");
-    let eligible = retention_eligible(&entries, cutoff, now);
+    // Batch 67: scope the assertion to THIS scenario's five partitions.
+    // The listing is global over the shared test database, and the
+    // sibling `every_retention_action_has_an_audit_record` test creates
+    // `telemetry_y2027m07` (July 2027 — out of window, so genuinely
+    // eligible); the two tests run in parallel threads, so in a full run
+    // the unscoped listing also contained it and the assertion failed
+    // with left ["telemetry_y2027m07", "telemetry_y2028m01"]. The D-R3
+    // property under test is which of the scenario months are eligible,
+    // not the global contents of a shared database (the recorded B66
+    // lesson: parallel-test interference on a shared DB is a
+    // fixture/harness bug, not a code bug).
+    let scenario: Vec<_> = entries
+        .into_iter()
+        .filter(|e| {
+            [
+                "telemetry_y2028m01",
+                "telemetry_y2028m02",
+                "telemetry_y2028m03",
+                "telemetry_y2028m04",
+                "telemetry_y2028m05",
+            ]
+            .contains(&e.name.as_str())
+        })
+        .collect();
+    let eligible = retention_eligible(&scenario, cutoff, now);
     let eligible_names: Vec<&str> = eligible.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(
         eligible_names,

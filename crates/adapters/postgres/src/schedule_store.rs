@@ -53,6 +53,7 @@
 // that file was outside this subtask's ownership.
 
 use sqlx::Row;
+use std::sync::atomic::{AtomicU64, Ordering};
 use crate::error::{is_unique_violation, map_backend};
 use crate::unit_of_work::{tx_ref, PgUnitOfWork};
 use crate::uuid_map::{uuid_from_text, uuid_text};
@@ -67,6 +68,10 @@ use flexcore_storage::schedule_store::{
     ScheduleStoreError, SCHEDULE_RESULT_STATUSES,
 };
 use serde_json::Value;
+
+/// Savepoint names must be unique per transaction lifetime (the recorded
+/// `telemetry.rs` rule; a process-wide counter, same reasoning).
+static SCHEDULE_REVISION_SAVEPOINT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// The column projection (uuid columns selected back as `::text` — the
 /// recorded FlexUuid mapping).
@@ -378,7 +383,7 @@ fn decode_schedule_record_row(
 const SCHEDULE_REVISION_SELECT: &str = "SELECT schedule_id::text AS schedule_id, \
      revision, tenant_id::text AS tenant_id, portfolio_id::text AS portfolio_id, \
      site_id::text AS site_id, horizon_start_millis, horizon_end_millis, \
-     roll_trigger, supersedes_revision, \
+     roll_trigger, state, supersedes_revision, \
      supersedes_candidate_id::text AS supersedes_candidate_id, \
      superseded_by_revision, \
      superseded_by_candidate_id::text AS superseded_by_candidate_id, \
@@ -525,7 +530,31 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
                     });
                 }
             }
-            let result = sqlx::query(
+            // Batch 67: the revision insert runs inside a SAVEPOINT — a
+            // failed statement aborts the whole PostgreSQL transaction
+            // (25P02), so without it a duplicate (schedule, revision) pair
+            // poisoned the caller's unit of work: the duplicate correctly
+            // returned Conflict, but the NEXT statement in the same unit —
+            // the gapped-chain probe — then ran in the aborted transaction
+            // and came back Backend instead of ChainBroken (the
+            // `a_duplicate_revision_conflicts_and_a_gapped_chain_is_rejected`
+            // failure). The savepoint is rolled back on a classified
+            // failure and released either way, so the surrounding
+            // transaction stays usable (the recorded `telemetry.rs` /
+            // `corrections.rs` pattern).
+            let savepoint = format!(
+                "schedule_revision_insert_{}",
+                SCHEDULE_REVISION_SAVEPOINT_COUNTER.fetch_add(1, Ordering::SeqCst)
+            );
+            // sqlx 0.9 audit: the savepoint name is counter-generated
+            // (`schedule_revision_insert_<u64>`), never user input.
+            sqlx::query(sqlx::AssertSqlSafe(format!("SAVEPOINT {savepoint}")))
+                .execute(&mut **tx)
+                .await
+                .map_err(|err| {
+                    map_schedule_revision_error(err, &row.schedule_id, row.revision)
+                })?;
+            let insert = sqlx::query(
                 "INSERT INTO schedule_revisions \
                      (schedule_id, revision, tenant_id, portfolio_id, site_id, \
                       horizon_start_millis, horizon_end_millis, roll_trigger, state, \
@@ -550,10 +579,43 @@ impl ScheduleRevisionChainStore for PgUnitOfWork {
             .bind(&row.candidate_id)
             .bind(payload)
             .execute(&mut **tx)
-            .await
-            .map_err(|err| {
-                map_schedule_revision_error(err, &row.schedule_id, row.revision)
-            })?;
+            .await;
+            let result = match insert {
+                Ok(result) => {
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "RELEASE SAVEPOINT {savepoint}"
+                    )))
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|err| {
+                        map_schedule_revision_error(err, &row.schedule_id, row.revision)
+                    })?;
+                    result
+                }
+                Err(err) => {
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "ROLLBACK TO SAVEPOINT {savepoint}"
+                    )))
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|err| {
+                        map_schedule_revision_error(err, &row.schedule_id, row.revision)
+                    })?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "RELEASE SAVEPOINT {savepoint}"
+                    )))
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|err| {
+                        map_schedule_revision_error(err, &row.schedule_id, row.revision)
+                    })?;
+                    return Err(map_schedule_revision_error(
+                        err,
+                        &row.schedule_id,
+                        row.revision,
+                    ));
+                }
+            };
             if result.rows_affected() != 1 {
                 return Err(ScheduleRevisionError::Backend {
                     code: "E_STORE_REJECTED".to_string(),

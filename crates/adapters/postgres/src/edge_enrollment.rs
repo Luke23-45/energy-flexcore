@@ -20,10 +20,13 @@
 // Append-only (migration 0018): both tables carry flexcore_app
 // INSERT + SELECT grants and unconditional UPDATE/DELETE guard triggers;
 // a device's lifecycle state is its HIGHEST-sequence registry row, and a
-// partial unique index permits at most ONE ACTIVE term per
-// (device_id, tenant_id) — the ledger's "no two edges share an identity"
-// enforced at the database level. A duplicate-identity insert maps to the
-// named [`EdgeEnrollmentStoreError::Conflict`].
+// BEFORE INSERT trigger (migration 0028) permits at most ONE ACTIVE term
+// per (device_id, tenant_id) — the ledger's "no two edges share an
+// identity" enforced at the database level. The trigger checks the
+// CURRENT term only: the 0018 partial unique index it replaced counted
+// all history, so a retired ACTIVE row blocked rotation forever (Batch
+// 67). A duplicate-identity insert maps to the named
+// [`EdgeEnrollmentStoreError::Conflict`].
 //
 // VERIFY-BUILD (field-visibility precedent): this module accesses the
 // private `tx`/`runtime` fields of `PgUnitOfWork` from a sibling module —

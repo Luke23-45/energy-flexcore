@@ -15,7 +15,7 @@
 // replay on an EMPTY database and the RLS/outbox/SOC/enum/audit slices):
 //
 // 1. STRUCTURAL enumeration of the whole migration set (no DB needed):
-//    the embedded migrator must carry EXACTLY versions 1..=26 in ascending
+//    the embedded migrator must carry EXACTLY versions 1..=28 in ascending
 //    order with the recorded descriptions, and every up file must have a
 //    down file (the include_str! enumeration below fails the build if a
 //    down file is missing — the "every migration is reversible or its
@@ -32,7 +32,7 @@
 //    registry chain (tenant → portfolio → site → asset) THROUGH THE
 //    REPOSITORIES (the application shape, not bare SQL) plus one audit row
 //    through the runtime INSERT grant, then apply the remaining chain
-//    (0009..0026) OVER the populated schema and prove the data survives with
+//    (0009..0028) OVER the populated schema and prove the data survives with
 //    its meaning intact (0009's ADD COLUMN ... DEFAULT backfills; 0012's PK
 //    extension still serves the duplicate classification and accepts
 //    versioned corrections without mutating the original row).
@@ -99,7 +99,7 @@ use sqlx::Row;
 // rot silently. The record §4 carries the per-migration compatibility
 // windows; this is the set the windows are recorded FOR.
 
-const UP_FILES: [&str; 26] = [
+const UP_FILES: [&str; 28] = [
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0001_quality_enum.up.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0002_tenants.up.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0003_portfolios.up.sql")),
@@ -177,6 +177,19 @@ const UP_FILES: [&str; 26] = [
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0026_source_signing_keys_p2_07.up.sql"
     )),
+    // Batch 67: the command-journal immutability trigger (P4.10) — the
+    // backstop the journal's INSERT-only grant assumes for owner sessions.
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0027_journal_immutability_trigger_p4_10.up.sql"
+    )),
+    // Batch 67: the one-ACTIVE-term trigger (P6.06) — the partial unique
+    // index counted all history and blocked rotation; the trigger checks
+    // the CURRENT term only.
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0028_one_active_term_trigger_p6_06.up.sql"
+    )),
 ];
 
 // The recorded down files (P1.12 §7: every migration has a down file or a
@@ -184,7 +197,7 @@ const UP_FILES: [&str; 26] = [
 // file itself). include_str! pins their presence at compile time. These are
 // REPLAY ARTIFACTS (dev/CI), never the runtime rollback path — see the
 // module header's downgrade statement.
-const DOWN_FILES: [&str; 26] = [
+const DOWN_FILES: [&str; 28] = [
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0001_quality_enum.down.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0002_tenants.down.sql")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations/0003_portfolios.down.sql")),
@@ -259,11 +272,19 @@ const DOWN_FILES: [&str; 26] = [
         env!("CARGO_MANIFEST_DIR"),
         "/migrations/0026_source_signing_keys_p2_07.down.sql"
     )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0027_journal_immutability_trigger_p4_10.down.sql"
+    )),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/0028_one_active_term_trigger_p6_06.down.sql"
+    )),
 ];
 
 /// The recorded descriptions (sqlx derives them from the file names). Pinned
 /// so a rename or a re-order is a test failure, never a silent drift.
-const EXPECTED_DESCRIPTIONS: [&str; 26] = [
+const EXPECTED_DESCRIPTIONS: [&str; 28] = [
     "quality enum",
     "tenants",
     "portfolios",
@@ -290,6 +311,8 @@ const EXPECTED_DESCRIPTIONS: [&str; 26] = [
     "worker inbox p1 16",
     "dispatch commands tenant idx p4 10",
     "source signing keys p2 07",
+    "journal immutability trigger p4 10",
+    "one active term trigger p6 06",
 ];
 
 /// The append-only surfaces of the chain and the grants flexcore_app must
@@ -723,12 +746,12 @@ fn seed_registry_chain(
 // --- 1. Structural enumeration (NO database needed) ------------------------------
 
 #[test]
-fn the_migration_set_is_exactly_26_paired_and_ordered() {
+fn the_migration_set_is_exactly_28_paired_and_ordered() {
     static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
     // sqlx 0.9 embeds BOTH files of each pair (ReversibleUp +
-    // ReversibleDown), interleaved per version — 26 pairs = 52 entries.
-    // The forward-apply set is the 26 ReversibleUp entries, in ascending
+    // ReversibleDown), interleaved per version — 28 pairs = 56 entries.
+    // The forward-apply set is the 28 ReversibleUp entries, in ascending
     // version order (sqlx sorts by version), with the recorded descriptions
     // (sqlx renders the filename's underscores as spaces). The pin was
     // stale twice over: at 25 (0026 source_signing_keys_p2_07, Patch B,
@@ -739,8 +762,8 @@ fn the_migration_set_is_exactly_26_paired_and_ordered() {
     let migrations = &*MIGRATOR.migrations;
     assert_eq!(
         migrations.len(),
-        52,
-        "26 paired migrations embed as 52 entries (one up + one down each)"
+        56,
+        "28 paired migrations embed as 56 entries (one up + one down each)"
     );
     let ups: Vec<_> = migrations
         .iter()
@@ -750,13 +773,13 @@ fn the_migration_set_is_exactly_26_paired_and_ordered() {
         .iter()
         .filter(|m| matches!(m.migration_type, MigrationType::ReversibleDown))
         .collect();
-    assert_eq!(ups.len(), 26, "the v1.0.0 candidate carries exactly 26 up migrations");
-    assert_eq!(downs.len(), 26, "every up migration has a paired down migration");
+    assert_eq!(ups.len(), 28, "the v1.0.0 candidate carries exactly 28 up migrations");
+    assert_eq!(downs.len(), 28, "every up migration has a paired down migration");
     for (index, migration) in ups.iter().enumerate() {
         assert_eq!(
             migration.version,
             (index + 1) as i64,
-            "migration versions are dense 1..=26 in file order"
+            "migration versions are dense 1..=28 in file order"
         );
         assert_eq!(
             migration.description,
@@ -829,8 +852,8 @@ fn forward_apply_is_ordered_idempotent_and_drift_detecting() {
         .expect("bookkeeping query");
         assert_eq!(
             versions,
-            (1..=26).collect::<Vec<i64>>(),
-            "the bookkeeping records exactly versions 1..=26 applied"
+            (1..=28).collect::<Vec<i64>>(),
+            "the bookkeeping records exactly versions 1..=28 applied"
         );
         let failures: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM _sqlx_migrations WHERE success = false",
@@ -865,7 +888,7 @@ fn forward_apply_is_ordered_idempotent_and_drift_detecting() {
     test_runtime().block_on(async {
         assert_eq!(
             count_migrations(&pool).await,
-            26,
+            28,
             "the second run does not re-apply or duplicate bookkeeping rows"
         );
     });
@@ -918,12 +941,12 @@ fn forward_apply_is_ordered_idempotent_and_drift_detecting() {
         .run_migrations()
         .expect("the restored set applies as a no-op again");
     test_runtime().block_on(async {
-        assert_eq!(count_migrations(&pool).await, 26);
+        assert_eq!(count_migrations(&pool).await, 28);
     });
     drop_database(&admin_url, &temp_url);
 }
 
-// --- 3. Forward migration over PILOT-SHAPED data (0001..0008 seeded, then 0009..0026) ---
+// --- 3. Forward migration over PILOT-SHAPED data (0001..0008 seeded, then 0009..0028) ---
 
 #[test]
 fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
@@ -947,8 +970,39 @@ fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
     // applies exactly the remaining chain (see the module-header risk note:
     // the _sqlx_migrations column list is the sqlx 0.9 shape, pinned at the
     // first human run).
+    // Batch 67: the bookkeeping table itself was never created — the manual
+    // stage-1 apply runs raw migration SQL, which does not create it (only
+    // the sqlx migrator does, on its own run), so the INSERTs below failed
+    // with 42P01 on a fresh database. Create it here in exactly the shape
+    // sqlx 0.9's migrator creates (verified against a migrated database);
+    // the later embedded run sees the table and uses it as-is.
     test_runtime().block_on(async {
-        for migration in MIGRATOR.migrations.iter().take(8) {
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS _sqlx_migrations (\
+             version bigint PRIMARY KEY, \
+             description text NOT NULL, \
+             installed_on timestamptz NOT NULL DEFAULT now(), \
+             success boolean NOT NULL, \
+             checksum bytea NOT NULL, \
+             execution_time bigint NOT NULL)",
+        )
+        .execute(&stage_pool)
+        .await
+        .expect("bookkeeping table creates in the sqlx 0.9 shape");
+    });
+    test_runtime().block_on(async {
+        // Batch 67: sqlx 0.9 embeds BOTH files of each pair (up + down,
+        // interleaved per version), so a bare `.take(8)` yields versions
+        // 1,1,2,2,3,3,4,4 — the second version-1 insert violates the
+        // bookkeeping PK. Filter to the up migrations first (the
+        // structural test above pins the interleaving).
+        use sqlx::migrate::MigrationType;
+        for migration in MIGRATOR
+            .migrations
+            .iter()
+            .filter(|m| matches!(m.migration_type, MigrationType::ReversibleUp))
+            .take(8)
+        {
             sqlx::query(
                 "INSERT INTO _sqlx_migrations \
                      (version, description, installed_on, success, checksum, execution_time) \
@@ -976,7 +1030,6 @@ fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
     let app_pool = test_runtime().block_on(PgPool::connect(&app_url)).expect("app pool");
     let ingest_pool =
         test_runtime().block_on(PgPool::connect(&ingest_url)).expect("ingest pool");
-    ensure_january_2030_partition(&temp_url);
     let audit_id = fixture_uuid(0xA9);
     with_tenant(
         &app_pool,
@@ -991,24 +1044,38 @@ fn forward_migration_over_pilot_shaped_data_preserves_integrity() {
     )
     .expect("the audit row inserts through the INSERT grant");
 
-    // FORWARD MIGRATION: apply the REMAINING chain (0009..0026) over the
+    // FORWARD MIGRATION: apply the REMAINING chain (0009..0028) over the
     // populated schema. The framework skips the recorded stage-1 versions
     // and runs the rest — this is the compatibility exercise.
     store
         .run_migrations()
         .expect("the remaining chain applies over pilot-shaped data");
+    // Batch 67: the partition is created AFTER the forward chain, not in
+    // the seed phase — the CREATE ON SCHEMA public grant the migrator
+    // needs for partition DDL arrives with migration 0010, which has not
+    // run yet at stage 1 (42501 in the temp database; the main test
+    // database already had the grant from its full migration run). No
+    // telemetry is inserted before this point, so nothing needs the
+    // partition earlier.
+    ensure_january_2030_partition(&temp_url);
 
-    // (a) The full bookkeeping: exactly 26 versions, none re-applied.
+    // (a) The full bookkeeping: exactly 28 versions, none re-applied.
+    // Batch 67: read through the STORE's pool (the admin connection that
+    // ran the migrations), not app_pool — `_sqlx_migrations` is owned by
+    // the migration connection with no grant to flexcore_app (42501), and
+    // every other bookkeeping read in this file already uses the raw/admin
+    // pool for the same reason. The assertion is about migration state,
+    // which is the migrator's view, not the application's.
     let versions: Vec<i64> = test_runtime().block_on(async {
         sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
-            .fetch_all(&app_pool)
+            .fetch_all(store.pool())
             .await
             .expect("bookkeeping query")
     });
-    assert_eq!(versions, (1..=26).collect::<Vec<i64>>());
+    assert_eq!(versions, (1..=28).collect::<Vec<i64>>());
 
     // (b) The seeded data SURVIVED with its meaning intact: the audit row
-    // is unchanged where it was written (0009..0026 are additive to the
+    // is unchanged where it was written (0009..0028 are additive to the
     // registry/telemetry/dispatch/edge surfaces; none touches
     // audit_records' content).
     let audit_rows = test_runtime().block_on(tenant_rows(
@@ -1292,9 +1359,9 @@ fn append_only_and_gate_ordering_invariants_hold_across_the_chain() {
         "the 0008 trigger refuses DELETE for the OWNER (append-only layer 2)"
     );
 
-    // (b) 0018's one-ACTIVE-term rule: a second ACTIVE term for the same
-    // device identity is refused by the partial unique index; rotation
-    // after REVOKED appends legally.
+    // (b) 0018's one-ACTIVE-term rule (migration 0028's trigger): a second
+    // ACTIVE term for the same device is refused while the CURRENT term
+    // is ACTIVE; rotation after REVOKED appends legally.
     let device_id = format!("edge-p10.13-{:x}", run_key());
     let insert_edge_term = |status: &str, seq: i64| {
         with_tenant(
@@ -1315,7 +1382,7 @@ fn append_only_and_gate_ordering_invariants_hold_across_the_chain() {
     let second_active = insert_edge_term("ACTIVE", 2);
     assert!(
         second_active.is_err(),
-        "a second ACTIVE term for the same device is refused (one-ACTIVE-term index)"
+        "a second ACTIVE term for the same device is refused (one-ACTIVE-term rule)"
     );
     insert_edge_term("REVOKED", 2)
         .expect("a REVOKED term appends legally");

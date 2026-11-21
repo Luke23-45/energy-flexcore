@@ -626,8 +626,11 @@ fn concurrent_same_sequence_submissions_resolve_to_exactly_one_advanced() {
     // RACE_SUBMISSIONS concurrent submissions of the SAME
     // (tenant, source, sequence), released together by a barrier so the
     // submissions genuinely overlap rather than queueing by accident.
+    // The barrier lives OUTSIDE the scope: `std::thread::scope` only lets
+    // spawned threads borrow data from outside the closure, so a barrier
+    // declared inside the closure does not live long enough (E0597).
+    let barrier = std::sync::Barrier::new(RACE_SUBMISSIONS);
     let outcomes: Vec<AdvanceOutcome> = std::thread::scope(|scope| {
-        let barrier = std::sync::Barrier::new(RACE_SUBMISSIONS);
         let handles: Vec<_> = (0..RACE_SUBMISSIONS)
             .map(|_| {
                 let h = &h;
@@ -702,8 +705,11 @@ fn concurrent_distinct_sequences_advance_in_order_and_the_highest_lands() {
     // HIGHEST submitted sequence always advances — it is above every
     // watermark that can exist before its turn — so the watermark lands
     // exactly on it in every interleaving.
+    // The barrier lives OUTSIDE the scope (see the same-sequence test
+    // above): a barrier declared inside the closure does not live long
+    // enough for the spawned threads (E0597).
+    let barrier = std::sync::Barrier::new(RACE_SUBMISSIONS);
     let outcomes: Vec<(u64, AdvanceOutcome)> = std::thread::scope(|scope| {
-        let barrier = std::sync::Barrier::new(RACE_SUBMISSIONS);
         let handles: Vec<_> = (0..RACE_SUBMISSIONS)
             .map(|i| {
                 let h = &h;

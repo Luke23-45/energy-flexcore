@@ -517,6 +517,13 @@ fn supersede_links_both_directions_and_stays_distinct_from_cancellation() {
             Some("evidence:validation-a1"),
         );
         unit.record_command_transition(&ctx, &validated).expect("A validates");
+        // Batch 67: SUPERSEDED carries NO reason — the reason rule
+        // (COMMAND_STATES_REQUIRING_REASON) requires a reason exactly
+        // for REJECTED / FAILED / EXPIRED / CANCELLED / FALLBACK, and
+        // ledger D-P4.10-3 says SUPERSEDED is replacement-driven while
+        // CANCELLED is the explicit operator act with a reason. The
+        // replacing command is recorded as the evidence reference
+        // (`command:<uuid>`), not as a reason.
         let superseded = transition_record(
             &ctx,
             CommandId::new(command_a),
@@ -524,7 +531,7 @@ fn supersede_links_both_directions_and_stays_distinct_from_cancellation() {
             CommandState::Superseded,
             1_700_000_101_000,
             None,
-            Some("invalidated by a newer approved schedule/command revision".to_string()),
+            None,
             Some(format!("command:{command_b}").as_str()),
         );
         unit.record_command_transition(&ctx, &superseded)

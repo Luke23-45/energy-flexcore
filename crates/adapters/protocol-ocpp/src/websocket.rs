@@ -880,12 +880,18 @@ pub fn build_refusal_response(status: RefusalStatus, detail: &str) -> String {
         RefusalStatus::BadRequest => String::new(),
     };
     let body = detail.as_bytes();
+    // Batch 68: the format string carried THREE placeholders for FOUR
+    // arguments — `detail` (the refusal body) had no placeholder, so the
+    // call did not compile ("argument never used"). The body follows the
+    // blank line that terminates the headers.
     format!(
         "{}\r\n\
          Connection: close\r\n\
          Content-Type: text/plain; charset=utf-8\r\n\
          Content-Length: {}\r\n\
-         {}\r\n",
+         {}\r\n\
+         \r\n\
+         {}",
         status.status_line(),
         body.len(),
         extra,

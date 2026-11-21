@@ -348,6 +348,23 @@ impl fmt::Debug for VendorToken {
 /// read inside the pure logic).
 pub type FetchClock = std::sync::Arc<dyn Fn() -> i64 + Send + Sync>;
 
+/// Installs the process-wide rustls crypto provider (ring) exactly once,
+/// before the first reqwest client is built. reqwest is depended on with
+/// `rustls-no-provider`, so no provider is compiled in — without this
+/// install every `Client::builder().build()` panics at first USE ("No
+/// rustls crypto provider is configured", on reqwest's internal sync
+/// runtime). The `ring` provider keeps the resolved provider identical
+/// to the committed lock graph (FIM standing decision 1: aws-lc-rs is
+/// not in the lock). An already-installed provider (another edge in the
+/// same process) is fine — the install is best-effort and its result is
+/// ignored.
+fn ensure_rustls_crypto_provider() {
+    static INSTALLED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    INSTALLED.get_or_init(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 /// The production clock: UTC epoch milliseconds from the system clock.
 /// The ONLY wall-clock read in this module, reachable only through an
 /// explicitly-wired adapter (which requires a registered token — the
@@ -911,6 +928,9 @@ impl VendorWeatherAdapter {
     /// construction without a registered token is structurally
     /// unreachable.)
     pub fn new(config: VendorWeatherConfig, clock: FetchClock) -> Result<Self, VendorIngestionError> {
+        // Batch 68: the reqwest client needs a crypto provider installed
+        // before it is built (see `ensure_rustls_crypto_provider`).
+        ensure_rustls_crypto_provider();
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_millis(
                 u64::try_from(config.fetch.timeout_ms).unwrap_or(u64::MAX),
@@ -980,7 +1000,7 @@ impl VendorWeatherAdapter {
                 ),
             });
         }
-        let now = self.clock();
+        let now = (self.clock)();
         // The refresh-window budget: a refresh inside the window is the
         // named NotDue outcome (never a silent skip).
         if let Ok(guard) = self.cache.lock() {
@@ -1630,6 +1650,9 @@ impl fmt::Debug for VendorPriceAdapter {
 impl VendorPriceAdapter {
     /// Constructs the adapter over an explicit config and injected clock.
     pub fn new(config: VendorPriceConfig, clock: FetchClock) -> Result<Self, VendorIngestionError> {
+        // Batch 68: the reqwest client needs a crypto provider installed
+        // before it is built (see `ensure_rustls_crypto_provider`).
+        ensure_rustls_crypto_provider();
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_millis(
                 u64::try_from(config.fetch.timeout_ms).unwrap_or(u64::MAX),
@@ -1672,7 +1695,7 @@ impl VendorPriceAdapter {
     /// trait's `ingest_series` uses (one ingest path, no parallel route —
     /// the P17.07 seam rule's posture).
     pub fn refresh_price(&self) -> Result<RefreshOutcome, VendorIngestionError> {
-        let now = self.clock();
+        let now = (self.clock)();
         if let Ok(guard) = self.cache.lock() {
             if let Some(record) = guard.as_ref() {
                 let since_attempt = now - record.fetched_at_millis;
@@ -2497,9 +2520,19 @@ mod tests {
 
     #[test]
     fn construction_without_a_registered_token_refuses_by_name() {
-        let lookup = |_name: &str| -> Option<String> {
-            // Every variable present EXCEPT the token.
-            None
+        // Batch 68: the lookup must present every variable EXCEPT the
+        // token (the comment's own words) — `from_lookup` checks the
+        // base URL first, so an all-absent lookup refused with
+        // `VENDOR_INGESTION_INVALID_CONFIG` on the URL before ever
+        // reaching the token gate. Same shape as the blank-token sibling.
+        let lookup = |name: &str| -> Option<String> {
+            if name == ENV_VENDOR_WEATHER_URL {
+                Some("https://vendor.weather.example".to_string())
+            } else if name == "FLEXCORE_VENDOR_WEATHER_SOURCE_REF" {
+                Some("weather://fixture/query".to_string())
+            } else {
+                None
+            }
         };
         let error = VendorWeatherConfig::from_lookup(&lookup).expect_err("no token: refused");
         assert_eq!(error.name(), "VENDOR_TOKEN_NOT_REGISTERED");
@@ -3031,7 +3064,7 @@ mod tests {
         let mut records = chain.records().to_vec();
         records[1].version = "v9".to_string(); // content changed, digest not recomputed
         let mut tampered_chain = ForecastArtifactChain {
-            head: chain.head().clone(),
+            head: chain.head().to_string(),
             records,
         };
         // Restore head consistency for the walk (the tamper is the

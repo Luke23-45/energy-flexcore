@@ -7,8 +7,8 @@
 //     deliberately removed still returns zero of tenant A's rows under
 //     tenant B's context — the RLS policy, not the predicate, is the
 //     backstop.
-// (d) The table owner (`flexcore_migrator`, FORCE ROW LEVEL SECURITY) with
-//     no tenant set also sees zero rows.
+// (d) The read-only query role (`flexcore_query`) with no tenant set
+//     also sees zero rows (no context fails closed).
 //
 // Gating (REQUIRED DEVIATION from the P2.06 harness in `telemetry.rs`):
 // these tests FAIL LOUDLY when `FLEXCORE_TEST_DATABASE_URL` is unset or
@@ -131,11 +131,21 @@ fn sample_tenant_entity(tenant_id: TenantId) -> Tenant {
     .expect("valid test tenant")
 }
 
-fn test_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("test runtime")
+// Batch 67 (same as Batch 66 fix D): a per-call runtime kills every pool
+// created under it — `PoolOptions::connect` opens one connection eagerly
+// against the creating runtime's I/O driver, and dropping that runtime
+// makes the next query on the pooled connection fail with
+// "a Tokio 1.x context was found, but it is being shutdown". One shared
+// multi-thread runtime per binary, built once and never dropped, keeps
+// every pool valid for the binary's life.
+fn test_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+    })
 }
 
 fn url_as(url: &str, user: &str, password: &str) -> String {
@@ -538,35 +548,39 @@ fn rls_reader_under_tenant_b_returns_zero_of_tenant_a_rows_and_predicate_free_se
     );
 }
 
-// --- (d) The table owner is still subject to the policy -------------------------------
+// --- (d) A read role with no tenant set sees zero rows -------------------------------
 
 #[test]
-fn rls_table_owner_with_no_tenant_set_sees_zero_rows() {
-    let url = require_db("rls_table_owner_with_no_tenant_set_sees_zero_rows");
+fn rls_query_role_with_no_tenant_set_sees_zero_rows() {
+    let url = require_db("rls_query_role_with_no_tenant_set_sees_zero_rows");
     let (tenant_a, _tenant_b, _asset_a, _asset_b) = setup_two_tenants(&url);
     let tenant_a_text = tenant_a.uuid().to_hyphenated().to_string();
 
-    // A session as the table owner (flexcore_migrator) with no tenant set.
-    // FORCE ROW LEVEL SECURITY means the owner gets no bypass: zero rows.
-    let owner_pool = test_runtime()
-        .block_on(PgPool::connect(&url_as(
-            &url,
-            "flexcore_migrator",
-            "flexcore_migrator_test_only",
-        )))
-        .expect("owner-role pool");
+    // A session as the read-only query role (`flexcore_query`) with no
+    // tenant set sees zero rows: no context fails closed.
+    // Batch 67: the owner-role version of this test asserted the same for
+    // `flexcore_migrator`, but the migrator carries the BYPASSRLS ops-path
+    // grant (`partition_maintenance.rs::ensure_test_roles`, recorded P1.12
+    // §5.2 — the NULL-tenant platform audit record is writable only
+    // through a session that bypasses the tenant_isolation policy), and
+    // BYPASSRLS bypasses even FORCE RLS, so the owner sees every row
+    // whenever that grant has landed (test-binary run order). The patch
+    // plan's rule applies (PATCH_PLAN_HIGH_GAPS.md): "Test RLS as the
+    // application role, never as the migration owner" — the query role is
+    // the read path RLS actually guards.
+    let pool = query_pool(&url);
     assert_eq!(
-        count_telemetry_as(&owner_pool, None),
+        count_telemetry_as(&pool, None),
         0,
-        "the table owner with no tenant set must also see zero rows (FORCE ROW LEVEL SECURITY)"
+        "the query role with no tenant set must see zero rows (no context fails closed)"
     );
 
-    // Control: the same owner session WITH tenant A's context sees tenant
-    // A's three rows — the policy hides rows, it does not revoke the
-    // owner's read access outright.
+    // Control: the same query-role session WITH tenant A's context sees
+    // tenant A's three rows — the policy hides rows, it does not revoke
+    // the role's read access outright.
     assert_eq!(
-        count_telemetry_as(&owner_pool, Some(&tenant_a_text)),
+        count_telemetry_as(&pool, Some(&tenant_a_text)),
         3,
-        "control: the table owner with tenant A's context must see tenant A's three rows"
+        "control: the query role with tenant A's context must see tenant A's three rows"
     );
 }

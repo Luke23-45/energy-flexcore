@@ -125,11 +125,21 @@ fn sample_tenant_entity(tenant_id: TenantId) -> Tenant {
     .expect("valid test tenant")
 }
 
-fn test_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("test runtime")
+// Batch 67 (same as Batch 66 fix D): a per-call runtime kills every pool
+// created under it — `PoolOptions::connect` opens one connection eagerly
+// against the creating runtime's I/O driver, and dropping that runtime
+// makes the next query on the pooled connection fail with
+// "a Tokio 1.x context was found, but it is being shutdown". One shared
+// multi-thread runtime per binary, built once and never dropped, keeps
+// every pool valid for the binary's life.
+fn test_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+    })
 }
 
 fn url_as(url: &str, user: &str, password: &str) -> String {

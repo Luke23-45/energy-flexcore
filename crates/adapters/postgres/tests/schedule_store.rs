@@ -225,6 +225,15 @@ fn insert_find_round_trip_and_atomic_rollback() {
         let unit = store.begin(Some(&ctx)).expect("unit of work opens");
         let receipt = unit.insert_schedule_record(&ctx, &row).expect("inserts");
         assert_eq!(receipt.candidate_id, candidate.to_string());
+        // Batch 67 (same class as Batch 66 fix E): the adapter derives
+        // the outbox `event_type` / `schema_version` columns from the
+        // payload envelope — `event.event_type` (SCREAMING_SNAKE) and a
+        // top-level `schema_version` — and refuses a payload that names
+        // neither (`E_OUTBOX_PAYLOAD`). A bare `{"fixture": true}` can
+        // never append; the payload carries the internally-tagged shape.
+        let outbox_payload = format!(
+            r#"{{"schema_version": 1, "idempotency_key": "{key}", "event": {{"event_type": "SCHEDULE_PROPOSED"}}}}"#
+        );
         let outbox = OutboxWrite::new(
             StateChangeReceipt::new(
                 "schedule_results".to_string(),
@@ -233,7 +242,7 @@ fn insert_find_round_trip_and_atomic_rollback() {
             ),
             key.clone(),
             "flexcore.v1.scheduling.schedule_proposed".to_string(),
-            "{\"fixture\": true}".to_string(),
+            outbox_payload,
             EventTime::from_unix_millis(1_700_000_000_500).expect("valid"),
         )
         .expect("outbox write builds");
@@ -248,7 +257,23 @@ fn insert_find_round_trip_and_atomic_rollback() {
             .find_schedule_record(&ctx, &candidate.to_string())
             .expect("read succeeds")
             .expect("the committed record is visible after commit");
-        assert_eq!(found, row);
+        // Batch 67 (same class as Batch 66 fix J): the payload travels
+        // through jsonb, which normalizes key order, so the round-trip
+        // comparison is semantic (parsed JSON), not string equality;
+        // every other field must match exactly.
+        let mut expected = row.clone();
+        expected.record_payload_json = found.record_payload_json.clone();
+        assert_eq!(found, expected);
+        let found_payload: serde_json::Value =
+            serde_json::from_str(&found.record_payload_json)
+                .expect("stored payload parses as JSON");
+        let row_payload: serde_json::Value =
+            serde_json::from_str(&row.record_payload_json)
+                .expect("seed payload parses as JSON");
+        assert_eq!(
+            found_payload, row_payload,
+            "the record payload round-trips semantically"
+        );
         unit.rollback().expect("read-only unit rolled back");
     }
 

@@ -38,7 +38,9 @@ fn t(millis: i64) -> EventTime {
 // ---------------------------------------------------------------------------
 
 /// A lookup with EVERY variable present except the named exceptions.
-fn full_lookup_without(exceptions: &[&str]) -> impl Fn(&str) -> Option<String> + '_ {
+// Batch 68: the elided `'_` was ambiguous (`exceptions` carries two
+// lifetimes) — the named lifetime rustc suggests.
+fn full_lookup_without<'a>(exceptions: &'a [&'a str]) -> impl Fn(&str) -> Option<String> + 'a {
     move |name: &str| {
         if exceptions.contains(&name) {
             return None;
@@ -55,7 +57,8 @@ fn full_lookup_without(exceptions: &[&str]) -> impl Fn(&str) -> Option<String> +
             "FLEXCORE_VENDOR_WEATHER_UNIT_FACTORS" => {
                 Some(
                     "{\"ghi\": {\"vendor_unit\": \"kW/m2\", \"factor\": 1000.0, \
-                     \"factor_provenance\": \"fixture-unit-table\"}}",
+                     \"factor_provenance\": \"fixture-unit-table\"}}"
+                        .to_string(),
                 )
             }
             _ => None,

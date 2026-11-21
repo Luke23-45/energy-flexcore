@@ -191,7 +191,12 @@ pub struct SunSpecTelemetryRow {
 /// implementation (FIM-F03.03). Constructed with the deployment-DECLARED
 /// common-block base address and the gateway's declared polling budget
 /// (which bounds every block-walk read — no hardcoded split).
-#[derive(Debug)]
+//
+// Batch 68: manual `Debug` — the derived impl failed because
+// `&dyn ModbusTransport` does not implement `Debug` (the trait has no
+// `Debug` supertrait, and adding one would ripple to every
+// implementation). The transport renders as a placeholder; the other
+// fields render normally.
 pub struct SunSpecDeviceReader<'a> {
     /// The transport the reads go through (live TCP or the deterministic
     /// fixture).
@@ -202,6 +207,16 @@ pub struct SunSpecDeviceReader<'a> {
     base_address: u16,
     /// The budget-bounded chunk size for block walks.
     max_registers_per_read: u16,
+}
+
+impl<'a> std::fmt::Debug for SunSpecDeviceReader<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SunSpecDeviceReader")
+            .field("transport", &"<ModbusTransport>")
+            .field("base_address", &self.base_address)
+            .field("max_registers_per_read", &self.max_registers_per_read)
+            .finish()
+    }
 }
 
 impl<'a> SunSpecDeviceReader<'a> {

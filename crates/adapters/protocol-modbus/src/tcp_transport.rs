@@ -315,7 +315,7 @@ impl LiveTcpTransport {
         }
         self.runtime.block_on(async {
             match self.connection.lock().await.take() {
-                Some(stream) => match stream.shutdown().await {
+                Some(mut stream) => match stream.shutdown().await {
                     Ok(()) => Ok(()),
                     Err(error) => Err(map_io_error(&self.host, self.port, &error)),
                 },
@@ -456,7 +456,7 @@ fn request_window(request: &PduRequest) -> (u16, u16) {
         | PduRequest::ReadInputRegisters { start, count } => (*start, *count),
         PduRequest::WriteMultipleCoils { start, bits } => (*start, bits.len() as u16),
         PduRequest::WriteMultipleRegisters { start, values } => (*start, values.len() as u16),
-        PduRequest::WriteSingleCoil { address, .. } | PduRequest::WriteSingleRegister { address } => {
+        PduRequest::WriteSingleCoil { address, .. } | PduRequest::WriteSingleRegister { address, .. } => {
             (*address, 1)
         }
     }

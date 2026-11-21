@@ -384,11 +384,16 @@ impl CsmsMessageDispatcher {
             // initiate: answered NotImplemented with the named reason
             // (register item 3) — the vocabulary is the recorded one, no
             // action was added, and the connection is NOT torn down.
+            // Batch 68: `SetChargingProfile` belongs in this group too —
+            // like `ClearChargingProfile` it is a charging-profile
+            // composition-surface action this transport does not wire
+            // (the match was non-exhaustive without it).
             Action::SignCertificate
             | Action::CertificateSigned
             | Action::InstallCertificate
             | Action::GetCompositeSchedule
-            | Action::ClearChargingProfile => Ok(vec![OcppFrame::CallError {
+            | Action::ClearChargingProfile
+            | Action::SetChargingProfile => Ok(vec![OcppFrame::CallError {
                 unique_id,
                 error_code: CallErrorCode::NotImplemented,
                 error_description: format!(
