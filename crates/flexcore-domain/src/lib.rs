@@ -223,6 +223,24 @@ pub mod market_program_model;
 // record docs/phases-11-20/phase-16-market-integration-settlement/
 // records/03_p16_03_registration_data_management.md).
 pub mod market_registration_records;
+// FIM-F11 (Wave 5) — the ASTM E1049-85 rainflow counting module (additive):
+// SOC time series -> full/half (DOD, mean-SOC) cycles -> the half-cycle-
+// faithful DOD x mean-SOC histogram, reusing the P15.07 edge/bin machinery.
+// This closes the P15.07 RAINFLOW_EXTRACTION_SEAM as written-unrun — the
+// first human build gates it; `bess_degradation` remains the histogram
+// storage with its recorded semantics unchanged.
+pub mod rainflow;
+// FIM-F11 (Wave 5) — the measured-BESS degradation cost-curve module
+// (additive): DOD x mean-SOC histogram bins -> MWh-equivalent degradation
+// cost as LINEAR / piecewise-linear optimizer INPUT DATA feeding the
+// existing C_degradation term (P15.08 continued; mirrors the optimizer data
+// contract by citation). Parameters are secondary-source values,
+// UNVERIFIED-SECONDARY where no recorded source exists — the P15-E-3
+// closure + measured-fleet calibration is the HUMAN LAB GATE. The P3.06
+// LINEAR-throughput default stays available and default; the curve is
+// opt-in per asset config. A degradation cost is INPUT DATA, never a
+// dispatch command (ADR-010).
+pub mod bess_cost_curve;
 
 #[cfg(test)]
 pub(crate) mod test_rng;

@@ -210,3 +210,26 @@ pass-through, and no figure is ever fabricated.
 - No claim of any performance, robustness, generalization, or safety
   result is made or implied: those are P8.15's measured cells, EMPTY
   until the human/lab gate.
+
+## FIM-F09 instrumentation (additive; WRITTEN-UNRUN)
+
+`marl_worker.py` imports the shared stdlib-only module
+`../otel_instrumentation.py` (FIM-F09.01) guarded and emits ONE schema-v1
+worker-start trace line on stderr (`flexcore.log.v1`, P11.07) carrying
+the W3C `traceparent` context resolved from the request envelope / the
+`TRACEPARENT` env var — absent context stays EMPTY, never synthesized
+(P11.05 posture). No behavior change beyond that line: the result
+vocabulary, `assert_proposal_only`, and `FORBIDDEN_RESULT_KEYS` are
+untouched; the module's import-allowlist self-test now lists
+`otel_instrumentation` as an allowed root (the recorded additive
+amendment; FIM-8C.01, 2026-11-21, also fixed the pre-existing omission
+of `time` from that same allowlist — the module's own top-level
+`import time` is legitimate stdlib usage, so the allowlist was amended
+rather than the import removed; the self-test reports 26/26. The defect
+was pre-existing at HEAD, diagnosed by the F-09 sweep). The OpenTelemetry
+SDK is OPTIONAL and NOT installed; the no-op fallback is the DEFAULT
+posture; the SDK-present OTLP export path is UNPROVEN until a human runs
+it with the SDK installed. A RUNNING Collector and FIRING SLO alerts are
+HUMAN GATES (F-09 acceptance criteria 1-3); the Collector config is
+validated structurally — never run — by
+`../tools_fim/validate_collector_config.py`.

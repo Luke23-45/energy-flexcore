@@ -1,8 +1,7 @@
 # P14.02 — flexcore-protocol-20305 manifest: the IEEE 2030.5 adapter crate.
 #
 # Composition-side crate (`tools/check_dependency_rule.py`, P14.01
-# classification): adapters may use infrastructure, but this crate
-# deliberately adds NONE. Dependency justification:
+# classification): adapters may use infrastructure. Dependency justification:
 # - flexcore-protocol-ports (P14.01): the common protocol scope declaration,
 #   capability manifest, and connection lifecycle every protocol adapter
 #   implements — this crate is the IEEE 2030.5 instantiation.
@@ -14,17 +13,17 @@
 # - serde / serde_json (workspace pins): the CSIP resource-tree model types
 #   (P14.02 §2) carry serde derives for the JSON-facing design surface; the
 #   wire encoding (EXI per IEEE 2030.5 — UNVERIFIED, record 02 §4) is a
-#   transport-seam concern and does not exist in this repo.
+#   transport-seam concern and is not claimed here.
 #
-# What is deliberately absent: no HTTP server framework, no TLS library, no
-# EXI codec. The mTLS/HTTP transport is a designed, named UNRUN seam
-# (`server.rs` `AggregatorTransport`); implementing it is an
-# implementation-time human gate (record 02 §6). The entire crate is
-# WRITTEN-UNRUN model/skeleton code; no server has ever run, no device has
-# ever been reached, no message has ever been exchanged.
+# FIM-F01 (live IEEE 2030.5 server transport; FIM standing decision 1):
+# every external dependency below is ALREADY resolved in the committed
+# `Cargo.lock` and each line pins the EXACT resolved version (verified by
+# grep against `Cargo.lock` on 2026-11-19). No new crate enters the
+# resolution graph. The EXI wire codec of the standard is still NOT a
+# dependency and is not claimed (UNVERIFIED, human lab gate).
 [package]
 name = "flexcore-protocol-20305"
-description = "IEEE 2030.5 AggregatorServer adapter: CSIP resource-tree model types, resource addressing and query semantics, the mTLS server skeleton with a designed transport seam, and the DERControl-to-PROPOSED external-event mapping (P14.02)."
+description = "IEEE 2030.5 AggregatorServer adapter: CSIP resource-tree model types, resource addressing and query semantics, the mTLS server skeleton with the AggregatorTransport seam, the live mTLS/HTTP1 transport (FIM-F01, written-unrun, interop unproven), and the DERControl-to-PROPOSED external-event mapping (P14.02)."
 version.workspace = true
 edition.workspace = true
 
@@ -33,3 +32,49 @@ flexcore-protocol-ports = { workspace = true }
 flexcore-domain = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# - tokio (workspace = 1.54.1 in the lock): the mTLS accept loop and the
+#   current-thread runtime `HyperTransport::serve` blocks on.
+tokio = { workspace = true }
+# - tokio-rustls 0.26.6 (lock): the mTLS accept loop. `default-features =
+#   false` + `ring` keeps the resolved rustls provider IDENTICAL to the
+#   committed lock graph (ring; aws-lc-rs is not in the lock and would add
+#   a new crate — forbidden by FIM standing decision 1).
+tokio-rustls = { version = "0.26.6", default-features = false, features = [
+    "ring",
+    "tls12",
+] }
+# - rustls 0.23.46 (lock): the fail-closed server TLS configuration
+#   (mandatory client-certificate verifier, trust anchors). Same provider
+#   note as tokio-rustls: ring-only, matching the lock.
+rustls = { version = "0.23.46", default-features = false, features = [
+    "logging",
+    "ring",
+    "std",
+    "tls12",
+] }
+# - rustls-pemfile 2.2.0 (lock): PEM decoding of the composition root's
+#   certificate-chain / private-key / trust-anchor paths (no key material
+#   ever lives in code or in this repository).
+rustls-pemfile = "2.2.0"
+# - hyper 1.12.0 (lock): the HTTP/1.1 serving layer over the TLS streams
+#   (`http1` + `server`; no client, no http2).
+hyper = { version = "1.12.0", default-features = false, features = [
+    "http1",
+    "server",
+] }
+# - http 1.5.0 (lock): the wire request/response types of the HTTP mapping.
+http = "1.5.0"
+# - http-body 1.1.0 (lock) + http-body-util 0.1.5 (lock): the body trait
+#   and the `BodyExt::collect` bridge between wire bodies and the
+#   design-surface `ResourceRequest`.
+http-body = "1.1.0"
+http-body-util = "0.1.5"
+# - bytes 1.12.2 (lock): the response body buffer type (`Full<Bytes>`).
+bytes = "1.12.2"
+# - futures 0.3.34 (lock): `FuturesUnordered` multiplexes the concurrent
+#   TLS/HTTP connections of one current-thread serving loop.
+futures = "0.3.34"
+# - sha2 (workspace = 0.11.1 in the lock): the SHA-256 client-certificate
+#   fingerprint the allowlist enforces. The relation of this fingerprint to
+#   the 2030.5 LFDI derivation is UNVERIFIED (transport.rs module header).
+sha2 = { workspace = true }

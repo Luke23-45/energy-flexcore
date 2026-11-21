@@ -96,6 +96,20 @@ pub mod ev_ingest;
 pub mod maintenance;
 pub mod probes;
 pub mod runner;
+// FIM-F10 (Final Implementation Milestone, wave 7, Agent B) — the
+// vendor-generic weather/price HTTP ingestion adapter implementing the
+// EXISTING flexcore-ports `WeatherDataProvider`/`PriceSignalSource` shapes,
+// the persistence-baseline fallback composition (FIM-F10.02), and the
+// SHA-256 forecast artifact digest chain (FIM-F10.04). Vendor-generic,
+// fail-closed without a registered token (the token is a HUMAN GATE input;
+// P15-E-1/E-2 stay OPEN); ADR-010 holds — the adapter publishes DATA, never
+// dispatch decisions; the synthetic fixture stays the LABELED fallback
+// source (P15.16). WRITTEN-UNRUN; the composition root does NOT construct
+// the adapters in 0.x (no token exists) — the seam is recorded, honestly
+// unreached, exactly like the `Unwired*` port defaults. See the module
+// header for the full honesty posture and the recorded Rust↔python
+// composition seam.
+pub mod vendor_ingestion;
 // P7.18 — the Class C worker supervisor (timeouts, bounded deterministic
 // retries, crash isolation, backpressure) over the P7.17 worker
 // contract; see the module header for the placement and lifecycle-seam

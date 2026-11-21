@@ -691,3 +691,41 @@ pub mod ev_meter_values_ingest;
 // injected ports (the dependency rule forbids core→composition edges).
 // No rollout has ever run; no cohort exists; no device was authorized.
 pub mod rollout_orchestrator;
+
+// FIM-F14 (wave 5, Agent B) — dynamic operating envelopes from live DSO
+// feeds: the DOE envelope feed SOURCE seam (FIM-F14.01 — the P15.03
+// WeatherDataProvider port pattern mirrored: sync trait, opaque adapter
+// errors, deterministic in-memory configured source, named
+// unwired/feed-absent default that fails closed to the static limit) and
+// the CONSTRAINT WIRING (FIM-F14.02/03/04 — the in-force envelope's
+// ImportExportLimits override the StaticConnectionLimit as optimizer
+// CONSTRAINT DATA on the declared connection-limit seat, the lapse
+// reversion is telemetered with the FROZEN six-state telemetry quality
+// vocabulary (STALE/MISSING; the 26-event vocabulary is untouched and no
+// event is invented), and breach/curtailment records carry the envelope
+// version in force). The domain vocabulary is flexcore-domain::
+// doe_envelope (P14.15), CONSUMED, never restated; canonical MW pass
+// through unchanged (P > 0 = export, no conversion). ADR-010 posture:
+// the envelope is constraint data, never a command — a curtailment
+// decision is a command-lifecycle outcome. WRITTEN-UNRUN; live DSO feed
+// interop UNPROVEN — wiring a real feed is a HUMAN LAB GATE. Appended
+// additively per the phase subtask file-ownership agreement.
+pub mod doe_constraint_source;
+pub mod doe_constraint_wiring;
+
+// FIM-F14 — appended re-exports (same agreement).
+pub use doe_constraint_source::{
+    DoeEnvelopeSource, DoeSourceError, InMemoryDoeEnvelopeSource, UnwiredDoeEnvelopeSource,
+    DOE_CONSTRAINT_SOURCE_STATEMENT, DOE_FEED_LAB_GATE_STATEMENT, DOE_FEED_SEAM_NOT_WIRED,
+    DOE_FEED_SOURCE_IN_MEMORY,
+};
+pub use doe_constraint_wiring::{
+    apply_connection_point_bounds, check_dispatch_against_constraint,
+    curtail_proposed_to_bounds, doe_constraint_assumption_text,
+    resolve_connection_point_constraint, resolve_connection_point_constraints,
+    ConnectionBoundsSeat, CurtailmentOutcome, DispatchEnvelopeVerdict, DoeReversionObservation,
+    DoeWiringError, EnvelopeConstraintState, PointPreviousEnvelope, ResolvedPointConstraint,
+    StaticGovernanceReason, DOE_ADR010_STATEMENT, DOE_CONSTRAINT_WIRING_STATEMENT,
+    DOE_ENVELOPE_VERSION_PREFIX, DOE_FAIL_CLOSED_STATEMENT, DOE_REVERSION_TELEMETRY_STATEMENT,
+    DOE_UNIT_PASS_THROUGH_STATEMENT, FIM_F14_HONESTY_STATEMENT,
+};

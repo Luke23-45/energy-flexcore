@@ -72,6 +72,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 
 from federate_common import (
     emit_report,
@@ -82,6 +84,29 @@ from federate_common import (
     load_config,
     section_for,
 )
+
+# ── FIM-F09.02 (ADDITIVE; no behavior change beyond one stderr line) ────
+# Guarded import of the shared stdlib-only OTEL instrumentation module
+# (the same fail-closed guard idiom the helics binding import below
+# uses). The recorded fallback: when the shared module is not importable
+# the federate runs EXACTLY as before and only the federate-start trace
+# line is degraded to untraced — never a crash, never a fabricated trace
+# id. The OpenTelemetry SDK is OPTIONAL and NOT installed; the no-op
+# fallback is the DEFAULT posture (see ../otel_instrumentation.py honesty
+# header). WRITTEN-UNRUN: a RUNNING Collector and FIRING SLO alerts
+# remain HUMAN GATES (F-09 acceptance criteria 1-3 need live infra).
+try:
+    _OTEL_PY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _OTEL_PY_ROOT not in sys.path:
+        sys.path.insert(0, _OTEL_PY_ROOT)
+    import otel_instrumentation as _otel_instrumentation
+
+    _OTEL_IMPORT_FALLBACK: str | None = None
+except ImportError as _otel_import_error:  # recorded fallback, never a bare pass
+    _otel_instrumentation = None
+    _OTEL_IMPORT_FALLBACK = "otel_instrumentation unavailable: %s" % (
+        _otel_import_error
+    )
 
 # The research proposal publication form (topic prefix and suffix).
 RESEARCH_TOPIC_PREFIX = "flexcore/research/"
@@ -153,6 +178,15 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.federation_config)
+    # FIM-F09.02 (additive): the federate-start trace line carrying the
+    # resolved trace context (config envelope → env precedence; absent
+    # context is the honest empty outcome, never a synthesized id). ONE
+    # schema-v1 line on stderr; stdout keeps EXACTLY one exit-report
+    # document (the transport contract in federate_common.py).
+    if _otel_instrumentation is not None:
+        _otel_instrumentation.note_worker_start(
+            "flexcore-helics-research-controller-federate", envelope=config
+        )
     section = section_for(config, args.federate)
     if section.get("role") != "research_controller":
         fail("federate %r is not declared with role 'research_controller'" % args.federate)

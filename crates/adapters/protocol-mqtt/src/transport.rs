@@ -1,13 +1,17 @@
 // P14.11 — The MQTT wire SEAM (decision record 43_p14_11_mqtt_sparkplug_b_uplink.md;
 // the record 02 §5 template: design the transport, land no dependency).
 //
-// There is NO MQTT client library in this crate's dependency line — no
-// broker connection, no subscription, no publish has ever occurred. The
-// wire transport is a designed seam: the trait below is the FULL surface a
-// composition root would implement (over an MQTT 5 client chosen at
-// implementation time, with the human-gated decision recorded), and
-// [`UnwiredUplinkTransport`] is the shipped default that refuses every
-// publish with [`MqttTransportError::SeamNotWired`].
+// FIM-F05 UPDATE (written-unrun, honesty corrected): the wire transport
+// EXISTS as of FIM-F05 — a hand-written MQTT 5 client codec
+// (`mqtt_wire.rs`), a hand-written Sparkplug B protobuf wire encoder
+// (`sparkplug_wire.rs`), and the live transport (`live.rs`) implementing
+// THIS trait unchanged, TLS via tokio-rustls. It has NEVER been compiled
+// or executed: no broker has been reached, no publish has ever occurred
+// on a wire, and broker interop is UNPROVEN — a HUMAN LAB GATE (the
+// first human build is the program gate). [`UnwiredUplinkTransport`]
+// stays UNTOUCHED as the unconfigured default that refuses every publish
+// with [`MqttTransportError::SeamNotWired`]; the composition root
+// selects the live transport when configured.
 //
 // TLS POLICY (declared, mirroring the P6.07 uplink rule): the edge's MQTT
 // hop is edge-INITIATED TLS or refused —
@@ -17,12 +21,16 @@
 // anchor reference from the deployment's credential record (never the
 // ambient system store). No listener exists anywhere: the uplink dials
 // OUT only (the P6.07 structural guarantee is a composition-root
-// obligation; this crate contains no socket code at all to begin with).
+// obligation — the live transport in `live.rs` connects out via
+// tokio-rustls and contains no accept/listen path).
 //
 // AT-LEAST-ONCE HONESTY: a publish is acknowledged by the broker per the
 // MQTT QoS the composition root declares; the seam returns a
 // [`PublishReceipt`] only after the transport's acknowledgement is read
-// back. "Acknowledged" is the broker's receipt — NOT delivery to any
+// back (the FIM-F05 live transport honours this for QoS 1: PUBACK-wait;
+// for QoS 0 no acknowledgement EXISTS and the receipt is released after
+// the write is flushed — a declared degradation, never a fabricated ack).
+// "Acknowledged" is the broker's receipt — NOT delivery to any
 // consumer downstream (acknowledgement is not delivery, §14.1 — the same
 // rule as the command lifecycle).
 
@@ -170,15 +178,17 @@ pub struct PublishReceipt {
     pub qos: DeclaredQos,
 }
 
-/// The MQTT uplink wire SEAM: the full surface a composition root would
-/// implement over an MQTT 5 client chosen at implementation time. Sync
+/// The MQTT uplink wire SEAM: the publish surface of the uplink. Sync
 /// trait (the `flexcore-ports` house rule); the adapter owns no runtime.
 ///
-/// Deliberately NO subscribe method and NO receive method: this batch is
-/// the UPLINK OPTION (MonitorOnly) — the command path does not exist here.
-/// A future command-relay surface is a reviewed scope change (the common
-/// scope gate refuses it today; the P6.14-style disabled-by-default gate
-/// is where it would land, not here).
+/// Deliberately NO subscribe method and NO receive method ON THIS TRAIT
+/// (it is unchanged from P14.11): the command path landed under FIM-F05
+/// as a SEPARATE additive surface (`live::MqttCommandSource` — the live
+/// transport's bounded delivery inbox), never by extending this trait.
+/// A delivered command carries NO authority: it enters the edge command
+/// lifecycle at PROPOSED and nowhere else — no authorization, no
+/// dispatch, no relay (the frozen lifecycle and the never-granted set
+/// are untouched; the common scope gate's relay refusal still stands).
 pub trait MqttUplinkTransport {
     /// Publishes one validated Sparkplug payload to one validated topic.
     /// Returns the receipt only after the transport's acknowledgement is

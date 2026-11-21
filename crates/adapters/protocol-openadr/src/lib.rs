@@ -11,10 +11,14 @@
 //!   events (`model`), VEN registrations (`model`, `vtn`), and reports.
 //! - An **endpoint design** — the REST/JSON surface as DATA
 //!   (`endpoints::RouteSpec`), so the HTTP serving layer is a *designed
-//!   seam*: a later wave can wire an HTTP framework onto
-//!   [`endpoints::VtnEndpointDesign`] without re-deciding the surface.
-//!   This crate contains no HTTP framework dependency, no socket code, and
-//!   no server loop.
+//!   seam*: the serving layer wires onto [`endpoints::VtnEndpointDesign`]
+//!   without re-deciding the surface. Under FIM-F04 the live serving IS
+//!   NOW IMPLEMENTED in this crate (`serving`, `transport`) — WRITTEN-UNRUN:
+//!   it has never been compiled or executed, no socket was ever opened, and
+//!   no server loop has ever run. VEN interoperability is UNPROVEN and
+//!   remains a HUMAN LAB GATE (crate conventions §7.3); the endpoint paths
+//!   and payload shapes stay UNVERIFIED against the 3.0 specification text
+//!   [S-10] (record 21 §5).
 //! - The **event → command-lifecycle mapping** (`event_mapping`): an
 //!   OpenADR event arriving from a DR program is an EXTERNAL CONTROL
 //!   OBJECT and enters the frozen 14-state lifecycle at **PROPOSED** —
@@ -34,7 +38,11 @@
 //! - Not a conformant OpenADR 3.0 VTN. Conformance/certification is a
 //!   human-gated lab process (conventions §7.3); nothing here claims it.
 //! - Not connected. No protocol is connected, no device is reached, no
-//!   message is exchanged (plan §6 acceptance criterion 2).
+//!   message is exchanged (plan §6 acceptance criterion 2). The FIM-F04
+//!   live endpoints are WRITTEN-UNRUN code, not an exchange record: no VEN
+//!   has ever registered, polled, or reported against them, and the
+//!   outbound VTN → VEN push call is not implemented at all
+//!   (`transport.rs` module header).
 //! - Not a VEN client. The VTN (server) role is the declared scope; the
 //!   VEN (client) role is out of scope (the common scope declares the
 //!   SERVER role only).
@@ -55,6 +63,16 @@ pub mod endpoints;
 pub mod event_mapping;
 pub mod model;
 pub mod scope;
+// FIM-F04 — the LIVE VTN endpoint serving over the designed seam (both
+// WRITTEN-UNRUN; VEN interop UNPROVEN — a HUMAN LAB GATE):
+// - `serving`: the VTN serving state (registry + planner + pending events
+//   + report specs + the delivery log recording the event version in
+//   force) behind the designed routes.
+// - `transport`: the hyper 1.x HTTP/1.1 wire mapping (`VtnHttpService`)
+//   and the live listener (`LiveVtnTransport`) with the fail-closed,
+//   optional-by-config TLS posture.
+pub mod serving;
+pub mod transport;
 pub mod vtn;
 
 // P14.18 — the registered adapter id (the composition-registry allowlist

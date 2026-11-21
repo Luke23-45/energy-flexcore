@@ -40,6 +40,15 @@
 // test-only passwords; key rows INSERTed through `flexcore_app` under the
 // tenant GUC). Fixture prefix byte 0xE3: distinct from the other Patch B
 // files so all suites can share one test database without colliding.
+//
+// FIM WAVE 8 (V-8) — section 7 below (the same-sequence race and the
+// distinct-sequence interleave) was added under the Final Implementation
+// Milestone program and is WRITTEN-UNRUN: never compiled, never executed
+// by the implementing agent. Like every test in this file it is DB-GATED
+// on `FLEXCORE_TEST_DATABASE_URL` and runs only in the human V-1 re-run
+// of `docs/releases/final-implementation-before-publication.md` §3; the
+// gate fails loudly when the variable is unset (no test here silently
+// passes).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
@@ -574,4 +583,198 @@ fn watermark_reads_none_before_any_advance_and_advance_reports_stale() {
     // Advancing to the same sequence again is Stale too.
     assert!(matches!(advance(&h, &f, 10), AdvanceOutcome::Stale));
     assert_eq!(read_watermark(&h, &f), Some(10));
+}
+
+// --- 7. The same-sequence race (V-8, FIM wave 8) ---------------------------------------
+//
+// WRITTEN-UNRUN under the Final Implementation Milestone program; runs
+// only in the human V-1 re-run (see the file header).
+//
+// What is pinned here: `advance_source_sequence` serializes concurrent
+// advances for ONE source under `pg_advisory_xact_lock(hashtext(tenant
+// || ':' || source))` and re-reads MAX(sequence) UNDER the lock, so two
+// concurrent submissions of the same (tenant, source, sequence) resolve
+// to exactly one `Advanced` and the rest `Stale` — the replay window the
+// authenticator's early watermark filter cannot close by itself (its
+// read and the advance are two transactions by design; the advance is
+// the authority). The watermark moves only by INSERT, so a Stale
+// submission writes nothing.
+//
+// No new advisory-lock key is introduced anywhere in this section: the
+// race exercises the PRODUCTION `advance_source_sequence` lock (the
+// hashtext key), and role setup is the file's existing `ensure_test_roles`
+// copy with its shared `20261118` key — the recorded 20261118 watch item
+// (a new copy must reuse the same key) is untouched because no copy is
+// added.
+//
+// Concurrency shape: `std::thread::scope` threads, each opening its OWN
+// unit of work (its own transaction and pool connection) and committing
+// it — exactly the batch-transaction contract the early filter rides on.
+// The store pool holds five connections (`FlexCoreStore::connect`); a
+// thread holding a unit of work waits either on the advisory lock or on
+// the pool, and the lock-holder always commits and releases, so every
+// thread count makes progress — five keeps the whole race inside one
+// pool generation.
+const RACE_SUBMISSIONS: usize = 5;
+
+#[test]
+fn concurrent_same_sequence_submissions_resolve_to_exactly_one_advanced() {
+    let h = setup("concurrent_same_sequence_submissions_resolve_to_exactly_one_advanced");
+    let f = fixture(&h);
+    let sequence = 500u64;
+
+    // RACE_SUBMISSIONS concurrent submissions of the SAME
+    // (tenant, source, sequence), released together by a barrier so the
+    // submissions genuinely overlap rather than queueing by accident.
+    let outcomes: Vec<AdvanceOutcome> = std::thread::scope(|scope| {
+        let barrier = std::sync::Barrier::new(RACE_SUBMISSIONS);
+        let handles: Vec<_> = (0..RACE_SUBMISSIONS)
+            .map(|_| {
+                let h = &h;
+                let f = &f;
+                // The barrier is shared, not moved: the spawned closure is
+                // `move`, so every capture must be a Copy reference.
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    // Begin BEFORE the barrier: every thread holds its
+                    // transaction (and connection) while the barrier
+                    // releases, so the advisory-lock contention is real.
+                    let unit = h
+                        .app_store
+                        .begin(Some(&f.ctx))
+                        .expect("race unit of work");
+                    barrier.wait();
+                    let outcome = PgUnitOfWork::advance_source_sequence(
+                        &unit,
+                        &f.ctx,
+                        "sim://exit-gate",
+                        sequence,
+                    )
+                    .expect("race advance_source_sequence");
+                    unit.commit().expect("race commit");
+                    outcome
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("race thread"))
+            .collect()
+    });
+
+    // Exactly one submission advanced the watermark; every other
+    // submission of the same sequence is Stale (a replay or a stale
+    // frame), and nothing else was written.
+    assert_eq!(outcomes.len(), RACE_SUBMISSIONS);
+    let advanced = outcomes
+        .iter()
+        .filter(|outcome| matches!(outcome, AdvanceOutcome::Advanced))
+        .count();
+    let stale = outcomes
+        .iter()
+        .filter(|outcome| matches!(outcome, AdvanceOutcome::Stale))
+        .count();
+    assert_eq!(
+        advanced, 1,
+        "exactly one same-sequence submission may advance"
+    );
+    assert_eq!(
+        stale,
+        RACE_SUBMISSIONS - 1,
+        "every other same-sequence submission is Stale"
+    );
+    // The one Advanced submission moved the watermark to exactly the
+    // raced sequence — and the Stale submissions moved it nowhere else.
+    assert_eq!(read_watermark(&h, &f), Some(sequence));
+}
+
+#[test]
+fn concurrent_distinct_sequences_advance_in_order_and_the_highest_lands() {
+    let h = setup("concurrent_distinct_sequences_advance_in_order_and_the_highest_lands");
+    let f = fixture(&h);
+    let base = 600u64;
+    let highest = base + RACE_SUBMISSIONS as u64 - 1;
+
+    // The DIFFERENT-sequence interleave: RACE_SUBMISSIONS concurrent
+    // submissions of DISTINCT increasing sequences for ONE source. Under
+    // the advisory lock each submission either advances (its sequence was
+    // above the watermark its turn saw) or is Stale (below it); the
+    // HIGHEST submitted sequence always advances — it is above every
+    // watermark that can exist before its turn — so the watermark lands
+    // exactly on it in every interleaving.
+    let outcomes: Vec<(u64, AdvanceOutcome)> = std::thread::scope(|scope| {
+        let barrier = std::sync::Barrier::new(RACE_SUBMISSIONS);
+        let handles: Vec<_> = (0..RACE_SUBMISSIONS)
+            .map(|i| {
+                let h = &h;
+                let f = &f;
+                // The barrier is shared, not moved: the spawned closure is
+                // `move`, so every capture must be a Copy reference.
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    let sequence = base + i as u64;
+                    let unit = h
+                        .app_store
+                        .begin(Some(&f.ctx))
+                        .expect("interleave unit of work");
+                    barrier.wait();
+                    let outcome = PgUnitOfWork::advance_source_sequence(
+                        &unit,
+                        &f.ctx,
+                        "sim://exit-gate",
+                        sequence,
+                    )
+                    .expect("interleave advance_source_sequence");
+                    unit.commit().expect("interleave commit");
+                    (sequence, outcome)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("interleave thread"))
+            .collect()
+    });
+
+    assert_eq!(outcomes.len(), RACE_SUBMISSIONS);
+    // The highest sequence advanced and the watermark is exactly it.
+    assert!(
+        outcomes
+            .iter()
+            .any(|(sequence, outcome)| {
+                *sequence == highest && matches!(outcome, AdvanceOutcome::Advanced)
+            }),
+        "the highest submitted sequence must advance in any interleaving"
+    );
+    let advanced_sequences: Vec<u64> = outcomes
+        .iter()
+        .filter(|(_, outcome)| matches!(outcome, AdvanceOutcome::Advanced))
+        .map(|(sequence, _)| *sequence)
+        .collect();
+    assert!(
+        !advanced_sequences.is_empty(),
+        "at least the highest sequence advances"
+    );
+    assert_eq!(
+        read_watermark(&h, &f),
+        Some(highest),
+        "the watermark lands on the highest submitted sequence in any interleaving"
+    );
+
+    // The "in order" pin, interleaving-independent: after the race, an
+    // ascending walk over every raced sequence plus one above it advances
+    // ONLY above the watermark and is Stale at or below it — the watermark
+    // is a floor, never an exact next-sequence demand, and it never moves
+    // backwards.
+    assert!(matches!(
+        advance(&h, &f, highest + 1),
+        AdvanceOutcome::Advanced
+    ));
+    for sequence in base..=highest {
+        assert!(
+            matches!(advance(&h, &f, sequence), AdvanceOutcome::Stale),
+            "sequence {sequence} is at or below the watermark after the race"
+        );
+    }
+    assert_eq!(read_watermark(&h, &f), Some(highest + 1));
 }

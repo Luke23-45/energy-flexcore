@@ -53,8 +53,11 @@ fn reviewed_not_modelled() -> Vec<NotModelled> {
         .expect("valid"),
         NotModelled::new(
             "parser_is_a_seam".to_string(),
-            "no RDF/XML parser dependency: the profile parsing is a designed, UNWIRED seam \
-             (crate::rdf_profile) — no profile file has ever been read"
+            "the RDF/XML parser is the hand-written FIM-F06 subset scanner \
+             (crate::xml_pull / crate::xml_profile), WRITTEN-UNRUN: no XML parser \
+             library dependency exists (FIM standing decision 1), interop with a real \
+             DSO profile is UNPROVEN (HUMAN LAB GATE), and no profile file has ever \
+             been read by a run"
                 .to_string(),
         )
         .expect("valid"),

@@ -13,20 +13,30 @@
 //! | [`addressing`] | P14.02 §3 | The declared `AddressPlan` (resource paths declared, never hardcoded guesses), the list query semantics, and the declared primacy-resolution rules [S-156] |
 //! | [`scheduling`] | P14.02 §2.1 | DERControl timing windows: start/duration/randomization modelling and the `active_at` / overlap semantics used by the conformance tests |
 //! | [`scope`] | P14.01 (mirrors the sibling adapters) | The reviewed `aggregator_scope` / `aggregator_manifest` constructors: the one reviewed spelling of the common scope/manifest for this adapter (the test helpers delegate here) |
-//! | [`server`] | P14.02 §4 | The AggregatorServer skeleton: deterministic resource store, GET/POST request routing, bounded lists, mTLS requirements (fail-closed construction), and the `AggregatorTransport` seam (UNRUN by design — no transport ships in this repo) |
+//! | [`server`] | P14.02 §4 | The AggregatorServer skeleton: deterministic resource store, GET/POST request routing, bounded lists, mTLS requirements (fail-closed construction), and the `AggregatorTransport` seam (the seam trait is unchanged; it now has TWO implementations — the simulator's in-process one and this crate's live one below) |
+//! | [`transport`] | FIM-F01 | The LIVE mTLS/HTTP1 transport implementing the `AggregatorTransport` seam: `HyperTransport` (tokio-rustls accept loop with a mandatory client-certificate verifier + SHA-256 fingerprint allowlist, hyper 1.x HTTP/1.1 serving the CSIP resource tree through the existing `ResourceRequestHandler` routing). **Implemented under FIM-F01, WRITTEN-UNRUN: interop with a real IEEE 2030.5 / CSIP client is UNPROVEN and remains a HUMAN LAB GATE** |
 //! | [`proposal`] | P14.02 §5 | The DERControl → command-lifecycle mapping: external control objects enter at PROPOSED, typed with the frozen `flexcore-domain` `CommandState`; the adapter can produce PROPOSED or record a REJECTION at the PROPOSED gate and nothing else |
 //!
 //! # Honest status (read before consuming anything here)
 //!
-//! - **WRITTEN-UNRUN.** Every module here is design-baseline code that has
-//!   never been compiled or executed; the first human build gates the whole
-//!   Phase 0–10 workspace (program conventions §7.1).
-//! - **No protocol connected.** No server has ever run, no device has ever
-//!   been reached, no message has ever been exchanged. The mTLS/HTTP
-//!   transport is a designed seam, not an implementation.
+//! - **WRITTEN-UNRUN.** Every module here has never been compiled or
+//!   executed; the first human build gates the whole Phase 0–10 workspace
+//!   (program conventions §7.1).
+//! - **Live transport implemented (written-unrun); interop UNPROVEN.**
+//!   Under FIM-F01 the mTLS/HTTP1 transport is now IMPLEMENTED in this
+//!   crate ([`transport::HyperTransport`], with the fail-closed
+//!   [`transport::LiveTransportConfig`]) alongside the simulator's
+//!   in-process seam implementation — it has never been built, never
+//!   bound, never served a byte. Conformance against a real IEEE 2030.5 /
+//!   CSIP client is a HUMAN LAB GATE; no handshake, no request, and no
+//!   device exchange has ever happened. The socket-level pinned suite
+//!   (`tests/live_transport_gated.rs`) skips cleanly without its
+//!   `FLEXCORE_TEST_20305_PKI_DIR` gate and is evidence preparation, not
+//!   a result.
 //! - **No conformance claim of any kind.** CSIP certification is a
-//!   human-gated lab process (conventions §7.3); the `tests/` suite is
-//!   written-unrun evidence preparation (P14.04), never a result.
+//!   human-gated lab process (conventions §7.3); the `tests/` suites are
+//!   written-unrun evidence preparation (P14.04, FIM-F01.04), never a
+//!   result.
 //! - **UNVERIFIED standard detail.** Attribute spellings, href conventions,
 //!   primacy semantics, and SFDI/LFDI details are cited from secondary
 //!   sources ([S-1][S-3][S-5][S-7][S-156]); every such point carries an
@@ -50,6 +60,7 @@ pub mod proposal;
 pub mod scheduling;
 pub mod scope;
 pub mod server;
+pub mod transport;
 
 /// The registered adapter id (the composition-registry allowlist key shape;
 /// the P6.12 registry pattern). Registered as PLANNED in the edge-agent

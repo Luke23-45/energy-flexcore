@@ -73,6 +73,27 @@
 // test doubles only (phase-18 constraint 6). No CA, no issuance: the
 // handoff token comes from the SAME platform identity authority the
 // manual path uses.
+//
+// FIM-F15 ADDITIONS (Wave 6, final implementation milestone; ADDITIVE —
+// every existing state, edge, refusal, and the shipped
+// `NoRendezvousConfigured` refuse-everything default are UNCHANGED):
+// - the [`VoucherStore`] persistence seam (FIM-F15.01): a store of
+//   voucher records keyed per (tenant, device) running the EXISTING
+//   closed event/transition machine. The in-memory
+//   [`OwnershipVoucherRegister`] is its in-memory DEFAULT implementation
+//   (the repo's port-trait + in-memory-default store pattern); a durable
+//   store is the deployment's implementation behind the trait — a
+//   HUMAN/INFRA GATE, none exists here.
+// - the claim flow now verifies against ANY `VoucherStore` implementation
+//   (the additive `ZeroTouchClaimFlow::new_over_store` constructor);
+//   `ZeroTouchClaimFlow::new` keeps its exact existing signature and
+//   behaviour over the register.
+// - the additive [`ZeroTouchError::RendezvousUnreachable`] refusal
+//   (FIM-F15.02): a CONFIGURED rendezvous that cannot be reached is a
+//   distinct named refusal from the shipped un-configured default —
+//   refused fail-closed, never guessed to an owner. The claim composition
+//   built on these seams lives in `zero_touch_claim.rs`; the manual P9.33
+//   path stays the DEFAULT and the FALLBACK.
 
 use std::collections::BTreeMap;
 
@@ -310,6 +331,48 @@ impl OwnershipVoucherRegister {
     }
 }
 
+// --- The voucher persistence seam (FIM-F15.01, ADDITIVE) ------------------------------
+//
+// A store of ownership-voucher records keyed per (tenant, device) running
+// the EXISTING closed event/transition machine above. The in-memory
+// [`OwnershipVoucherRegister`] is the shipped DEFAULT implementation
+// (mirroring the repo's port-trait + in-memory-default store pattern —
+// `ports::LocalBuffer` / `InMemoryLocalBuffer`); a deployment persisting
+// vouchers implements this trait for its durable store (the journal /
+// registry adapter surface). That durable store is a HUMAN/INFRA GATE:
+// none exists in this repository, and the projection semantics it must
+// reproduce are exactly the register's closed machine.
+
+/// The voucher-store port (FIM-F15.01): persisted voucher records keyed
+/// per device, tenant-scoped, with the EXISTING closed transition machine.
+pub trait VoucherStore {
+    /// Appends one voucher event through the closed transition machine
+    /// (append-only; a refused event never enters the store).
+    fn append_event(&mut self, event: VoucherEvent) -> Result<(), ZeroTouchError>;
+    /// The current voucher entry for a device within one tenant, when one
+    /// exists. A device WITHOUT a voucher entry is refused by the claim
+    /// flow (the existing rule — the manual P9.33 path is the fallback for
+    /// exactly that device).
+    fn voucher(&self, tenant_id: &str, device_identity: &str) -> Option<OwnershipVoucherEntry>;
+    /// How many events the store retains (diagnostics).
+    fn event_len(&self) -> usize;
+}
+
+impl VoucherStore for OwnershipVoucherRegister {
+    fn append_event(&mut self, event: VoucherEvent) -> Result<(), ZeroTouchError> {
+        self.append(event)
+    }
+
+    fn voucher(&self, tenant_id: &str, device_identity: &str) -> Option<OwnershipVoucherEntry> {
+        OwnershipVoucherRegister::voucher(self, tenant_id, device_identity)
+            .cloned()
+    }
+
+    fn event_len(&self) -> usize {
+        self.event_len()
+    }
+}
+
 fn require_state(
     previous: Option<&OwnershipVoucherEntry>,
     legal: &[VoucherState],
@@ -438,18 +501,45 @@ pub struct ZeroTouchClaimFlow<'a> {
     tenant_id: String,
     site_id: String,
     state: ClaimFlowState,
-    vouchers: &'a OwnershipVoucherRegister,
+    /// The voucher store the flow verifies against (FIM-F15.01, ADDITIVE:
+    /// the [`VoucherStore`] seam; the EXISTING in-memory register is the
+    /// default and `new` keeps its exact signature and behaviour).
+    vouchers: &'a dyn VoucherStore,
     rendezvous: &'a dyn RendezvousSeam,
 }
 
 impl<'a> ZeroTouchClaimFlow<'a> {
     /// Opens a claim flow for one device within one tenant/site scope.
+    /// (Signature and behaviour UNCHANGED: this composes the register as
+    /// the default [`VoucherStore`].)
     pub fn new(
         device_identity: &str,
         presented_idevid_reference: &str,
         tenant_id: &str,
         site_id: &str,
         vouchers: &'a OwnershipVoucherRegister,
+        rendezvous: &'a dyn RendezvousSeam,
+    ) -> Result<Self, ZeroTouchError> {
+        Self::new_over_store(
+            device_identity,
+            presented_idevid_reference,
+            tenant_id,
+            site_id,
+            vouchers as &'a dyn VoucherStore,
+            rendezvous,
+        )
+    }
+
+    /// ADDITIVE (FIM-F15.01): opens the claim flow over ANY
+    /// [`VoucherStore`] implementation (the persistence seam). The
+    /// verification steps and refusals are identical to the
+    /// register-backed flow — only the lookup goes through the seam.
+    pub fn new_over_store(
+        device_identity: &str,
+        presented_idevid_reference: &str,
+        tenant_id: &str,
+        site_id: &str,
+        vouchers: &'a dyn VoucherStore,
         rendezvous: &'a dyn RendezvousSeam,
     ) -> Result<Self, ZeroTouchError> {
         if device_identity.trim().is_empty()
@@ -645,6 +735,12 @@ pub enum ZeroTouchError {
     /// is NOT configured — the manual P9.33 path is the default and the
     /// fallback.
     RendezvousNotConfigured,
+    /// ADDITIVE (FIM-F15.02): a CONFIGURED rendezvous could not be
+    /// reached (the transport seam refused). Refused fail-closed — a
+    /// device the rendezvous cannot resolve is never guessed to an owner.
+    /// DISTINCT from [`ZeroTouchError::RendezvousNotConfigured`] (the
+    /// shipped un-configured default).
+    RendezvousUnreachable { reason: String },
     /// The device has no voucher in this tenant: it cannot be zero-touch
     /// claimed; the manual path is the fallback for exactly this device.
     NoVoucherForDevice,
@@ -671,6 +767,7 @@ impl ZeroTouchError {
                 "ZERO_TOUCH_VOUCHER_TRANSITION_INVALID"
             }
             ZeroTouchError::RendezvousNotConfigured => "ZERO_TOUCH_RENDEZVOUS_NOT_CONFIGURED",
+            ZeroTouchError::RendezvousUnreachable { .. } => "ZERO_TOUCH_RENDEZVOUS_UNREACHABLE",
             ZeroTouchError::NoVoucherForDevice => "ZERO_TOUCH_NO_VOUCHER_FOR_DEVICE",
             ZeroTouchError::DeviceRevoked => "ZERO_TOUCH_DEVICE_REVOKED",
             ZeroTouchError::IDevIDReferenceMismatch => "ZERO_TOUCH_IDEVID_REFERENCE_MISMATCH",
@@ -697,6 +794,10 @@ impl std::fmt::Display for ZeroTouchError {
             ZeroTouchError::RendezvousNotConfigured => write!(
                 f, "no rendezvous is configured — zero-touch is structurally OFF and the \
                      manual P9.33 path is the default and the fallback"
+            ),
+            ZeroTouchError::RendezvousUnreachable { reason } => write!(
+                f, "the configured rendezvous could not be reached ({reason}) — refused \
+                     fail-closed, never guessed to an owner"
             ),
             ZeroTouchError::NoVoucherForDevice => write!(
                 f, "the device has no ownership voucher in this tenant — it cannot be \

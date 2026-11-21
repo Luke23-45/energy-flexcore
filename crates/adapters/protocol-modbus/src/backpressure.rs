@@ -19,8 +19,9 @@
 //
 // No queue, no limiter thread, no socket: pure declared data plus the
 // derivation arithmetic. No device is reached and no message is exchanged
-// by this module (the transport seam [`crate::transport`] is UNWIRED and
-// stays so).
+// by this module (the FIM-F03 live TCP transport in
+// [`crate::tcp_transport`] is a separate module; the RTU serial seam
+// [`crate::transport`] is UNWIRED and stays so).
 
 use flexcore_protocol_ports::observability::{
     BoundedQueuePolicy, BudgetError, MessageRateBudget, RateRefusal,

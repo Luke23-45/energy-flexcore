@@ -99,8 +99,14 @@ use crate::ports::{AuditSink, EdgeAuditEvent, EdgeAuditKind};
 /// wires (DEPLOYMENT REQUIREMENT — acceptance is meaningless until a real
 /// SHA-256 verifier is composed; `NoUpdateVerifier` refuses everything
 /// regardless of the declared algorithm). `fnv1a64-test` is the labelled
-/// test-grade checksum.
-pub const UPDATE_DIGEST_ALGORITHMS: [&str; 2] = ["sha-256", "fnv1a64-test"];
+/// test-grade checksum. `ed25519` (FIM-F12, additive — the two original
+/// entries are untouched) is the name of the REAL signature verifier
+/// (`crate::ota_signing::Ed25519UpdateSignatureVerifier`): a manifest
+/// declaring it carries the Ed25519 SIGNATURE over the domain-separated
+/// bytes in the hex field, and the verifier still refuses everything when
+/// no trust anchors are configured (the fail-closed default is
+/// unchanged).
+pub const UPDATE_DIGEST_ALGORITHMS: [&str; 3] = ["sha-256", "fnv1a64-test", "ed25519"];
 /// The accepted signer key-reference schemes (the P7.05/P7.14 scheme rule;
 /// `key-store:` is the deployment key store). A reference without one of
 /// these prefixes is refused as likely inline key material — the value is

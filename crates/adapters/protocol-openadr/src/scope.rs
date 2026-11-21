@@ -72,8 +72,9 @@ fn reviewed_not_modelled() -> Vec<NotModelled> {
         .expect("valid"),
         NotModelled::new(
             "http_serving".to_string(),
-            "no HTTP serving is implemented; endpoint serving is a designed seam (record \
-             21 §3)"
+            "the live VTN HTTP serving added under FIM-F04 is WRITTEN-UNRUN (VEN interop \
+             UNPROVEN — a HUMAN LAB GATE; record 21 §3's designed seam holds: the serving \
+             layer reads the endpoint design as data)"
                 .to_string(),
         )
         .expect("valid"),
@@ -111,7 +112,9 @@ pub fn vtn_scope(adapter_id: &str) -> Result<ProtocolScopeDeclaration, ProtocolS
             "delivery modes declared: polling and push (protocol-specific vocabulary; \
              enforced by the delivery planner)"
                 .to_string(),
-            "endpoint surface designed as data (crate::endpoints); serving is a seam"
+            "endpoint surface designed as data (crate::endpoints); serving is wired onto \
+             that seam under FIM-F04 (written-unrun, VEN interop unproven — a human lab \
+             gate)"
                 .to_string(),
         ],
     )

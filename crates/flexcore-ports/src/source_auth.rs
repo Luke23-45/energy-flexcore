@@ -74,6 +74,19 @@
 // receive-side integrity check on simulation telemetry. It grants no
 // control authority, performs no device writes, and carries no
 // protection-grade functionality.
+//
+// # FIM wave 8 change (V-10, written-unrun)
+//
+// `push_length_prefixed` no longer fails fast: an identifier the u32
+// length prefix cannot represent is refused with the typed
+// `SourceAuthError::MalformedEnvelope` error (the existing wrong-shape
+// classification — no new error vocabulary), the signing-path callers
+// refuse it (`signable_identifier`; the database adapter refuses such
+// envelopes at its parse gate), and `canonical_signing_bytes` keeps its
+// frozen signature while never panicking on the signing path. Written
+// under the Final Implementation Milestone program; never compiled or run
+// by the implementing agent — the first human build/test (the V-1/V-2
+// re-run window) is the verification gate.
 
 use flexcore_domain::ids::TenantId;
 use flexcore_domain::tenant_context::TenantContext;
@@ -125,6 +138,21 @@ pub struct SignedEnvelope {
 /// UUID bytes, `sequence` as 8 bytes little-endian,
 /// `event_time_unix_millis` as 8 bytes little-endian, `payload_digest` as
 /// 32 raw bytes.
+///
+/// Over-long identifiers (V-10, FIM wave 8): the length prefix is u32
+/// little-endian, so an identifier beyond `u32::MAX` bytes has NO
+/// canonical signing bytes. This constructor keeps its Patch B signature
+/// — every existing caller signs or verifies over the returned bytes — so
+/// the typed refusal lives one step earlier: signing-path callers that can
+/// refuse call [`signable_identifier`] first and handle its `Err` as a
+/// refusal (the database adapter refuses such envelopes at its parse
+/// gate, before any verification). For an input that slipped past the
+/// gate this function returns the EMPTY byte string — never a truncated
+/// or otherwise wrong layout, and never a fail-fast panic on the signing
+/// path. The empty form is distinguishable from every real layout (each
+/// begins with [`ENVELOPE_DOMAIN`]) and can never verify: a frame
+/// carrying an over-long identifier is refused at parse before any
+/// signature comparison happens.
 pub fn canonical_signing_bytes(
     version: u8,
     key_id: &str,
@@ -134,20 +162,23 @@ pub fn canonical_signing_bytes(
     event_time_unix_millis: i64,
     payload_digest: &[u8; 32],
 ) -> Vec<u8> {
-    let mut out = Vec::with_capacity(
-        ENVELOPE_DOMAIN.len()
-            + 1
-            + 4 + key_id.len()
-            + 4 + source_id.len()
-            + 16
-            + 8
-            + 8
-            + 32,
-    );
+    // Capacity covers the FIXED layout parts only: the identifier lengths
+    // are untrusted input here, and reserving their full length before the
+    // over-long refusal resolved could itself allocate beyond the
+    // representable bound. `extend_from_slice` grows the buffer as the
+    // validated fields are appended.
+    let mut out = Vec::with_capacity(ENVELOPE_DOMAIN.len() + 1 + 16 + 8 + 8 + 32);
     out.extend_from_slice(ENVELOPE_DOMAIN);
     out.push(version);
-    push_length_prefixed(&mut out, key_id.as_bytes());
-    push_length_prefixed(&mut out, source_id.as_bytes());
+    // The typed over-long refusal (see [`push_length_prefixed`]): no
+    // canonical signing bytes exist for a refused identifier — the empty
+    // return, never a wrong layout and never a panic.
+    if push_length_prefixed(&mut out, key_id.as_bytes()).is_err() {
+        return Vec::new();
+    }
+    if push_length_prefixed(&mut out, source_id.as_bytes()).is_err() {
+        return Vec::new();
+    }
     out.extend_from_slice(&tenant_id.uuid().to_bytes());
     out.extend_from_slice(&sequence.to_le_bytes());
     out.extend_from_slice(&event_time_unix_millis.to_le_bytes());
@@ -155,12 +186,48 @@ pub fn canonical_signing_bytes(
     out
 }
 
-/// Appends `bytes` as u32 little-endian length + bytes.
-fn push_length_prefixed(out: &mut Vec<u8>, bytes: &[u8]) {
+/// The typed over-long refusal for one signing-path identifier (V-10,
+/// FIM wave 8): `Ok` when the identifier can be length-prefixed into the
+/// canonical signing bytes, `Err` — the EXISTING
+/// [`SourceAuthError::MalformedEnvelope`] classification, because an
+/// identifier that cannot be signed is a field of the wrong shape and the
+/// stable quarantine reason
+/// (`1-receive: source-auth: malformed-envelope`) is unchanged — when it
+/// cannot. Signing-path callers handle the `Err` as a refusal BEFORE
+/// [`canonical_signing_bytes`] is called; the constructor itself never
+/// fails fast.
+pub fn signable_identifier(identifier: &str) -> Result<(), SourceAuthError> {
+    if identifier.len() > u32::MAX as usize {
+        return Err(SourceAuthError::MalformedEnvelope(
+            over_long_identifier_detail(identifier.len()),
+        ));
+    }
+    Ok(())
+}
+
+/// The diagnostic detail for an identifier the canonical signing bytes
+/// cannot represent. Diagnostic only — it never enters the stable
+/// quarantine reason (see [`SourceAuthError::quarantine_reason`]).
+fn over_long_identifier_detail(length: usize) -> String {
+    format!(
+        "the identifier is {length} bytes; the canonical signing bytes length-prefix identifiers \
+         as u32 little-endian, so identifiers beyond u32::MAX bytes cannot be signed"
+    )
+}
+
+/// Appends `bytes` as u32 little-endian length + bytes. Returns the typed
+/// refusal — [`SourceAuthError::MalformedEnvelope`], the existing
+/// wrong-shape classification — on over-long input, replacing the former
+/// fail-fast `.expect()` (V-10, FIM wave 8). A refused identifier writes
+/// NOTHING to `out` (the length is validated before any push), so the
+/// caller resolves the refusal with an untouched buffer and the signing
+/// path carries no panic.
+fn push_length_prefixed(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), SourceAuthError> {
     let len = u32::try_from(bytes.len())
-        .expect("a key or source identifier longer than u32::MAX bytes cannot be signed");
+        .map_err(|_| SourceAuthError::MalformedEnvelope(over_long_identifier_detail(bytes.len())))?;
     out.extend_from_slice(&len.to_le_bytes());
     out.extend_from_slice(bytes);
+    Ok(())
 }
 
 /// Why envelope authentication rejected a frame. Every variant maps to

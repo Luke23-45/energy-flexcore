@@ -2,22 +2,29 @@
 // 44_p14_12_cim_cgmes_import.md; the record 02 §5 template: design the
 // transport, land no dependency).
 //
-// There is NO XML/RDF parser in this crate's dependency line. The
-// RDF/XML parsing of a CGMES profile is a designed seam exactly like the
-// other protocol adapters' wire transports: the trait below is the FULL
-// surface a composition root would implement (over an XML parser chosen
-// at implementation time, with the human-gated decision recorded), and
-// [`UnwiredProfileSource`] is the shipped default that refuses every
-// parse with [`ProfileParseError::SeamNotWired`].
+// FIM-F06 UPDATE (docs/releases/implementation_ledger/ledger_F06.md): the
+// seam is now WIRED. `crate::xml_profile::XmlRdfProfileSource` implements
+// [`RdfProfileSource`] over the hand-written pull parser
+// `crate::xml_pull` (FIM-F06.01 — no XML crate enters the dependency line,
+// FIM standing decision 1). **Implemented under FIM-F06, WRITTEN-UNRUN:
+// never compiled, never executed; interop with a real DSO CGMES profile
+// is UNPROVEN and remains a HUMAN LAB GATE** (crate conventions §7.3).
+// [`UnwiredProfileSource`] is UNTOUCHED and remains the shipped DEFAULT
+// until a composition root constructs and selects the real source.
+//
+// (Pre-FIM posture, for the record: the trait below was designed as the
+// FULL surface a composition root would implement over an XML parser
+// chosen at implementation time, with the human-gated decision recorded.)
 //
 // THE DECLARED NORMALIZATION RULE (what a real parser must produce): a
 // profile is normalized into a [`ProfileDocument`] where —
 //
 // 1. every object element becomes one [`crate::model::CimObject`] whose
-//    mRID is the element's `rdf:ID` (UNVERIFIED: whether the target
-//    profiles use `rdf:ID` or `rdf:about`, and the exact `cim:` namespace
-//    URIs, are implementation-time checks against the CGMES profile
-//    text [S-17]);
+//    mRID is the element's `rdf:ID` (FIM-F06.05 verification: [S-173]
+//    confirms "Only mRID (exchanged as rdf:ID) is used" — rdf:ID is THE
+//    carrier and rdf:about stays the implemented fallback; the exact
+//    `cim:` namespace URIs stay an implementation-time check against the
+//    CGMES profile text [S-17]);
 // 2. every attribute element becomes one declared-attribute entry keyed
 //    by the DECLARED attribute constants of [`crate::model`] (the
 //    normalization maps the raw RDF predicate to the mapping-profile
@@ -55,7 +62,9 @@ pub enum ProfileParseError {
     /// mRIDs, an empty document) — re-raised from the model layer.
     Model(crate::model::CimModelError),
     /// The shipped [`UnwiredProfileSource`] refused the operation: no
-    /// RDF/XML parser exists in this batch.
+    /// parser is wired by default (the FIM-F06 source exists in
+    /// `crate::xml_profile`, written-unrun; a composition root must
+    /// construct and select it).
     SeamNotWired,
 }
 
@@ -71,8 +80,9 @@ impl std::fmt::Display for ProfileParseError {
             ProfileParseError::Model(error) => write!(f, "the parsed document is not a valid profile: {error}"),
             ProfileParseError::SeamNotWired => write!(
                 f,
-                "the RDF/XML profile parser is a designed, UNWIRED seam — no parser \
-                 dependency exists (decision record 44)"
+                "the RDF/XML profile parser is not wired by default — UnwiredProfileSource \
+                 refuses until a composition root selects the FIM-F06 source (decision \
+                 record 44; ledger F06)"
             ),
         }
     }
@@ -86,10 +96,11 @@ impl From<CimModelError> for ProfileParseError {
     }
 }
 
-/// The RDF/XML profile-source seam: the full surface a composition root
-/// would implement over an XML parser chosen at implementation time.
-/// Sync trait (the `flexcore-ports` house rule); the adapter owns no I/O
-/// runtime.
+/// The RDF/XML profile-source seam: the surface a composition root
+/// implements to wire a parser. The FIM-F06 implementation is
+/// `crate::xml_profile::XmlRdfProfileSource` (WRITTEN-UNRUN, real-profile
+/// interop UNPROVEN — a HUMAN LAB GATE). Sync trait (the `flexcore-ports`
+/// house rule); the adapter owns no I/O runtime.
 ///
 /// Deliberately NO write method and NO network method: model import is a
 /// one-way parse of supplied bytes. Where the bytes come from (a DSO

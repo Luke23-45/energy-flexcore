@@ -1,20 +1,30 @@
-# P14.07 — SunSpec Modbus client adapter models: information-model types
+# P14.07 — SunSpec Modbus client adapter: information-model types
 # (101/103 inverters, 201/203 meters, 80x battery models), a register-map
 # registry keyed per device model, gateway polling budgets, unit conversion
-# at the adapter boundary, and the Modbus TCP/RTU transport SEAM.
+# at the adapter boundary, the Modbus TCP/RTU transport SEAM, and — under
+# FIM-F03 — the LIVE Modbus TCP client (hand-written MBAP+PDU codec, tokio
+# TCP transport, SunSpec device read flow).
 #
 # Dependency policy (tools/check_dependency_rule.py): ADAPTER crate
 # (composition side, like crates/adapters/nats). Minimal dependency set —
 # flexcore-contracts for the canonical unit types (MW/MVAr/MWh/SOC with the
 # declared reactive sign convention; the conversion lives in src/units_map.rs
-# and its tests), serde for model serialization. NO Modbus stack library,
-# NO serial/TCP runtime: the wire transport is a designed seam
-# (src/transport.rs) — the model layers are real code, the transports are
-# never connected in this program.
+# and its tests), the frozen telemetry quality/provenance vocabulary, serde
+# for model serialization, and — FIM-F03 — tokio for the live TCP client.
+# NO Modbus stack library is a dependency in either case: the MBAP+PDU
+# framing is HAND-WRITTEN in src/codec.rs (FIM standing decision 1 — a
+# missing wire protocol is a hand-written minimal codec, not a new
+# dependency).
+#
+# FIM-F03 honesty (docs/releases/implementation_ledger/ledger_F03.md): the
+# live transport, codec, and SunSpec read flow are WRITTEN-UNRUN; device
+# interop is UNPROVEN and remains a HUMAN LAB GATE. The RTU serial path
+# REMAINS unwired (src/transport.rs::UnwiredTransport answers with the
+# named SeamNotWired refusal).
 
 [package]
 name = "flexcore-modbus-adapter"
-description = "SunSpec Modbus client adapter models: information models, register-map registry, polling budgets, unit conversion, transport seam (P14.07)."
+description = "SunSpec Modbus client adapter: information models, register-map registry, polling budgets, unit conversion, the MBAP+PDU codec and live Modbus TCP client (FIM-F03, written-unrun, interop unproven), and the SunSpec device read flow (P14.07)."
 version.workspace = true
 edition.workspace = true
 
@@ -22,7 +32,16 @@ edition.workspace = true
 flexcore-protocol-ports = { workspace = true }
 serde = { workspace = true }
 flexcore-contracts = { workspace = true }
+# - tokio (workspace = 1.54.1 in the lock; lock-verified by grep on
+#   2026-11-19): FIM-F03.02 — the live TCP client's current-thread runtime,
+#   connect/response timeouts, and budget-honouring reconnect backoff. The
+#   workspace feature set (rt-multi-thread/macros/signal/time/net/sync/
+#   io-util) already covers everything the client uses; no feature is
+#   added and no new crate enters the resolution graph.
+tokio = { workspace = true }
 
 [dev-dependencies]
-# The conversion tests (tests/register_conversion.rs) use only the crates
-# above — no additional dev dependency is permitted.
+# The test suites (tests/register_conversion.rs and the FIM-F03 gated
+# suite tests/live_transport_gated.rs) use only the crates above — the
+# tokio test-macro feature is already in the workspace feature set, so no
+# additional dev dependency is required or permitted.

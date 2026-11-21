@@ -11,19 +11,28 @@
 # types (an uplink point carries MW / MVAr / MWh / SOC-fraction values,
 # converted at the adapter boundary), serde for model serialization.
 #
-# NO MQTT client library, NO broker runtime, NO async runtime: the wire
-# transport is a designed seam (src/transport.rs). NO dependency on
-# flexcore-edge-agent — the edge-agent `UplinkChannel` seam is NAMED as the
-# composition point (src/uplink.rs docs) but the edge agent is a composition
-# crate and adapter crates must not depend on it (checker policy: nothing
-# depends ON composition crates except apps). The NATS-at-the-grid-edge
-# evidence [S-40] is NOTED, not productized: the existing crates/adapters/
-# nats crate stays the platform-internal bus; no NATS transport is added
-# here.
+# NO MQTT client library, NO protobuf codegen (no prost): the MQTT 5 wire
+# codec (src/mqtt_wire.rs) and the Sparkplug B payload codec
+# (src/sparkplug_wire.rs) are HAND-WRITTEN minimal codecs pinned by tests
+# (FIM standing decision 1), and the live transport (src/live.rs) dials OUT
+# only. NO dependency on flexcore-edge-agent — the edge-agent
+# `UplinkChannel` seam is NAMED as the composition point (src/uplink.rs
+# docs) but the edge agent is a composition crate and adapter crates must
+# not depend on it (checker policy: nothing depends ON composition crates
+# except apps). The NATS-at-the-grid-edge evidence [S-40] is NOTED, not
+# productized: the existing crates/adapters/nats crate stays the
+# platform-internal bus; no NATS transport is added here.
+#
+# FIM-F05 (live MQTT 5 + Sparkplug B edge uplink; FIM standing decision 1):
+# every external dependency below is ALREADY resolved in the committed
+# `Cargo.lock` and each line pins the EXACT resolved version (verified by
+# grep against `Cargo.lock` on 2026-11-19). No new crate enters the
+# resolution graph. Broker interop and Sparkplug B conformity are UNPROVEN
+# (written-unrun; HUMAN LAB GATE).
 
 [package]
 name = "flexcore-mqtt-adapter"
-description = "MQTT 5 + Sparkplug B edge-transport adapter models: topic namespace, BIRTH/DEATH state machine, payload model, per-device credentials, uplink option, transport seam (P14.11)."
+description = "MQTT 5 + Sparkplug B edge-transport adapter: topic namespace, BIRTH/DEATH state machine, payload model, per-device credentials, uplink option, transport seam (P14.11), the hand-written MQTT 5 / Sparkplug B wire codecs and the live uplink transport (FIM-F05, written-unrun, interop unproven)."
 version.workspace = true
 edition.workspace = true
 
@@ -32,6 +41,38 @@ flexcore-protocol-ports = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 flexcore-contracts = { workspace = true }
+# - FIM-F05 (lock-verified): tokio (workspace = 1.54.1 in the lock) is the
+#   live transport's engine runtime (a dedicated thread running a
+#   current-thread runtime) and its timers/io (net, sync, io-util, time,
+#   rt — all workspace features).
+tokio = { workspace = true }
+# - tokio-rustls 0.26.6 (lock): the client TLS for the OUTBOUND broker
+#   hop (the P6.07 rule: the edge dials out over TLS or fails).
+#   `default-features = false` + `ring` keeps the resolved rustls provider
+#   IDENTICAL to the committed lock graph (ring; aws-lc-rs is not in the
+#   lock and would add a new crate — forbidden by FIM standing decision 1).
+tokio-rustls = { version = "0.26.6", default-features = false, features = [
+    "ring",
+    "tls12",
+] }
+# - rustls 0.23.46 (lock): the fail-closed client TLS configuration (trust
+#   anchors from the declared PEM path, optional mTLS client identity).
+#   Same provider note as tokio-rustls: ring-only, matching the lock.
+rustls = { version = "0.23.46", default-features = false, features = [
+    "logging",
+    "ring",
+    "std",
+    "tls12",
+] }
+# - rustls-pemfile 2.2.0 (lock): PEM decoding of the composition root's
+#   trust-anchor / client-identity paths (no key material ever lives in
+#   code or in this repository).
+rustls-pemfile = "2.2.0"
+# - futures 0.3.34 (lock): `BoxFuture` on the mockable `BrokerConnector`
+#   seam (the socket-free tests inject an in-memory duplex).
+futures = "0.3.34"
 
 [dev-dependencies]
-# Inline tests use only the crates above — no additional dev dependency.
+# Inline and integration tests use only the crates above — no additional
+# dev dependency (the socket-free live-session tests drive a scripted
+# mock broker over `tokio::io::duplex`).

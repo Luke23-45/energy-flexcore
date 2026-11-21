@@ -220,14 +220,74 @@ pub struct AppState {
     // bookkeeping store (migration 0020), ported over the Postgres
     // adapter's store (`webhook_delivery_pg.rs` implements the port).
     // `None` = not composed. Being composed does NOT mean delivery runs:
-    // no enqueue route, no hosting scan loop, no secret-resolver
-    // composition, and no live HTTP transport exist in 0.x — the
-    // transport seam composes `UnwiredOutboundHttpPost` (fail-closed,
-    // refuses every transmission with a named error), and the hosting
-    // loop + resolver are the recorded follow-ups (P13.09 decision
-    // record §5). This field exists so the store is composed and
-    // reachable at the recorded seam, not invented later.
+    // no enqueue route, no hosting scan loop, and no secret-resolver
+    // composition exist in 0.x — the transport seam below is the
+    // fail-closed delivery boundary, and the hosting loop + resolver are
+    // the recorded follow-ups (P13.09 decision record §5). This field
+    // exists so the store is composed and reachable at the recorded seam,
+    // not invented later.
     pub webhook_delivery: Option<Arc<dyn crate::webhook_service::WebhookDeliveryStore>>,
+    // FIM-F08.03 (Wave 6.5 composition, ADDITIVE) — the OUTBOUND HTTP
+    // TRANSPORT seam for webhook delivery, made an explicit state field so
+    // the composition can swap it configuration-conditionally. The DEFAULT
+    // is exactly the fail-closed posture FRV1-R8-005 recorded:
+    // `UnwiredOutboundHttpPost` (refuses every transmission with the named
+    // `E_TRANSPORT_UNWIRED` error) — absent webhook-HTTP configuration this
+    // field is constructed byte-identically to the pre-FIM implied constant.
+    // When the operator sets `FLEXCORE_WEBHOOK_HTTP_ENABLED=true`, the
+    // composition root swaps in the LIVE `ReqwestOutboundHttpPost`
+    // (`webhook_http.rs`; WRITTEN-UNRUN, live receiver interop is a HUMAN
+    // LAB GATE). Swapping the transport does NOT enable delivery: the
+    // hosting loop and secret resolver are still the recorded follow-ups,
+    // and the dispatcher remains a per-invocation composition
+    // (`WebhookDispatcher::new` over these seams), never a long-lived
+    // service.
+    pub webhook_transport: Arc<dyn crate::webhook_service::OutboundHttpPost>,
+    // FIM-F07.02 (Wave 6.5 composition, ADDITIVE, fail-closed) — the SCIM
+    // 2.0 provisioning service for the ONE configured connection
+    // (`scim.rs`: the service is tenant-pinned by construction). `None` =
+    // SCIM not composed → the surface contributes NO routes at all (the
+    // router is never mounted — not a 404 fallback). The service's store is
+    // the composition's choice; this repo composes the in-memory
+    // `InMemoryScimStore` (single-process, bounded by nothing — the
+    // Postgres-backed store is the recorded `UnwiredScimStoreBackend`
+    // deployment seam, scim_store.rs honesty header).
+    pub scim: Option<Arc<crate::scim::ScimService>>,
+    // FIM-F07.02 (Wave 6.5 composition, ADDITIVE) — the SHA-256 digest of
+    // the SCIM connection's bearer token (the module carries NO
+    // authorization; the composed deployment MUST mount it behind
+    // authentication — scim.rs honesty header). ONLY the digest is held:
+    // the token itself is never stored in state, never logged. `None` (or
+    // `scim` set without a digest) = the SCIM router is NOT mounted — the
+    // composition refuses to serve an unauthenticated provisioning surface
+    // (fail-closed on miscomposition, `routes.rs::fim_router`).
+    pub scim_bearer_digest: Option<[u8; 32]>,
+    // FIM-F08.01 (Wave 6.5 composition, ADDITIVE, fail-closed) — the
+    // machine-identity service (P13.07: client-credentials token
+    // issuance/validation/revocation). `None` = not composed → no machine
+    // token is ever issued or validated by this process. FIM WAVE 8B: the
+    // route surface now EXISTS (`machine_identity_routes.rs`, mounted by
+    // `routes.rs::fim_router` ONLY when this slot is composed — which
+    // happens only behind the `FLEXCORE_MACHINE_IDENTITY_ENABLED` gate);
+    // absent composition the slot stays `None` and the paths do not exist.
+    pub machine_identity: Option<Arc<crate::machine_identity::MachineIdentityService>>,
+    // FIM-F08.02 (Wave 6.5 composition, ADDITIVE, fail-closed) — the
+    // per-tenant API-key service (P13.08: issuance/rotation/authentication/
+    // revocation). `None` = not composed → no key is ever issued. FIM WAVE
+    // 8B: the route surface now EXISTS (`api_key_routes.rs`, mounted by
+    // `routes.rs::fim_router` ONLY when this slot is composed — which
+    // happens only behind the `FLEXCORE_API_KEYS_ENABLED` gate); absent
+    // composition the slot stays `None` and the paths do not exist.
+    pub api_keys: Option<Arc<crate::api_keys::ApiKeyService>>,
+    // FIM-F12.05 (Wave 6.5 composition, ADDITIVE, fail-closed) — the OTA
+    // cohort-rollout coordinator (`ota_rollout.rs`), behind its mutex (the
+    // `OtaReportReceiver` port takes `&mut self` — a state machine over
+    // recorded events). `None` = no rollout exists (the shipped default).
+    // The receiver port is a TYPED port, not HTTP: no route serves device
+    // reports in this binary — that transport is the named remaining
+    // wiring step (the coordinator is composed here so the audit chain and
+    // cohort state live at the composition root, not invented later).
+    pub ota_rollout: Option<Arc<std::sync::Mutex<crate::ota_rollout::OtaRolloutCoordinator>>>,
 }
 
 impl AppState {
@@ -289,6 +349,23 @@ impl AppState {
             // Postgres composition root opts in via
             // [`AppState::with_webhook_delivery`].
             webhook_delivery: None,
+            // FIM Wave 6.5: the transport seam defaults to the EXACT
+            // fail-closed unwired posture (see the field's doc comment);
+            // the live reqwest transport composes only behind the
+            // webhook-HTTP configuration.
+            webhook_transport: Arc::new(crate::webhook_service::UnwiredOutboundHttpPost),
+            // FIM-F07.02: SCIM not composed by default (no connection
+            // exists; the router is never mounted — see the field docs).
+            scim: None,
+            scim_bearer_digest: None,
+            // FIM-F08.01/FIM-F08.02: no machine-identity or API-key
+            // service composed by default (no client, no key — see the
+            // field docs).
+            machine_identity: None,
+            api_keys: None,
+            // FIM-F12.05: no OTA rollout exists by default (see the field
+            // docs).
+            ota_rollout: None,
         }
     }
 
@@ -302,6 +379,66 @@ impl AppState {
         store: Arc<dyn crate::webhook_service::WebhookDeliveryStore>,
     ) -> Self {
         self.webhook_delivery = Some(store);
+        self
+    }
+
+    /// FIM-F08.03 (Wave 6.5) composition: swaps the webhook transport
+    /// seam. The DEFAULT (never composed) stays
+    /// [`crate::webhook_service::UnwiredOutboundHttpPost`]; the
+    /// configuration-gated composition root swaps in the LIVE
+    /// [`crate::webhook_http::ReqwestOutboundHttpPost`] only when the
+    /// webhook-HTTP configuration is present. Swapping the transport does
+    /// NOT enable delivery (no enqueue route, no hosting loop — see the
+    /// field's doc comment).
+    pub fn with_webhook_transport(
+        mut self,
+        transport: Arc<dyn crate::webhook_service::OutboundHttpPost>,
+    ) -> Self {
+        self.webhook_transport = transport;
+        self
+    }
+
+    /// FIM-F07.02 (Wave 6.5) composition: wires the SCIM service AND the
+    /// digest of its bearer token (the guard material — the token itself
+    /// is never held). The pair is atomic BY CONSTRUCTION: there is no way
+    /// to compose the service without the guard digest, and
+    /// `routes.rs::fim_router` additionally refuses to mount when either
+    /// half is missing (fail-closed on miscomposition).
+    pub fn with_scim(
+        mut self,
+        service: Arc<crate::scim::ScimService>,
+        bearer_digest: [u8; 32],
+    ) -> Self {
+        self.scim = Some(service);
+        self.scim_bearer_digest = Some(bearer_digest);
+        self
+    }
+
+    /// FIM-F08.01 (Wave 6.5) composition: wires the machine-identity
+    /// service (no route serves it yet — see the field's doc comment).
+    pub fn with_machine_identity(
+        mut self,
+        service: Arc<crate::machine_identity::MachineIdentityService>,
+    ) -> Self {
+        self.machine_identity = Some(service);
+        self
+    }
+
+    /// FIM-F08.02 (Wave 6.5) composition: wires the API-key service (no
+    /// route serves it yet — see the field's doc comment).
+    pub fn with_api_keys(mut self, service: Arc<crate::api_keys::ApiKeyService>) -> Self {
+        self.api_keys = Some(service);
+        self
+    }
+
+    /// FIM-F12.05 (Wave 6.5) composition: wires the OTA rollout
+    /// coordinator (the receiver port is typed, not HTTP — see the
+    /// field's doc comment).
+    pub fn with_ota_rollout(
+        mut self,
+        coordinator: Arc<std::sync::Mutex<crate::ota_rollout::OtaRolloutCoordinator>>,
+    ) -> Self {
+        self.ota_rollout = Some(coordinator);
         self
     }
 

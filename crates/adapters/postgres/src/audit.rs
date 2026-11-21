@@ -37,6 +37,22 @@
 // invisible to `flexcore_app` under the RLS policy, writable only through
 // the owner/ops path — the platform chain namespace (`audit_chain_state`
 // sentinel key) is likewise an owner/ops-path concern.
+//
+// FIM V-9 ADDITION (wave 8, written-unrun) — the chain upgrade note:
+// `docs/security/audit_chain_upgrade_note_fim.md` records how audit
+// evidence verifies ACROSS the chain upgrade boundary. This module's
+// keyed append has always composed `flexcore_audit::chain` (the
+// HMAC-SHA-256 construction) — the adapter never wrote an FNV digest into
+// any `audit_records` chain column; the FNV-1a chain is the TEST-GRADE
+// edge chain (`crates/edge-agent/src/audit_proof.rs`, label
+// `fnv1a64-chain`, LR-203), which keeps its own recorded algorithm label
+// and its own verifier. Rows written before migration 0019, or while no
+// chain key was configured, carry NULL chain columns and stay outside
+// the keyed chain — reported as `unchained_records`, never re-hashed and
+// never silently skipped; keyed rows carry their recorded `chain_algorithm`
+// label (`AUDIT_CHAIN_ALGORITHM`). A verifier tells the generations apart
+// by that recorded algorithm field alone — no silent re-hash in either
+// direction.
 
 use crate::error::map_audit_rejection;
 use crate::unit_of_work::Tx;

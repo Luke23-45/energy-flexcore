@@ -384,6 +384,50 @@ impl CsmsServer {
         Ok(())
     }
 
+    // FIM-F02.03 (ADDITIVE) — the boot-outcome entry points the live
+    // transport's dispatch layer calls so a BootNotification flows through
+    // the EXISTING session state machine unchanged: the ACCEPT decision is
+    // the provisioning policy's (crate::provisioning), this surface only
+    // records the outcome on the connection's session (P17.04). No new
+    // states, edges, or vocabulary — `Session::apply_boot_accepted` and
+    // `SessionEndReason::BootRejected` are the existing recorded shapes.
+    /// Records an ACCEPTED boot on the connection's session (the session
+    /// machine walks Negotiated → Provisioned; double provisioning stays
+    /// refused exactly as recorded).
+    pub fn mark_boot_accepted(&mut self, charge_point: &ChargePointId) -> Result<(), CsmsError> {
+        let connection = self
+            .connections
+            .get_mut(charge_point.as_str())
+            .ok_or(CsmsError::NotConnected {
+                charge_point: charge_point.to_string(),
+            })?;
+        let identity = connection.charge_point_id.clone();
+        connection
+            .session
+            .apply_boot_accepted(identity)
+            .map_err(|error| CsmsError::Session(error.to_string()))
+    }
+
+    /// Records a REJECTED boot: the session ends with the recorded
+    /// `BootRejected` reason (the station may retry with a NEW session —
+    /// never a resurrection, the recorded rule). The reply frame is built
+    /// by the caller BEFORE this call; an ended session still accepts the
+    /// outbound write.
+    pub fn mark_boot_rejected(&mut self, charge_point: &ChargePointId) -> Result<(), CsmsError> {
+        let connection = self
+            .connections
+            .get_mut(charge_point.as_str())
+            .ok_or(CsmsError::NotConnected {
+                charge_point: charge_point.to_string(),
+            })?;
+        connection
+            .session
+            .end(SessionEndReason::BootRejected {
+                charge_point: charge_point.to_string(),
+            });
+        Ok(())
+    }
+
     /// Marks the connection down (transport close). The registry entry's
     /// SESSION is ended with the named reason and retained for audit; the
     /// DOMAIN-side asset states are NOT touched here — connection loss is

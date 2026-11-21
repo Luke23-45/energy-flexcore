@@ -55,6 +55,30 @@
 from __future__ import annotations
 
 import math
+import os
+import sys
+
+# ── FIM-F09.02 (ADDITIVE; no behavior change beyond one stderr line) ────
+# Guarded import of the shared stdlib-only OTEL instrumentation module.
+# The recorded fallback: when the shared module is not importable this
+# module runs EXACTLY as before and only the entry-start trace line is
+# degraded to untraced — never a crash, never a fabricated trace id. The
+# OpenTelemetry SDK is OPTIONAL and NOT installed; the no-op fallback is
+# the DEFAULT posture (see ../otel_instrumentation.py honesty header).
+# WRITTEN-UNRUN: a RUNNING Collector and FIRING SLO alerts remain HUMAN
+# GATES (F-09 acceptance criteria 1-3 need live infrastructure).
+try:
+    _OTEL_PY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _OTEL_PY_ROOT not in sys.path:
+        sys.path.insert(0, _OTEL_PY_ROOT)
+    import otel_instrumentation as _otel_instrumentation
+
+    _OTEL_IMPORT_FALLBACK: str | None = None
+except ImportError as _otel_import_error:  # recorded fallback, never a bare pass
+    _otel_instrumentation = None
+    _OTEL_IMPORT_FALLBACK = "otel_instrumentation unavailable: %s" % (
+        _otel_import_error
+    )
 
 # ── The recorded constants ────────────────────────────────────────────────
 
@@ -318,6 +342,11 @@ def run_self_tests() -> list:
 
 
 if __name__ == "__main__":  # pragma: no cover — human-gate entrypoint
+    # FIM-F09.02 (additive): the entry-start trace line (env carrier; this
+    # module processes no message envelope). ONE schema-v1 line on stderr;
+    # the self-test report on stdout is byte-identical.
+    if _otel_instrumentation is not None:
+        _otel_instrumentation.note_worker_start("flexcore-reproducibility-seed-derivation")
     _records = run_self_tests()
     _failed = [r for r in _records if not r["passed"]]
     for _r in _records:

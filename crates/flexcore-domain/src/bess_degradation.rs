@@ -18,11 +18,12 @@
 //   P3.06 placeholder statement (`bess_model::DEGRADATION_PLACEHOLDER_
 //   STATEMENT`) still governs every degradation-cost use; P15.08 supersedes
 //   the placeholder AS INPUT DATA, never as physics.
-// - **No rainflow counting.** The histogram is the STORAGE for
-//   rainflow-counted cycles: a caller (BMS analytics, a wave-2 worker)
-//   extracts (DOD, mean-SOC) half-cycle pairs from an SOC time series and
-//   records them here. The extraction itself is NOT implemented and is
-//   recorded as such (`RAINFLOW_EXTRACTION_SEAM`).
+// - **The rainflow RECORDED SEAM is CLOSED (FIM-F11, Wave 5) — the module is
+//   still not a model.** The histogram remains the STORAGE for already-counted
+//   cycles and accepts (DOD, mean-SOC) pairs from any caller; the extraction
+//   itself now lives in `crate::rainflow` (the ASTM E1049-85 three-point
+//   method), written-unrun — never compiled, never executed; the closure is
+//   recorded in `RAINFLOW_EXTRACTION_SEAM`.
 // - **No dispatch authority (ADR-010, conventions §6.3).** Counters,
 //   histograms, and SoH observations are INPUTS and RECORDS. A degradation
 //   datum never authorizes or produces a dispatch command.
@@ -72,17 +73,21 @@ pub const DEGRADATION_LEDGER_STATEMENT: &str =
     "Degradation data model: accumulated INPUT DATA with provenance, not a \
 degradation model. No fade equation, aging law, or degradation cost is \
 computed here; the P3.06 placeholder discipline governs every downstream \
-cost use. Rainflow extraction is NOT implemented — the histogram stores \
-already-counted cycles. Every datum never authorizes or produces a dispatch \
-command (ADR-010).";
+cost use. Rainflow extraction is now implemented in \
+flexcore-domain::rainflow (FIM-F11, written-unrun) — the histogram still \
+stores already-counted cycles and accepts them from any caller. Every datum \
+never authorizes or produces a dispatch command (ADR-010).";
 
-/// The recorded rainflow seam (what this module does NOT do).
+/// The recorded rainflow seam — CLOSED by FIM-F11 (Wave 5). The constant name
+/// is retained (records and tests reference it); the text records the closure
+/// honestly: the extraction is implemented, written-unrun.
 pub const RAINFLOW_EXTRACTION_SEAM: &str =
-    "RECORDED SEAM — rainflow counting from an SOC time series is NOT \
-implemented in FlexCore. The DOD x mean-SOC histogram accepts \
-already-counted (DOD, mean-SOC) cycle pairs from the caller (BMS analytics \
-or a wave-2 worker); the extraction method, its reversals convention, and \
-its residue handling are the caller's declared responsibility.";
+    "RECORDED SEAM — CLOSED (FIM-F11, Wave 5): rainflow counting from an SOC \
+time series IS NOW IMPLEMENTED in flexcore-domain::rainflow (the ASTM \
+E1049-85 three-point method with declared reversal, residue, and half-cycle \
+conventions), status written-unrun: never compiled, never executed; the \
+first human build gates it. The DOD x mean-SOC histogram continues to \
+accept already-counted (DOD, mean-SOC) cycle pairs from any caller.";
 
 // --- Errors ------------------------------------------------------------------
 
@@ -247,9 +252,11 @@ impl DegradationChemistry {
 /// never overstates knowledge. Precedence (strongest first): MEASURED >
 /// CONFIGURED > INFERRED > UNKNOWN. This is the same rule the P3.05 BESS
 /// model applies (`bess_model::weaker_provenance`); it is restated here as a
-/// private helper because the P3.05 function is private and the rule is
-/// frozen — the two implementations are pinned equal by a test.
-fn weaker_provenance(a: Provenance, b: Provenance) -> Provenance {
+/// crate-internal helper because the P3.05 function is private and the rule
+/// is frozen — the two implementations are pinned equal by a test. FIM-F11
+/// reuses THIS implementation (crate-internal visibility only; the rule and
+/// the signature are unchanged).
+pub(crate) fn weaker_provenance(a: Provenance, b: Provenance) -> Provenance {
     use Provenance as P;
     if a == P::Unknown || b == P::Unknown {
         return P::Unknown;
@@ -341,8 +348,10 @@ impl Default for MonotonicCounter {
 
 /// The rainflow-fed DOD × mean-SOC histogram (P15.07): the STORAGE for
 /// already-counted cycles. Rows are DOD bins, columns are mean-SOC bins;
-/// counts only grow. Rainflow extraction itself is NOT implemented
-/// ([`RAINFLOW_EXTRACTION_SEAM`]).
+/// counts only grow. Rainflow extraction is implemented in
+/// [`crate::rainflow`] (FIM-F11, written-unrun; see
+/// [`RAINFLOW_EXTRACTION_SEAM`]) — this type still stores whole counted
+/// cycles exactly as before.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DodMeanSocHistogram {
     dod_bin_edges: Vec<f64>,
@@ -452,8 +461,10 @@ impl DodMeanSocHistogram {
 /// Validates a bin-edge table: at least two edges, finite, strictly
 /// ascending, within [0, 1]; `must_start_at_zero` pins the first edge to 0.0
 /// and every table's last edge to 1.0 (total coverage: every value in [0, 1]
-/// resolves to exactly one bin).
-fn validate_edges(
+/// resolves to exactly one bin). Crate-internal since FIM-F11 so the
+/// rainflow histogram reuses THE SAME validator instead of restating it —
+/// the rule is unchanged.
+pub(crate) fn validate_edges(
     edges: &[f64],
     field: &'static str,
     must_start_at_zero: bool,
@@ -501,7 +512,9 @@ fn validate_edges(
 
 /// The bin index for a value against validated ascending edges: lower edge
 /// inclusive, upper edge exclusive; the last bin includes its upper edge.
-fn bin_index(edges: &[f64], value: f64) -> usize {
+/// Crate-internal since FIM-F11 so the rainflow histogram resolves bins with
+/// THE SAME function instead of restating it — the rule is unchanged.
+pub(crate) fn bin_index(edges: &[f64], value: f64) -> usize {
     for i in 1..edges.len() {
         if value < edges[i] || (i == edges.len() - 1 && value <= edges[i]) {
             return i - 1;
@@ -1215,7 +1228,12 @@ mod tests {
         let ledger = ledger();
         assert_eq!(ledger.schema_version, DEGRADATION_LEDGER_SCHEMA_VERSION);
         assert!(DEGRADATION_LEDGER_STATEMENT.contains("not a degradation model"));
-        assert!(RAINFLOW_EXTRACTION_SEAM.contains("NOT implemented"));
+        // FIM-F11 closed the seam honestly: the extraction is implemented
+        // (written-unrun), and the closure statement says so.
+        assert!(RAINFLOW_EXTRACTION_SEAM.contains("CLOSED"));
+        assert!(RAINFLOW_EXTRACTION_SEAM.contains("IS NOW IMPLEMENTED"));
+        assert!(RAINFLOW_EXTRACTION_SEAM.contains("written-unrun"));
+        assert!(DEGRADATION_LEDGER_STATEMENT.contains("written-unrun"));
     }
 
     #[test]

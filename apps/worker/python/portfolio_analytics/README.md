@@ -72,3 +72,18 @@ python apps/worker/python/portfolio_analytics/analytics.py   # in-module self-te
 PYTHONPATH=apps/worker/python/portfolio_analytics python -m pytest \
   apps/worker/python/portfolio_analytics/tests -v           # pytest mirror
 ```
+
+## FIM-F09 instrumentation (additive; WRITTEN-UNRUN)
+
+`analytics.py` imports the shared stdlib-only module
+`../otel_instrumentation.py` (FIM-F09.01) guarded and emits ONE schema-v1
+entry-start trace line on stderr (`flexcore.log.v1`, P11.07) when run as
+a script, carrying the W3C `traceparent` resolved from the
+`TRACEPARENT` env var (this package processes no message envelope) —
+absent context stays EMPTY, never synthesized (P11.05 posture). The
+self-test report on stdout is byte-identical. The OpenTelemetry SDK is
+OPTIONAL and NOT installed; the no-op fallback is the DEFAULT posture;
+the SDK-present OTLP export path is UNPROVEN until a human runs it with
+the SDK installed. A RUNNING Collector and FIRING SLO alerts are HUMAN
+GATES (F-09 acceptance criteria 1-3); the Collector config is validated
+structurally — never run — by `../tools_fim/validate_collector_config.py`.

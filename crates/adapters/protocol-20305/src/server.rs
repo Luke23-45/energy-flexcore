@@ -3,11 +3,13 @@
 //
 // This is a SKELETON by declared design: the resource store, the routing,
 // the query semantics, and the fail-closed TLS requirements are real model
-// code; the HTTP/TLS serving itself is a named, UNRUN seam
-// ([`AggregatorTransport`]) with NO implementation in this repository. The
-// transport is an implementation-time human gate (decision record 02 §6):
-// no server has ever run, no device has ever been reached, no message has
-// ever been exchanged.
+// code; the HTTP/TLS serving itself is the named [`AggregatorTransport`]
+// seam. Under FIM-F01 the seam now has a LIVE implementation in this crate
+// (`crate::transport::HyperTransport` — written-unrun; interop with a real
+// 2030.5 client is UNPROVEN and remains a HUMAN LAB GATE) plus the
+// simulator's in-process one (`flexcore-simulator`
+// `SimulatedAggregatorTransport`). No server has ever run, no device has
+// ever been reached, no message has ever been exchanged.
 //
 // Design decisions recorded here:
 //
@@ -397,24 +399,26 @@ impl StoredResource {
 }
 
 /// The request handler the transport seam calls (P14.02 §4). The
-/// AggregatorServer implements it; a transport implementation (NONE exists
-/// in this repository — the seam is UNRUN by design) calls it per wire
-/// request.
+/// AggregatorServer implements it; a transport implementation calls it per
+/// wire request (as of FIM-F01 there are two: the live
+/// [`crate::transport::HyperTransport`] and the simulator's in-process
+/// `SimulatedAggregatorTransport` — both written-unrun).
 pub trait ResourceRequestHandler {
     /// Handles one request on the design surface.
     fn handle(&mut self, request: &ResourceRequest) -> ResourceResponse;
 }
 
-/// The transport seam (P14.02 §4; decision record 02 §6). **UNRUN BY
-/// DESIGN — no implementation ships in this repository.** The mTLS/HTTP
-/// transport is an implementation-time human gate: it must bind the TLS
-/// listener with [`MtlsRequirements`] (client certificates structurally
-/// required), enforce the declared [`ServerLimits`] at connection scale,
-/// decode wire resources into [`ResourceRequest`]s, and encode
-/// [`ResourceResponse`]s back. The wire encoding (EXI per the standard —
-/// UNVERIFIED) and the HTTP server framework choice are recorded as open
-/// implementation decisions (conventions §4 E-decision discipline; the
-/// dependency line admits no HTTP framework in this batch).
+/// The transport seam (P14.02 §4; decision record 02 §6). As of FIM-F01
+/// the seam HAS implementations (written-unrun): the live mTLS/HTTP1
+/// transport [`crate::transport::HyperTransport`] and the simulator's
+/// in-process `SimulatedAggregatorTransport`. The trait itself is
+/// UNCHANGED; the live transport must bind the TLS listener with
+/// [`MtlsRequirements`] (client certificates structurally required),
+/// enforce the declared [`ServerLimits`] at connection scale, decode wire
+/// resources into [`ResourceRequest`]s, and encode [`ResourceResponse`]s
+/// back. The standard's wire encoding (EXI — UNVERIFIED) is NOT
+/// implemented: the live transport speaks the JSON design surface, and
+/// conformance against a real 2030.5 client remains a HUMAN LAB GATE.
 pub trait AggregatorTransport: Send {
     /// Binds and serves until the transport closes. Returns a named
     /// [`TransportError`] on failure — a transport never reports success
@@ -426,7 +430,10 @@ pub trait AggregatorTransport: Send {
 }
 
 /// Transport-level errors (named; the transport seam reports these, never
-/// a silent close).
+/// a silent close). The first three variants are the original seam
+/// vocabulary (P14.02 §4); the FIM-F01 variants are the live transport's
+/// named configuration/material/peer failures (additive; no existing
+/// variant changed).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransportError {
     /// The listener could not bind.
@@ -436,6 +443,22 @@ pub enum TransportError {
     TlsHandshakeFailed { reason: String },
     /// The transport closed before the server requested it.
     TransportClosed { reason: String },
+    /// (FIM-F01.01) The live-transport configuration is invalid: an empty
+    /// path, an empty trust-anchor set, a malformed fingerprint, or a
+    /// declared-but-unperformable revocation check — every refusal is
+    /// named; nothing is repaired or defaulted.
+    ConfigInvalid { field: &'static str, reason: String },
+    /// (FIM-F01.01) TLS material could not be loaded or parsed (a
+    /// certificate-chain / private-key / trust-anchor PEM path).
+    MaterialLoadFailed { what: &'static str, reason: String },
+    /// (FIM-F01.01) The `rustls` server configuration could not be built
+    /// (verifier construction, protocol versions, chain/key pairing).
+    TlsConfigFailed { reason: String },
+    /// (FIM-F01.01) The peer's client certificate was not acceptable
+    /// AFTER a successful handshake: absent, empty, or not in the
+    /// fingerprint allowlist. The connection is closed before any HTTP
+    /// byte is served — the fail-closed mTLS posture.
+    PeerRejected { reason: String },
 }
 
 impl std::fmt::Display for TransportError {
@@ -447,6 +470,18 @@ impl std::fmt::Display for TransportError {
             }
             TransportError::TransportClosed { reason } => {
                 write!(f, "transport closed: {reason}")
+            }
+            TransportError::ConfigInvalid { field, reason } => {
+                write!(f, "transport configuration invalid at '{field}': {reason}")
+            }
+            TransportError::MaterialLoadFailed { what, reason } => {
+                write!(f, "TLS material load failed for {what}: {reason}")
+            }
+            TransportError::TlsConfigFailed { reason } => {
+                write!(f, "TLS configuration failed: {reason}")
+            }
+            TransportError::PeerRejected { reason } => {
+                write!(f, "peer certificate rejected: {reason}")
             }
         }
     }

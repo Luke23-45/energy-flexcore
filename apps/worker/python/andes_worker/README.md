@@ -112,3 +112,20 @@ ever fabricated.
   transport is the grid-worker-style JSON document discipline — the gap is
   recorded in `ledger/phase-08-advanced-coordination/16_andes_integration.md`
   §7 as a Phase 7 follow-up, never fixed by inventing a parallel contract.
+
+## FIM-F09 instrumentation (additive; WRITTEN-UNRUN)
+
+`andes_dynamic_worker.py` imports the shared stdlib-only module
+`../otel_instrumentation.py` (FIM-F09.01) guarded and emits ONE schema-v1
+worker-start trace line on stderr (`flexcore.log.v1`, P11.07) carrying
+the W3C `traceparent` context resolved from the request envelope / the
+`TRACEPARENT` env var — absent context stays EMPTY, never synthesized
+(P11.05 posture). No behavior change beyond that line: the result
+vocabulary, `assert_proposal_only`, and `FORBIDDEN_RESULT_KEYS` are
+untouched; the emit-time redaction filter covers the P11.08 closed
+vocabulary plus the proposal-only keys. The OpenTelemetry SDK is
+OPTIONAL and NOT installed; the no-op fallback is the DEFAULT posture;
+the SDK-present OTLP export path is UNPROVEN until a human runs it with
+the SDK installed. A RUNNING Collector and FIRING SLO alerts are HUMAN
+GATES (F-09 acceptance criteria 1-3); the Collector config is validated
+structurally — never run — by `../tools_fim/validate_collector_config.py`.

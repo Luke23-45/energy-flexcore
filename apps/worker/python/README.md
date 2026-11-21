@@ -26,6 +26,9 @@ package's README names its own gate and honesty header).
 | `training-data-manifest-v2.json` | P15.18 | The forecasting dataset-registration discipline; carries the v1 GNN assignment forward BY REFERENCE (v1 is never edited) |
 | `requirements.txt` | P5.15 | The recorded pin `pandapower==3.5.6` (D-P4.01-1) — **NEVER INSTALLED** in this loop |
 | `requirements-dev.txt` | P8.37 | The recorded test-tooling pin `pytest==9.2.0` (test-only; SECONDARY-SOURCE PIN; RE-VERIFY AT FIRST INSTALL) — never installed in this loop |
+| `otel_instrumentation.py` | FIM-F09.01 | The shared stdlib-only OTEL trace-context module: strict W3C `traceparent` parse/serialize, JetStream-header/envelope/`TRACEPARENT` extraction, schema-v1 (P11.07) span-carrying log lines, and the P11.08 emit-time redaction (closed vocabulary mirrored from `python/workers/worker_template/redaction.py` plus the workers' `FORBIDDEN_RESULT_KEYS`); guarded OTel-SDK import, no-op fallback DEFAULT; in-module `--self-test` |
+| `tools_fim/` | FIM-F09.03 | `validate_collector_config.py`: STRUCTURAL validation of `deploy/compose/otel-collector-config.yaml` (three signals wired, references resolved) via a documented minimal YAML-subset reader — a static tool, NO network, NO Collector run; `--self-test` pins included |
+| `tests_fim_otel/` | FIM-F09.04 | `selftest.py` (runnable `python -I`): pinned propagation round-trips, malformed refusals, exact Rust-side header-name extraction, seeded-secret redaction, no-op fallback equality (with and without the SDK import guarded out), and the validator's run against the checked-in config |
 
 Each package's README documents its own files, honesty header, and human
 gate; this top-level README does not repeat them.
@@ -59,6 +62,28 @@ gate; this top-level README does not repeat them.
   request-selectable field); the grid worker computes a power-flow
   statement about the declared model only — neither it nor any worker
   here carries a field-write path (simulation-only 0.x line).
+
+## FIM-F09 instrumentation (the F-09 Python OTEL wave; WRITTEN-UNRUN)
+
+Every package here except `grid_worker.py` (outside the F-09 wave's
+file set) imports `otel_instrumentation.py` guarded in its entrypoint(s)
+and emits ONE schema-v1 worker-start trace line on stderr carrying the
+W3C `traceparent` context (resolved from the message envelope / the
+`TRACEPARENT` env var; absent context stays EMPTY, never synthesized).
+The `drill` package has no README of its own: its
+`fault_injection.py` `__main__` carries the same guarded import and
+entry-start line. Honesty boundary: the OpenTelemetry SDK is OPTIONAL
+and NOT installed (never added to any requirements file); the no-op
+fallback is the DEFAULT posture and the SDK-present OTLP export path is
+UNPROVEN until a human runs it with the SDK installed. A RUNNING
+Collector gateway and FIRING SLO alerts are HUMAN GATES (F-09
+acceptance criteria 1-3 of
+`docs/releases/final-implementation-before-publication.md` §5 need live
+infrastructure this repository has never had); the checked-in Collector
+config is validated STRUCTURALLY by `tools_fim/validate_collector_config.py`
+— never executed. Each package README's FIM-F09 section names its own
+hook sites; the wave-7 self-test suite runs with
+`python -I apps/worker/python/tests_fim_otel/selftest.py`.
 
 ## Honest status: `grid_worker.py` (the entry point the Rust backend spawns)
 

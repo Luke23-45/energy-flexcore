@@ -6,10 +6,26 @@
 //         `records/04_p13_04_step_up_mfa.md`.
 //
 // WRITTEN-UNRUN: no challenge has ever been issued or verified, no IdP is
-// deployed (P13-E-3 stays OPEN — the recorded DEFAULT, IdP-delegated MFA
+// deployed, P13-E-3 stays OPEN (the recorded DEFAULT, IdP-delegated MFA
 // primary with TOTP fallback, is implemented as the designed seam only),
-// and no console flow consumes this yet (P13.17, wave 2). Nothing here
-// claims runtime behavior.
+// and no console flow consumes this yet (P13.17, wave 2). What is PROVEN
+// is only the written surface: the code is complete and pinned by tests
+// that have never been compiled or executed — live IdP interop is a HUMAN
+// LAB GATE. Nothing here claims runtime behavior. (FIM-F07.06 honesty
+// restatement: the pre-FIM wording "no challenge has ever been issued or
+// verified" described what the code CAN now do once composed; the proven
+// fact is written-unrun, not an eternal impossibility.)
+//
+// FIM-F07.03 (additive): a REAL verifier implementation
+// ([`OidcStepUpVerifier`]) now validates FRESH IdP evidence — a
+// recently-minted OIDC token whose authentication instant satisfies the
+// registered max-age policy — against the composed IdP through the same
+// JWKS port the P13.02 resolver uses. [`DenyAllStepUpVerifier`] REMAINS
+// the shipped default: a deployment opts in by composing the IdP-backed
+// verifier; absence of composition is a denial, never a pass. The
+// APPROVED-gate composition helper ([`require_command_approval_evidence`])
+// runs through the EXISTING [`StepUpService::verify`] API — no call-site
+// semantics change, no new state, no reference to the command lifecycle.
 //
 // THE PROTOCOL (the enforced shape; the UI-only flow never grants
 // authority — this one is the authority-evidence producer):
@@ -171,6 +187,247 @@ impl StepUpVerifier for DenyAllStepUpVerifier {
     fn verify(&self, _challenge: &StepUpChallenge, _presented: &str) -> Result<(), StepUpDenial> {
         Err(StepUpDenial::VerifierNotComposed)
     }
+}
+
+// --- The IdP-delegated verifier (FIM-F07.03) ------------------------------------
+
+/// The DEFAULT freshness window for IdP step-up evidence. REGISTERED
+/// RECOMMENDATION (X-8: registered before any run that could tune it):
+/// 300 seconds, aligned with the challenge TTL — the evidence must come
+/// from an authentication the principal performed DURING the step-up
+/// window, not from an old session. No recorded policy precedes it (the
+/// P13.04 record pins the TTL, not an evidence max-age); none is a tested
+/// optimum.
+pub const DEFAULT_STEP_UP_EVIDENCE_MAX_AGE: Duration = Duration::from_secs(300);
+
+/// The claims of the fresh authentication evidence token (an OIDC JWT the
+/// IdP minted for the reauthentication). Only the claims below participate;
+/// everything else the IdP issues is ignored. Deserialization of the
+/// optional claims is lenient (`Option` + defaults) so an IdP that omits a
+/// claim yields `None`/empty rather than a parse failure — absence is then
+/// handled by the fail-closed rules in [`OidcStepUpVerifier::verify`],
+/// never by a panic or a guess.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct StepUpEvidenceClaims {
+    /// The issuer. Validated against the configured issuer by the JWT
+    /// crate's `Validation` and by the verifier's exact-match gate.
+    pub iss: Option<String>,
+    /// The audience. Validated against the configured audience by the
+    /// crate's `Validation`.
+    #[serde(default)]
+    pub aud: crate::oidc::AudienceClaim,
+    /// The subject of the reauthentication — MUST equal the challenge's
+    /// subject (the evidence of another principal never verifies).
+    pub sub: Option<String>,
+    /// Expiry (seconds since the epoch). Validated by the crate's
+    /// `Validation` with the configured leeway.
+    pub exp: Option<i64>,
+    /// The instant of the ACTUAL authentication event (the OIDC
+    /// `auth_time` claim) — the preferred freshness anchor. Absence defers
+    /// to `iat`; both absent fails closed.
+    pub auth_time: Option<i64>,
+    /// The token issue instant (the fallback freshness anchor when the IdP
+    /// does not issue `auth_time`).
+    pub iat: Option<i64>,
+    /// The authentication-methods references the IdP asserts (e.g. `pwd`,
+    /// `otp`, `mfa`). Checked against the configured required methods when
+    /// the verifier is configured with any.
+    #[serde(default)]
+    pub amr: Vec<String>,
+}
+
+/// The IdP-delegated step-up verifier (FIM-F07.03): validates that the
+/// presented evidence is a FRESH, validly-signed token from the configured
+/// IdP whose subject matches the challenge. The P13-E-3 DEFAULT (IdP owns
+/// the authenticator) consumes the IdP's authentication RESULT — the token;
+/// nothing here verifies an MFA factor itself.
+///
+/// Validation order (every failure is a NAMED [`StepUpDenial`], recorded
+/// verbatim by the service):
+///
+/// 1. The evidence parses as a JWT whose `kid`/`alg` pass the configured
+///    allow-list (DEFAULT RS256 only — the same defense as the login
+///    path).
+/// 2. Signature, `iss` (exact), `aud` (membership), `exp`/`nbf` — the
+///    crate's `Validation` with the same recorded policy the P13.02
+///    resolver uses (the JWKS arrives through the injected [`JwksSource`]
+///    port; the fetch is lazy, cache-TTL governed, and UNRUN here).
+/// 3. Subject binding: the token's `sub` must equal the challenge's
+///    subject ([`StepUpDenial::SubjectMismatch`] otherwise).
+/// 4. Freshness: the authentication instant (`auth_time`, falling back to
+///    `iat`) must be no older than the configured max age
+///    (DEFAULT [`DEFAULT_STEP_UP_EVIDENCE_MAX_AGE`]; absence of both
+///    fails closed). The verifier's clock is INJECTED (the controlled-
+///    clock discipline).
+/// 5. Optional factor policy: when `required_amr` is non-empty, the
+///    token's `amr` must contain at least one required method — a
+///    DEPLOYMENT-level loosening/tightening, never a code default (the
+///    empty default trusts the IdP's factor policy wholesale, which is
+///    exactly the P13-E-3 DEFAULT's delegation).
+///
+/// The shipped DEFAULT verifier remains [`DenyAllStepUpVerifier`]; this
+/// implementation composes ONLY where an operator opted in.
+pub struct OidcStepUpVerifier {
+    /// The identity-path configuration (issuer, audience, algorithm
+    /// allow-list, leeway, JWKS cache TTL) — the SAME [`crate::oidc::OidcConfig`]
+    /// shape the login path uses, so an IdP is configured once.
+    config: crate::oidc::OidcConfig,
+    jwks: crate::oidc::JwksCache,
+    max_age: Duration,
+    required_amr: Vec<String>,
+    now_millis: Box<dyn Fn() -> i64 + Send + Sync>,
+}
+
+impl OidcStepUpVerifier {
+    /// Builds the verifier. The JWKS source is injected; nothing here
+    /// constructs a network stack, and NO fetch happens at construction.
+    pub fn new(
+        config: crate::oidc::OidcConfig,
+        source: Box<dyn crate::oidc::JwksSource>,
+        max_age: Duration,
+        required_amr: Vec<String>,
+        now_millis: Box<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Self {
+        let ttl = config.jwks_cache_ttl;
+        Self {
+            config,
+            jwks: crate::oidc::JwksCache::new(source, ttl),
+            max_age,
+            required_amr,
+            now_millis,
+        }
+    }
+}
+
+impl StepUpVerifier for OidcStepUpVerifier {
+    fn verify(&self, challenge: &StepUpChallenge, presented: &str) -> Result<(), StepUpDenial> {
+        // The presented evidence is the token the IdP produced for this
+        // reauthentication; an optional `Bearer ` prefix is tolerated
+        // (the wire shape), never required.
+        let token = presented.strip_prefix("Bearer ").unwrap_or(presented).trim();
+        if token.is_empty() {
+            return Err(StepUpDenial::EvidenceRejected {
+                reason: "no authentication evidence was presented".to_string(),
+            });
+        }
+        let header = jsonwebtoken::decode_header(token).map_err(|_| {
+            StepUpDenial::EvidenceRejected {
+                reason: "the authentication evidence is not a parseable JWT".to_string(),
+            }
+        })?;
+        let kid = header.kid.ok_or(StepUpDenial::EvidenceRejected {
+            reason: "the authentication evidence names no signing key (kid)".to_string(),
+        })?;
+        if !self.config.algorithms.contains(&header.alg) {
+            return Err(StepUpDenial::EvidenceRejected {
+                reason: format!(
+                    "the evidence algorithm {alg:?} is outside the configured allow-list",
+                    alg = header.alg
+                ),
+            });
+        }
+        let now_millis = (self.now_millis)();
+        let key = self
+            .jwks
+            .decoding_key(&self.config.issuer, &kid, now_millis)
+            .map_err(|e| StepUpDenial::EvidenceRejected {
+                reason: format!("the evidence signing key could not be resolved: {e}"),
+            })?;
+        let mut validation = jsonwebtoken::Validation::new(header.alg);
+        validation.set_issuer(&[self.config.issuer.clone()]);
+        validation.set_audience(&[self.config.audience.clone()]);
+        validation.leeway = self.config.leeway_seconds;
+        validation.validate_exp = true;
+        validation.validate_nbf = true;
+        validation.algorithms = self.config.algorithms.clone();
+        let data = jsonwebtoken::decode::<StepUpEvidenceClaims>(
+            token,
+            &key.into_inner(),
+            &validation,
+        )
+        .map_err(|_| StepUpDenial::EvidenceRejected {
+            reason: "the authentication evidence failed signature or claim validation \
+                     (issuer/audience/expiry)"
+                .to_string(),
+        })?;
+        let claims = data.claims;
+        // The evidence must belong to the presenting principal: a token
+        // minted for another subject is a binding failure (named, and the
+        // challenge is already consumed by the service at this point — a
+        // fresh challenge is the retry path).
+        if claims.sub.as_deref() != Some(challenge.subject.as_str()) {
+            return Err(StepUpDenial::SubjectMismatch);
+        }
+        // Freshness: the authentication instant must be inside the window.
+        // `auth_time` is the OIDC reauthentication instant; `iat` is the
+        // fallback. BOTH absent fails closed (an unverifiable instant is
+        // not a fresh one).
+        let now_secs = now_millis.div_euclid(1000);
+        let anchor = claims
+            .auth_time
+            .or(claims.iat)
+            .ok_or_else(|| StepUpDenial::EvidenceRejected {
+                reason: "the evidence carries no authentication instant (auth_time/iat absent)"
+                    .to_string(),
+            })?;
+        let max_age_secs = i64::try_from(self.max_age.as_secs()).unwrap_or(i64::MAX);
+        if now_secs.saturating_sub(anchor) > max_age_secs {
+            return Err(StepUpDenial::EvidenceRejected {
+                reason: format!(
+                    "the authentication evidence is stale: authenticated at {anchor}, \
+                     older than the {max_age_secs}s max age"
+                ),
+            });
+        }
+        // The optional factor policy (the P13-E-3 DEFAULT: the IdP owns the
+        // authenticator; an empty requirement trusts it wholesale).
+        if !self.required_amr.is_empty()
+            && !self
+                .required_amr
+                .iter()
+                .any(|required| claims.amr.iter().any(|presented_method| presented_method == required))
+        {
+            return Err(StepUpDenial::EvidenceRejected {
+                reason: format!(
+                    "the evidence authentication methods ({}) do not satisfy the required \
+                     methods ({})",
+                    claims.amr.join(", "),
+                    self.required_amr.join(", ")
+                ),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// FIM-F07.03 — the APPROVED-gate step-up check: the ADDITIVE composition a
+/// high-impact approval call site runs THROUGH THE EXISTING service API
+/// before consuming the approval. No new state, no call-site semantics
+/// change, no reference to the command lifecycle: the function builds the
+/// `CommandApproval` purpose (binding the evidence to THE command — an
+/// evidence token for command A can never approve command B) and delegates
+/// to [`StepUpService::verify`]. A refusal leaves the command FEASIBLE and
+/// unapproved — exactly the no-wedge guarantee (the module header). The
+/// shipped-default service ([`DenyAllStepUpVerifier`]) refuses EVERY
+/// approval, so a deployment that wires this gate without composing an
+/// IdP-backed verifier fails closed.
+pub fn require_command_approval_evidence(
+    service: &StepUpService,
+    challenge_id: &str,
+    presenting_subject: &str,
+    acting_tenant: TenantId,
+    presented: &str,
+    command_id: &str,
+) -> Result<StepUpEvidence, StepUpDenial> {
+    service.verify(
+        challenge_id,
+        presenting_subject,
+        acting_tenant,
+        presented,
+        &StepUpPurpose::CommandApproval {
+            command_id: command_id.to_string(),
+        },
+    )
 }
 
 /// A step-up denial: named reasons, every one a RECORDED DENIAL the caller

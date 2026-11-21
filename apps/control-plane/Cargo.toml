@@ -53,14 +53,61 @@ opentelemetry-appender-tracing = "0.33.1"
 # pin compiles together with the workspace (MSRV 1.88 per the crate page)
 # and the API surface the resolver uses (decode_header, Validation
 # set_issuer/set_audience/leeway, DecodingKey::from_jwk, JwkSet::find) —
-# verified ONLY at the first human build, which has never run. No other
-# new dependency was added: the JWKS fetch is an injected port (no HTTP
-# client in the resolver), keeping network behavior out of this repo.
+# verified ONLY at the first human build, which has never run. FIM-F07.01
+# (Wave 4; WRITTEN-UNRUN) supersedes the earlier "no HTTP client in the
+# resolver" posture: the shipped `HttpJwksSource` now fetches the JWKS
+# over HTTPS through the `reqwest` pin added for this wave (see the
+# FIM-F07.01 comment below) — the `JwksSource` port boundary is unchanged,
+# and every fetch is still UNRUN until the human lab gate (P13.20).
 jsonwebtoken = "11.1.0"
+# FIM-F07.01 — the composed production JWKS fetcher (`HttpJwksSource`,
+# oidc.rs): HTTPS GET of the CONFIGURED JWKS document. reqwest 0.13.5 is
+# ALREADY resolved in the committed Cargo.lock (transitive, via
+# opentelemetry-http/opentelemetry-otlp, default features off) — pinned to
+# the EXACT lock version per FIM standing decision 1 (FIM-F07 + the lock;
+# no new crate in the resolution graph). `default-features = false` keeps
+# the current transitive feature posture; `blocking` (the `JwksSource`
+# port is synchronous, like the resolver path it serves) and
+# `rustls-no-provider` (TLS via the workspace-resolved rustls and its
+# already-enabled ring provider — no new crypto-provider crate) drive the
+# HTTPS fetch. ASSUMPTIONS (verified only at the first human build, which
+# has never run): the provider resolution composes as described, and
+# Cargo.lock regeneration at that gate promotes reqwest to a direct edge
+# (the recorded FIM decision allows this) and resolves the TLS subgraph
+# (hyper-rustls, rustls-platform-verifier). Live JWKS fetch behavior is
+# UNRUN — the human lab gate (P13.20) proves it.
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "rustls-no-provider"] }
+# FIM-F08.02 (Wave 4, Agent B) — API-key material generation
+# (api_keys.rs): 32 bytes of OS-CSPRNG entropy per key secret. `rand` is
+# ALREADY resolved in the committed Cargo.lock (workspace pin 0.9 → lock
+# 0.9.5; FIM standing decision 1 — no new crate in the resolution graph).
+# The human build gate regenerates Cargo.lock and promotes the edge;
+# nothing here is verified until that first build.
+rand = { workspace = true }
+# FIM-F08.02 (Wave 4, Agent B) — note on ENCODING: the unpadded-base64url
+# rendering of the API-key secret literals (the P13.08 record 08 §2
+# format) is hand-written in `api_keys.rs` (`base64url_encode_no_pad`,
+# pinned by test against the record 08 §2 shape) — no base64 crate edge
+# was added for it, matching the FIM hand-written-minimal-codec decision;
+# the strict parse side of the same rule lives in `webhook_signing.rs`,
+# also hand-written. The only FIM-F08 dependency additions on this wave
+# are `rand` (above) and nothing else: `reqwest` was already added for
+# FIM-F07.01 (the exact same lock pin, comment above) and is reused by
+# `webhook_http.rs`.
 flexcore-contracts = { workspace = true }
 flexcore-domain = { workspace = true }
 flexcore-ports = { workspace = true }
 flexcore-application = { workspace = true }
+# FIM-F12.05 (Wave 6, final implementation milestone; WRITTEN-UNRUN) — the
+# OTA rollout coordinator (ota_rollout.rs) records every device report
+# through the EXISTING audit-crate vocabulary (the P18.07 `update_evidence`
+# per-attempt evidence chain: attempt / verify / install / result /
+# rollback). A composition→core edge (the normal direction);
+# flexcore-audit is an EXISTING workspace member — no new crate enters the
+# resolution graph (FIM standing decision 1). The evidence chain key is
+# DEPLOYMENT-SUPPLIED key material (the P11.15 discipline — consumed,
+# never generated); the P18.03/P11.15 key ceremonies are HUMAN GATES.
+flexcore-audit = { workspace = true }
 flexcore-events = { workspace = true }
 flexcore-authz = { workspace = true }
 # P3.28 — the Phase 3 record-store contracts (ScheduleRecordStore,

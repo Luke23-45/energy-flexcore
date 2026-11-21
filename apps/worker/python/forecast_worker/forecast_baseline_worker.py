@@ -63,7 +63,31 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
+
+# ── FIM-F09.02 (ADDITIVE; no behavior change beyond one stderr line) ────
+# Guarded import of the shared stdlib-only OTEL instrumentation module
+# (the same guard idiom the numpy import of this file uses). The recorded
+# fallback: when the shared module is not importable the worker runs
+# EXACTLY as before and only the worker-start trace line is degraded to
+# untraced — never a crash, never a fabricated trace id. The OpenTelemetry
+# SDK is OPTIONAL and NOT installed; the no-op fallback is the DEFAULT
+# posture (see ../otel_instrumentation.py honesty header). WRITTEN-UNRUN:
+# a RUNNING Collector and FIRING SLO alerts remain HUMAN GATES (F-09
+# acceptance criteria 1-3 need live infrastructure).
+try:
+    _OTEL_PY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _OTEL_PY_ROOT not in sys.path:
+        sys.path.insert(0, _OTEL_PY_ROOT)
+    import otel_instrumentation as _otel_instrumentation
+
+    _OTEL_IMPORT_FALLBACK: str | None = None
+except ImportError as _otel_import_error:  # recorded fallback, never a bare pass
+    _otel_instrumentation = None
+    _OTEL_IMPORT_FALLBACK = "otel_instrumentation unavailable: %s" % (
+        _otel_import_error
+    )
 
 # The worker-transport protocol tag (mirrors `flexcore-gnn-worker/1`;
 # validated on every request, fail-closed).
@@ -895,11 +919,24 @@ def main() -> int:
     try:
         request = json.loads(raw)
     except json.JSONDecodeError as error:
+        # FIM-F09.02 (additive): the worker-start trace line, with no
+        # envelope carrier available (env var only). Never changes the
+        # fail-closed refusal below.
+        if _otel_instrumentation is not None:
+            _otel_instrumentation.note_worker_start("flexcore-forecast-worker")
         sys.stderr.write(
             "flexcore-forecast-worker: request is not a valid JSON document: %s\n"
             % error
         )
         return 2
+    # FIM-F09.02 (additive): the worker-start trace line carrying the
+    # resolved trace context (envelope → env precedence; absent context is
+    # the honest empty outcome, never a synthesized id). ONE schema-v1
+    # line on stderr; stdout keeps EXACTLY one result envelope.
+    if _otel_instrumentation is not None:
+        _otel_instrumentation.note_worker_start(
+            "flexcore-forecast-worker", envelope=request
+        )
     try:
         validation_probe = validate_request(request)
         del validation_probe  # validation is the gate; the runner revalidates
@@ -1027,13 +1064,21 @@ def run_self_tests() -> list:
     _expects_error(results, negative_degree_days, "degree_day_negative_refused")
 
     # ---- the permission gate (P15.01) -----------------------------------
+    # FIM-8C.02 (2026-11-21): both tests previously overrode a `permissions`
+    # key the canonical request does not declare, so the injected name never
+    # reached the `permissions_declared` gate and the refusals never fired
+    # (the tests asserted against dead code and failed at HEAD, 24/26) — a
+    # pre-existing defect, diagnosed by the F-09 sweep and re-verified
+    # against pristine-HEAD copies. Fixed by declaring through the canonical
+    # request key; the production dispatch logic is untouched (the refusal
+    # paths exist and are exercised for real now).
     def dispatch_permission() -> None:
-        validate_request(_valid_request(permissions=["dispatch.issue"]))
+        validate_request(_valid_request(permissions_declared=["dispatch.issue"]))
 
     _expects_error(results, dispatch_permission, "dispatch_permission_never_granted")
 
     def out_of_vocabulary_permission() -> None:
-        validate_request(_valid_request(permissions=["schedule.propose"]))
+        validate_request(_valid_request(permissions_declared=["schedule.propose"]))
 
     _expects_error(
         results, out_of_vocabulary_permission, "producer_vocabulary_closed"

@@ -43,7 +43,31 @@
 
 from __future__ import annotations
 
+import os
 import re
+import sys
+
+# ── FIM-F09.02 (ADDITIVE; no behavior change beyond one stderr line) ────
+# Guarded import of the shared stdlib-only OTEL instrumentation module.
+# The recorded fallback: when the shared module is not importable this
+# module runs EXACTLY as before and only the entry-start trace line is
+# degraded to untraced — never a crash, never a fabricated trace id. The
+# OpenTelemetry SDK is OPTIONAL and NOT installed; the no-op fallback is
+# the DEFAULT posture (see ../otel_instrumentation.py honesty header).
+# WRITTEN-UNRUN: a RUNNING Collector and FIRING SLO alerts remain HUMAN
+# GATES (F-09 acceptance criteria 1-3 need live infrastructure).
+try:
+    _OTEL_PY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _OTEL_PY_ROOT not in sys.path:
+        sys.path.insert(0, _OTEL_PY_ROOT)
+    import otel_instrumentation as _otel_instrumentation
+
+    _OTEL_IMPORT_FALLBACK: str | None = None
+except ImportError as _otel_import_error:  # recorded fallback, never a bare pass
+    _otel_instrumentation = None
+    _OTEL_IMPORT_FALLBACK = "otel_instrumentation unavailable: %s" % (
+        _otel_import_error
+    )
 
 SCHEMA_VERSION = "flexcore-research/reproducibility-record.v1"
 
@@ -463,12 +487,24 @@ def _minimal_valid_record() -> dict:
     seed, no randomness (P8.06 §3) — exact reproduction class (same
     inputs -> same committed schedule, byte-equality discipline).
     """
+    # FIM-8C.04 (2026-11-21): the fixture gains `benchmark_set_version`.
+    # The schema check requiring it on every non-dynamic record is the
+    # correct, recorded behavior (the P8.20 ledger deliverable defines
+    # the record per run WITH the "benchmark-set version"; the
+    # DYNAMIC_MODULE_IDS comment states a dynamic record carries NO
+    # benchmark_set_version *instead*; every other self-test and the
+    # pytest mirror add exactly this field to make a record valid) — so
+    # the DEFECT was in the fixture, which lacked the field and made the
+    # `minimal_valid_record_zero_findings` self-test fail at HEAD (15/16;
+    # pre-existing, diagnosed by the F-09 sweep and re-verified against
+    # pristine-HEAD copies).
     return {
         "record_schema_version": SCHEMA_VERSION,
         "record_id": "rep-0001",
         "run_id": "run-lib01-priority-list-001",
         "module_id": "baseline/rule-based-priority-list",
         "module_version": "flexcore-research/baselines.v1",
+        "benchmark_set_version": "flexcore-research-benchmark-set-v1",
         "code_version": "flexcore-baseline-freeze-2026-11-14",
         "component_versions": {},
         "determinism": {
@@ -758,6 +794,11 @@ def run_self_tests() -> list:
 
 
 if __name__ == "__main__":  # pragma: no cover — human-gate entrypoint
+    # FIM-F09.02 (additive): the entry-start trace line (env carrier; this
+    # module processes no message envelope). ONE schema-v1 line on stderr;
+    # the self-test report on stdout is byte-identical.
+    if _otel_instrumentation is not None:
+        _otel_instrumentation.note_worker_start("flexcore-reproducibility-record-schema")
     _records = run_self_tests()
     _failed = [r for r in _records if not r["passed"]]
     for _r in _records:

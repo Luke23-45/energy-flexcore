@@ -33,15 +33,26 @@
 //
 // WHAT THIS MODULE IS NOT:
 //
-// - **Not a wire.** No socket, no TLS, no broker connection: the
-//    injected transport is the adapter's designed seam, and the shipped
-//    default refuses every publish with `SeamNotWired`. Nothing has ever
-//    been published, connected, or exchanged (the entire 0.x line is
-//    WRITTEN-UNRUN).
-// - **Not a command path.** The `UplinkChannel` port has no receive
-//    method (P6.05: the edge dials out; nothing listens) and this module
-//    adds none — there is no subscribe, no command decode, no setpoint
-//    surface. Absence is structural.
+// - **Not a wire.** No socket, no TLS, no broker connection IN THIS
+//    MODULE: the injected transport is the adapter's seam — under
+//    FIM-F05 (WRITTEN-UNRUN) the adapter crate provides a live
+//    implementation (`flexcore-mqtt-adapter::live::LiveMqttUplinkTransport`,
+//    TLS via tokio-rustls, interop UNPROVEN, a HUMAN LAB GATE); the
+//    shipped default remains `UnwiredUplinkTransport`, refusing every
+//    publish with `SeamNotWired`. Nothing has ever been published,
+//    connected, or exchanged on a wire (the entire 0.x line is
+//    WRITTEN-UNRUN; the first human build is the program gate).
+// - **Not a command authority (FIM-F05.05 additive delivery surface).**
+//    The `UplinkChannel` port itself has no receive method (P6.05: the
+//    edge dials out; the port is unchanged) and this module adds none.
+//    The ADDITIVE FIM-F05 command-delivery surface
+//    (`attach_command_source` / `drain_received_commands`) drains
+//    commands the ADAPTER's live transport received on the subscribed
+//    command topic into the edge — every delivered command enters the
+//    command lifecycle at PROPOSED and nowhere else: NO authorization,
+//    NO dispatch, NO relay, NO setpoint surface (the frozen 14-state/
+//    27-edge lifecycle and the never-granted permission set are
+//    untouched).
 // - **Not a quality redefinition.** The mapping consumes canonical
 //    samples (quality already one of the six canonical states, P0.08).
 //    A non-GOOD sample is MAPPED AND MARKED, never silently upgraded:
@@ -53,6 +64,7 @@ use std::collections::BTreeMap;
 
 use flexcore_contracts::quality::TelemetryQuality;
 use flexcore_contracts::units::StateOfCharge;
+use flexcore_mqtt_adapter::live::{MqttCommandSource, SparkplugCommandDelivery};
 use flexcore_mqtt_adapter::model::{
     BdSeq, SparkplugMessageKind, SparkplugPayload, SparkplugSeq,
 };
@@ -269,6 +281,10 @@ pub struct SparkplugUplinkChannel<'t> {
     pub transport: &'t mut (dyn MqttUplinkTransport + Send),
     /// The declared fleet budget.
     pub budget: FleetUplinkBudget,
+    /// FIM-F05.05 (additive): the OPTIONAL command-delivery source (the
+    /// live transport's bounded inbox). `None` keeps the strict
+    /// monitor-only posture; `attach_command_source` sets it.
+    command_source: Option<&'t mut (dyn MqttCommandSource + Send)>,
     /// The message-sequence state (continues per forward).
     seq: u64,
     /// The bdSeq generation (a reconnect bumps it — the declared
@@ -283,7 +299,39 @@ impl<'t> SparkplugUplinkChannel<'t> {
         transport: &'t mut (dyn MqttUplinkTransport + Send),
         budget: FleetUplinkBudget,
     ) -> Self {
-        Self { plan, transport, budget, seq: 0, bd_seq: BdSeq::initial() }
+        Self {
+            plan,
+            transport,
+            budget,
+            command_source: None,
+            seq: 0,
+            bd_seq: BdSeq::initial(),
+        }
+    }
+
+    /// FIM-F05.05 (additive): attaches the command-delivery source (the
+    /// live transport implements `MqttCommandSource`). Without it the
+    /// channel is strictly monitor-only. A delivered command enters the
+    /// command lifecycle at PROPOSED and nowhere else — attaching the
+    /// source grants no authority.
+    pub fn attach_command_source(&mut self, source: &'t mut (dyn MqttCommandSource + Send)) {
+        self.command_source = Some(source);
+    }
+
+    /// FIM-F05.05 (additive): drains the commands the attached source
+    /// received on the subscribed command topic (oldest first). The
+    /// caller (the composition root) hands each delivery to the edge
+    /// command path — entering the lifecycle at PROPOSED is the command
+    /// path's own gate, never this drain's.
+    pub fn drain_received_commands(&mut self) -> Vec<SparkplugCommandDelivery> {
+        let Some(source) = self.command_source.as_deref_mut() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        while let Some(delivery) = source.poll_command() {
+            out.push(delivery);
+        }
+        out
     }
 
     /// Bumps the bdSeq generation (the reconnect path; declared
@@ -296,10 +344,15 @@ impl<'t> SparkplugUplinkChannel<'t> {
 impl UplinkChannel for SparkplugUplinkChannel<'_> {
     /// Advisory: whether the injected transport reports a usable
     /// connection. The seam trait has no connected-query, so this is
-    /// honestly `false` for the shipped refusing transport — `forward`
-    /// is the authoritative outcome (the port contract's own words).
+    /// honestly `false` for the shipped refusing transport; with an
+    /// attached FIM-F05 command source it consults the source's live
+    /// session state. `forward` is the authoritative outcome either way
+    /// (the port contract's own words).
     fn is_connected(&self) -> bool {
-        false
+        match &self.command_source {
+            Some(source) => source.is_connected_now(),
+            None => false,
+        }
     }
 
     /// Forwards one batch: the declared budget is checked FIRST (a
@@ -668,5 +721,75 @@ mod tests {
         assert_eq!(quality_suffix(TelemetryQuality::Good), "");
         assert_eq!(quality_suffix(TelemetryQuality::Suspect), ".degraded");
         assert_eq!(quality_suffix(TelemetryQuality::Stale), ".degraded");
+    }
+
+    // --- FIM-F05.05 (additive command-delivery surface) -------------------
+
+    use flexcore_mqtt_adapter::live::{MqttCommandSource, SparkplugCommandDelivery};
+    use flexcore_mqtt_adapter::model::BdSeq as AdapterBdSeq;
+    use flexcore_mqtt_adapter::model::SparkplugSeq as AdapterSparkplugSeq;
+
+    /// A fake command source (the live transport's inbox stand-in).
+    struct FakeCommandSource {
+        pending: Vec<SparkplugCommandDelivery>,
+        connected: bool,
+    }
+
+    impl MqttCommandSource for FakeCommandSource {
+        fn poll_command(&mut self) -> Option<SparkplugCommandDelivery> {
+            self.pending.pop()
+        }
+
+        fn is_connected_now(&self) -> bool {
+            self.connected
+        }
+    }
+
+    fn fake_delivery() -> SparkplugCommandDelivery {
+        SparkplugCommandDelivery {
+            topic: "spBv1.0/site-42/NCMD/edge-07".to_string(),
+            timestamp_millis: None,
+            uuid: None,
+            seq: AdapterSparkplugSeq::new(1).ok(),
+            bd_seq: Some(AdapterBdSeq::initial()),
+            metrics: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn without_an_attached_source_the_channel_is_strictly_monitor_only() {
+        let mut transport = UnwiredUplinkTransport;
+        let mut budget = budget();
+        budget.register_node("edge-07").expect("registered");
+        let mut channel = SparkplugUplinkChannel::new(plan(), &mut transport, budget);
+        // No source: no connected query, no commands, no authority.
+        assert!(!channel.is_connected());
+        assert!(channel.drain_received_commands().is_empty());
+    }
+
+    #[test]
+    fn an_attached_source_delivers_commands_into_the_edge_named() {
+        let mut transport = UnwiredUplinkTransport;
+        let mut budget = budget();
+        budget.register_node("edge-07").expect("registered");
+        let mut source = FakeCommandSource {
+            pending: vec![fake_delivery(), fake_delivery()],
+            connected: true,
+        };
+        let mut channel = SparkplugUplinkChannel::new(plan(), &mut transport, budget);
+        channel.attach_command_source(&mut source);
+        // The advisory connected query now consults the live session.
+        assert!(channel.is_connected());
+        // The drain empties the inbox (oldest first is the engine's
+        // push order; this fake pops newest — the drain contract is
+        // "everything currently pending").
+        let drained = channel.drain_received_commands();
+        assert_eq!(drained.len(), 2);
+        assert!(channel.drain_received_commands().is_empty());
+        // A delivery carries NO authority: it is a topic + decoded
+        // metrics bundle — entering the lifecycle at PROPOSED is the
+        // command path's own gate.
+        assert!(drained[0].metrics.is_empty());
+        assert_eq!(drained[0].topic, "spBv1.0/site-42/NCMD/edge-07");
     }
 }

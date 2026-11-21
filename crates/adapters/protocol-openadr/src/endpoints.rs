@@ -3,18 +3,22 @@
 // The VTN's HTTP surface is designed here AS DATA: every route is a
 // [`RouteSpec`] record naming the method, the path pattern, the
 // request/response payload types, and the adapter-side handler contract.
-// NO HTTP framework is imported, no socket is opened, no server loop
-// exists — endpoint serving is a designed seam that a later wave (or the
-// operator's own deployment shell) wires onto [`VtnEndpointDesign`].
+// This module itself stays framework-free — no HTTP type is imported here,
+// and the route data is a reviewed design artifact, not a mutable
+// registry. Under FIM-F04 the live serving IS now implemented in this
+// crate and reads THIS data: `crate::serving` is the handler logic behind
+// the routes and `crate::transport` is the hyper 1.x wire mapping + live
+// listener (both WRITTEN-UNRUN; VEN interop UNPROVEN — a HUMAN LAB GATE).
 //
 // This is the honest deliverable class the phase plan states for P14.05:
-// "endpoint serving is a designed seam (no HTTP framework dependency)".
-// The routes below follow the secondary-source reading of the OpenADR 3.0
-// REST/JSON surface [S-10]; EVERY path literal is UNVERIFIED until checked
-// against the specification text (implementation-time human gate, plan §7
-// note 6). A path that differs at that gate is a recorded edit here — the
-// route data is the single place the serving layer would read, so the
-// design record stays the single source.
+// "endpoint serving is a designed seam (no HTTP framework dependency)" —
+// the seam held, and the serving layer wired onto it without re-deciding
+// the surface. The routes below follow the secondary-source reading of the
+// OpenADR 3.0 REST/JSON surface [S-10]; EVERY path literal is UNVERIFIED
+// until checked against the specification text (implementation-time human
+// gate, plan §7 note 6). A path that differs at that gate is a recorded
+// edit here — the route data is the single place the serving layer reads,
+// so the design record stays the single source.
 
 use serde::{Deserialize, Serialize};
 
@@ -269,7 +273,8 @@ impl VtnEndpointDesign {
             "openadr-vtn".to_string(),
             routes,
             "endpoint serving is a designed seam: this design names method, path, and payload \
-             kinds as data; no HTTP framework is imported and no socket is opened in this crate"
+             kinds as data; the serving layer (crate::serving, crate::transport — FIM-F04, \
+             written-unrun) reads this design and nothing else"
                 .to_string(),
         )
     }

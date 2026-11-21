@@ -3,12 +3,15 @@
 //         phase-13 `records/02_p13_02_oidc_token_validation.md`; identity
 //         architecture: `records/01_p13_01_identity_architecture.md`).
 //
-// WRITTEN-UNRUN throughout: no token has ever been validated, no JWKS
-// document has been fetched, no discovery document has been read, no IdP is
-// deployed (P13-E-1 stays OPEN — this module implements the recorded
-// DEFAULT only, conventions §4). The first human build compiles the JWT
-// crate pin; the first IdP-connected lab run (P13.20) is the operational
-// gate. NOTHING here claims runtime behavior.
+// WRITTEN-UNRUN: no token has ever been validated, no JWKS document has
+// been fetched, no IdP is deployed (P13-E-1 stays OPEN). What is PROVEN is
+// only the written surface: the code is complete and pinned by tests that
+// have never been compiled or executed — the first human build compiles the
+// JWT-crate pin, and live IdP interop (P13.20) remains a HUMAN LAB GATE.
+// NOTHING here claims runtime behavior (FIM-F07.06 honesty restatement:
+// the pre-FIM wording "no token has ever been validated" described what the
+// code CAN now do once composed; the proven fact is written-unrun, not an
+// eternal impossibility).
 //
 // What this module IS, honestly:
 //
@@ -30,11 +33,14 @@
 // - Not a token endpoint, not a login flow (P13.17, wave 2), not a session
 //   store (P13.16), not an MFA verifier (P13.04 — the IdP owns the
 //   authenticator per the P13-E-3 DEFAULT).
-// - Not a JWKS fetcher: network behavior is a RUNTIME ACT. The JWKS
-//   document arrives through the injected [`JwksSource`] port; no HTTP
-//   client exists in this module and none was added (the composition root
-//   supplies the fetch implementation at deployment time). Every cache-
-//   refresh path that would touch the network is UNRUN by definition.
+// - FIM-F07.01 (additive): the module now SHIPS a [`JwksSource`]
+//   implementation ([`HttpJwksSource`]) that fetches the JWKS document over
+//   HTTPS from the CONFIGURED URL (no hardcoded URLs anywhere; the
+//   composition root fills [`OidcDeploymentConfig`]). The port boundary is
+//   unchanged: the resolver still consumes the injected [`JwksSource`], the
+//   fetch is still LAZY (no network at construction; the cache-TTL
+//   semantics of [`JwksCache`] govern), and every fetch path is WRITTEN-
+//   UNRUN — a real IdP fetch is the human lab gate (P13.20).
 //
 // Validation rules (the recorded policy, enforced below):
 //
@@ -360,6 +366,137 @@ fn lookup_in(document: &JwkSet, kid: &str) -> Result<DecodingKeyForKid, LookupIn
     Ok(DecodingKeyForKid(key))
 }
 
+// --- The HTTPS JWKS source (FIM-F07.01, the composed production path) --------
+
+/// The DEFAULT JWKS fetch timeout. REGISTERED RECOMMENDATION (X-8: registered
+/// before any run that could tune it): 5 seconds — long enough for a remote
+/// IdP document, short enough to bound the latency a stuck IdP adds to a
+/// login. Not a tested optimum.
+pub const DEFAULT_JWKS_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The composed production [`JwksSource`]: fetches the JWKS document over
+/// HTTPS from the CONFIGURED URL (no hardcoded URLs; the composition root
+/// fills [`OidcDeploymentConfig`]). One source serves exactly ONE issuer
+/// (one SSO connection, record 01 §4) — a fetch for any other issuer
+/// refuses before any network happens (fail-closed miscomposition shape).
+///
+/// THE NETWORK BOUNDARY, updated by FIM-F07.01: the fetch is REAL code —
+/// reqwest, already resolved in the committed Cargo.lock (transitive, via
+/// opentelemetry-http/opentelemetry-otlp), pinned to the EXACT lock version
+/// per FIM standing decision 1; Cargo.lock regeneration at the human build
+/// gate promotes the direct edge (the recorded FIM decision). NO network
+/// happens at CONSTRUCTION: the HTTP client is built but never contacted —
+/// the first fetch is LAZY, driven by the resolver's cache-TTL semantics
+/// ([`JwksCache`]). Every fetch is WRITTEN-UNRUN; a real IdP fetch is the
+/// human lab gate (P13.20).
+///
+/// TLS provider note (ASSUMPTION, verified only at the first human build):
+/// the dependency is declared with `rustls-no-provider`, so the crypto
+/// provider is the one the WORKSPACE's resolved rustls features already
+/// supply (ring, resolved for the 2030.5 adapter). A deployment that needs
+/// a different provider changes the dependency features, not this module.
+pub struct HttpJwksSource {
+    /// The issuer this source serves (named errors; exact-match gate).
+    issuer: String,
+    /// The configured JWKS URL of that issuer.
+    jwks_url: String,
+    client: reqwest::blocking::Client,
+}
+
+impl HttpJwksSource {
+    /// Builds the source for one (issuer, JWKS URL) pair. NO network
+    /// happens here — the HTTP client is constructed, never contacted.
+    /// `timeout` bounds the whole fetch (connect + read); pass
+    /// [`DEFAULT_JWKS_FETCH_TIMEOUT`] unless the deployment records
+    /// otherwise. A client-construction failure is a NAMED error (never a
+    /// panic and never a "verify with an empty key set" degradation).
+    pub fn new(
+        issuer: impl Into<String>,
+        jwks_url: impl Into<String>,
+        timeout: Duration,
+    ) -> Result<Self, JwksSourceError> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|e| JwksSourceError::FetchFailed {
+                issuer: issuer.into(),
+                detail: format!("the HTTPS client could not be constructed: {e}"),
+            })?;
+        Ok(Self {
+            issuer: issuer.into(),
+            jwks_url: jwks_url.into(),
+            client,
+        })
+    }
+}
+
+impl JwksSource for HttpJwksSource {
+    fn fetch(&self, issuer: &str) -> Result<JwkSet, JwksSourceError> {
+        // A source serves exactly one issuer: a fetch for any other is a
+        // miscomposition, refused BEFORE any network happens.
+        if issuer != self.issuer {
+            return Err(JwksSourceError::FetchFailed {
+                issuer: issuer.to_string(),
+                detail: format!(
+                    "this JWKS source serves issuer '{}', not '{issuer}'",
+                    self.issuer
+                ),
+            });
+        }
+        let response = self
+            .client
+            .get(&self.jwks_url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .map_err(|e| JwksSourceError::FetchFailed {
+                issuer: issuer.to_string(),
+                detail: e.to_string(),
+            })?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(JwksSourceError::FetchFailed {
+                issuer: issuer.to_string(),
+                detail: format!("the JWKS endpoint answered HTTP {status}"),
+            });
+        }
+        let body = response.text().map_err(|e| JwksSourceError::FetchFailed {
+            issuer: issuer.to_string(),
+            detail: e.to_string(),
+        })?;
+        serde_json::from_str::<JwkSet>(&body).map_err(|e| JwksSourceError::MalformedDocument {
+            issuer: issuer.to_string(),
+            detail: e.to_string(),
+        })
+    }
+}
+
+/// The deployment configuration of ONE production identity path
+/// (FIM-F07.01): the fields the composition root fills from its deployment
+/// configuration. NO hardcoded URL exists anywhere in this module — every
+/// value comes from operator configuration. Composing produces the resolver
+/// WITHOUT any network activity; the first token drives the first lazy
+/// JWKS fetch.
+#[derive(Debug, Clone)]
+pub struct OidcDeploymentConfig {
+    /// The expected issuer (exact match against the token's `iss`; the
+    /// per-tenant SSO connection's issuer — record 01 §4).
+    pub issuer: String,
+    /// The HTTPS URL of the issuer's JWKS document.
+    pub jwks_url: String,
+    /// The audience the deployment requires in every token.
+    pub audience: String,
+    /// The OPTIONAL expected OAuth client id of this control plane. When
+    /// `Some`, every token's audience must ALSO contain it, in addition to
+    /// the required audience (the fail-closed audience-restriction check;
+    /// the RFC-level detail is UNVERIFIED-against-RFC-6750 in this repo —
+    /// the recorded intent is the stricter direction). `None` keeps the
+    /// single-audience check only.
+    pub expected_client_id: Option<String>,
+    /// The JWKS fetch timeout. DEFAULT: [`DEFAULT_JWKS_FETCH_TIMEOUT`] (a
+    /// registered recommendation, X-8).
+    pub jwks_fetch_timeout: Duration,
+}
+
 // --- The tenant and role claim mappers ----------------------------------------
 
 /// The tenant-claim mapper: the verified token (its claims and its verified
@@ -449,6 +586,12 @@ pub struct OidcConfig {
     pub issuer: String,
     /// The expected audience (this deployment's client id).
     pub audience: String,
+    /// ADDITIVE (FIM-F07.01): the OPTIONAL expected OAuth client id. When
+    /// `Some`, every token's audience must contain it IN ADDITION to the
+    /// configured audience (the fail-closed audience-restriction check; the
+    /// RFC-level detail is UNVERIFIED-against-RFC-6750 in this repo).
+    /// `None` (the default) keeps the single-audience check only.
+    pub required_client_id: Option<String>,
     /// The signature-algorithm allow-list (DEFAULT: RS256 only).
     pub algorithms: Vec<jsonwebtoken::Algorithm>,
     /// The `exp`/`nbf` leeway (seconds). DEFAULT 60 s — registered
@@ -463,6 +606,7 @@ impl Default for OidcConfig {
         Self {
             issuer: String::new(),
             audience: String::new(),
+            required_client_id: None,
             algorithms: DEFAULT_ALGORITHMS.to_vec(),
             leeway_seconds: DEFAULT_LEEWAY_SECONDS,
             jwks_cache_ttl: DEFAULT_JWKS_CACHE_TTL,
@@ -504,6 +648,33 @@ impl OidcResolver {
             tenants,
             clock_millis,
         }
+    }
+
+    /// FIM-F07.01 — composes the PRODUCTION path from deployment
+    /// configuration: an [`HttpJwksSource`] over the configured (issuer,
+    /// JWKS URL) pair plus the existing `OidcConfig` DEFAULTS (RS256
+    /// allow-list, 60 s leeway, 15-min cache TTL — all registered
+    /// recommendations). `DenyAllResolver` REMAINS the shipped default:
+    /// composing this resolver is the operator's explicit opt-in —
+    /// construction ordering, not a code change. NO network happens during
+    /// composition (the first fetch is lazy, on the first token).
+    pub fn compose(
+        deployment: &OidcDeploymentConfig,
+        tenants: Box<dyn TenantClaimMapper>,
+        clock_millis: Box<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Result<Self, JwksSourceError> {
+        let source = HttpJwksSource::new(
+            deployment.issuer.clone(),
+            deployment.jwks_url.clone(),
+            deployment.jwks_fetch_timeout,
+        )?;
+        let config = OidcConfig {
+            issuer: deployment.issuer.clone(),
+            audience: deployment.audience.clone(),
+            required_client_id: deployment.expected_client_id.clone(),
+            ..OidcConfig::default()
+        };
+        Ok(Self::new(config, Box::new(source), tenants, clock_millis))
     }
 }
 
@@ -551,6 +722,29 @@ impl IdentityResolver for OidcResolver {
             jsonwebtoken::decode::<OidcTokenClaims>(token, &key.into_inner(), &validation)
                 .map_err(|_| AuthError::InvalidCredentials)?;
         let claims = data.claims;
+
+        // 3a. The named issuer refusal (FIM-F07.01, defense in depth on
+        //     top of the crate's Validation): the decoded `iss` must equal
+        //     the configured issuer EXACTLY — a token from any other
+        //     issuer is refused even before tenant mapping is consulted.
+        //     The refusal is the existing error vocabulary
+        //     (`AuthError::InvalidCredentials`, a reasoned 401).
+        if claims.iss.as_deref() != Some(self.config.issuer.as_str()) {
+            return Err(AuthError::InvalidCredentials);
+        }
+        // 3b. The named audience refusal (FIM-F07.01): the configured
+        //     audience must be present (the Validation enforces this too —
+        //     the explicit check makes the refusal named at THIS surface);
+        //     when the optional expected client id is configured, it must
+        //     ALSO be present.
+        if !claims.aud.contains(&self.config.audience) {
+            return Err(AuthError::InvalidCredentials);
+        }
+        if let Some(client_id) = &self.config.required_client_id {
+            if !claims.aud.contains(client_id) {
+                return Err(AuthError::InvalidCredentials);
+            }
+        }
 
         // 4. Subject presence (required by the §14.3/audit subject
         //    discipline — an identity without a subject is not one).

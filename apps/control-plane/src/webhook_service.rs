@@ -7,7 +7,12 @@
 // no attempt has ever been booked, no dead letter has ever landed. The
 // first human build/test is the gate (program conventions §1). The actual
 // HTTP transmission is a PORT ([`OutboundHttpPost`]) the composition
-// injects — this batch adds no HTTP-client dependency and performs no I/O.
+// injects. HONESTY UPDATE (FIM-F08.07, final implementation milestone):
+// the port NOW HAS A REAL IMPLEMENTATION — the reqwest-backed
+// [`crate::webhook_http::ReqwestOutboundHttpPost`] (written-unrun; live
+// receiver interop UNPROVEN; **HUMAN LAB GATE**) — but this module itself
+// still performs no I/O: the transport, the secret resolver, the store,
+// and the clock all arrive injected, exactly as before.
 //
 // Contract source: plan §2.3 (the webhook delivery contract) and the
 // ledger P13.09 row. Signing/verification lives in [`crate::webhook_signing`]
@@ -483,9 +488,13 @@ impl HttpPostOutcome {
 }
 
 /// The outbound HTTP POST port. The composition root injects the real
-/// client (no HTTP-client dependency is added by this batch; the port is
-/// the only I/O seam). Implementations MUST NOT retry (the dispatcher owns
-/// the retry schedule) and MUST NOT log or persist the body.
+/// client — the reqwest-backed
+/// [`crate::webhook_http::ReqwestOutboundHttpPost`] under FIM-F08
+/// (written-unrun; live receiver interop UNPROVEN; **HUMAN LAB GATE**),
+/// or the fail-closed [`UnwiredOutboundHttpPost`] when no transport is
+/// composed. The port is the only I/O seam. Implementations MUST NOT
+/// retry (the dispatcher owns the retry schedule) and MUST NOT log or
+/// persist the body.
 pub trait OutboundHttpPost: Send + Sync {
     /// POSTs `raw_body` to `url` with the given headers (name/value pairs;
     /// the signature header among them). Returns the outcome; never panics
@@ -499,9 +508,14 @@ pub trait OutboundHttpPost: Send + Sync {
 }
 
 /// The fail-closed UNWIRED transport (FRV1-R8-005): the composed stand-in
-/// for the real HTTP client. The workspace has NO HTTP-client dependency
-/// (grep-verified for the finding; the record `21_p13_09` §5 names the
-/// real client as the composition step), so this seam REFUSES every
+/// for the real HTTP client when the composition has not opted into live
+/// delivery. HONESTY UPDATE (FIM-F08.07): the workspace DOES carry an
+/// HTTP-client dependency since FIM-F08 (`reqwest 0.13.5`, the
+/// [`crate::webhook_http::ReqwestOutboundHttpPost`] implementation —
+/// written-unrun; live receiver interop UNPROVEN; **HUMAN LAB GATE**), so
+/// this type is no longer justified by "no dependency exists"; it stays
+/// the DEFAULT composition seam because an opt-in-never-default posture
+/// for outbound transmission is the recorded rule, and it REFUSES every
 /// delivery with the named backend error instead of pretending a
 /// transmission happened — an unwired seam stays recorded, never faked.
 ///

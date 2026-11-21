@@ -69,6 +69,29 @@ import os
 import sys
 import time
 
+# ── FIM-F09.02 (ADDITIVE; no behavior change beyond one stderr line) ────
+# Guarded import of the shared stdlib-only OTEL instrumentation module
+# (the same guard idiom this file uses for torch/PyG below). The recorded
+# fallback: when the shared module is not importable the worker runs
+# EXACTLY as before and only the worker-start trace line is degraded to
+# untraced — never a crash, never a fabricated trace id. The OpenTelemetry
+# SDK is OPTIONAL and NOT installed; the no-op fallback is the DEFAULT
+# posture (see ../otel_instrumentation.py honesty header). WRITTEN-UNRUN:
+# a RUNNING Collector and FIRING SLO alerts remain HUMAN GATES (F-09
+# acceptance criteria 1-3 need live infrastructure).
+try:
+    _OTEL_PY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _OTEL_PY_ROOT not in sys.path:
+        sys.path.insert(0, _OTEL_PY_ROOT)
+    import otel_instrumentation as _otel_instrumentation
+
+    _OTEL_IMPORT_FALLBACK: str | None = None
+except ImportError as _otel_import_error:  # recorded fallback, never a bare pass
+    _otel_instrumentation = None
+    _OTEL_IMPORT_FALLBACK = "otel_instrumentation unavailable: %s" % (
+        _otel_import_error
+    )
+
 # The worker-transport protocol tag (the mirror of `flexcore-andes-worker/1`
 # for the GNN track; validated on every request, fail-closed).
 PROTOCOL_ID = "flexcore-gnn-worker/1"
@@ -1070,10 +1093,21 @@ def main() -> int:
     try:
         request = json.loads(raw)
     except json.JSONDecodeError as error:
+        # FIM-F09.02 (additive): the worker-start trace line, with no
+        # envelope carrier available (env var only). Never changes the
+        # fail-closed refusal below.
+        if _otel_instrumentation is not None:
+            _otel_instrumentation.note_worker_start("flexcore-gnn-worker")
         sys.stderr.write(
             "flexcore-gnn-worker: request is not a valid JSON document: %s\n" % error
         )
         return 2
+    # FIM-F09.02 (additive): the worker-start trace line carrying the
+    # resolved trace context (envelope → env precedence; absent context is
+    # the honest empty outcome, never a synthesized id). ONE schema-v1
+    # line on stderr; stdout keeps EXACTLY one result envelope.
+    if _otel_instrumentation is not None:
+        _otel_instrumentation.note_worker_start("flexcore-gnn-worker", envelope=request)
     try:
         validation_probe = validate_request(request)
         del validation_probe  # validation is the gate; run_inference revalidates

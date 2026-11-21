@@ -10,10 +10,12 @@
 //
 // WHAT THIS MODULE IS (and is not): a FORMAT definition plus the
 // structural validation and device-side applicability/sequence/expiry
-// checks. It produces nothing, signs nothing, stages nothing, applies
-// nothing — no bundle has ever been produced, signed, staged, or applied
-// (the phase-18 acceptance criteria; the P9.34 honesty bounds carry over
-// verbatim). The P9.34 gate (`crate::update_verification::UpdateGate`)
+// checks. This module still produces nothing, signs nothing, stages
+// nothing, applies nothing — producing and signing live in the FIM-F12
+// producer (`crate::ota_bundle_produce`, WRITTEN-UNRUN) — and no bundle
+// has ever been produced, signed, staged, or applied (the phase-18
+// acceptance criteria; the P9.34 honesty bounds carry over verbatim). The
+// P9.34 gate (`crate::update_verification::UpdateGate`)
 // remains the verification authority; this module's checks are strictly
 // ADDITIONAL metadata checks that run before/after the gate's preserved
 // refusal order (see `crate::update_session::ExtendedUpdateGate` for the
@@ -81,14 +83,21 @@ pub const MAX_APPLICABILITY_DEVICE_IDS: usize = 4096;
 pub const ANTI_ROLLBACK_SEQUENCE_FLOOR: u64 = 1;
 
 /// The P18.02 honesty statement (pinned so tests and reviewers can read
-/// what IS and IS NOT claimed by this format module).
+/// what IS and IS NOT claimed by this format module). FIM-F12.07 updated
+/// the production sentence honestly: the PRODUCING code now exists
+/// (`crate::ota_bundle_produce`, WRITTEN-UNRUN) while the fact stands —
+/// no bundle has ever been produced, signed, staged, or applied.
 pub const UPDATE_BUNDLE_STATEMENT: &str = "the flexcore-edge-update-manifest-v2 format is a \
      FlexCore SIGNED-MANIFEST format shaped by the SUIT manifest concepts (RFC 9019 [S-162]) \
      and the TUF role model (ADR-1801 [S-161]); it is NOT a SUIT CBOR encoding and no \
      standards-conformance claim is made. An update bundle has never been produced, signed, \
-     staged, or applied. The sequence-comparison semantics are the strictly-safer reading \
-     and are UNVERIFIED against the TUF/SUIT spec texts. The P9.34 gate remains the \
-     verification authority; nothing here bypasses it.";
+     staged, or applied — the FIM-F12.01 producer (crate::ota_bundle_produce, WRITTEN-UNRUN) \
+     is the code that assembles and Ed25519-signs bundles IN MEMORY with INJECTED key \
+     material (never generated at build, never committed; the P18.03 key ceremonies are \
+     HUMAN GATES and no key material ships), and until the first human build/test gate \
+     runs it, that fact stays literally true. The sequence-comparison semantics are the \
+     strictly-safer reading and are UNVERIFIED against the TUF/SUIT spec texts. The P9.34 \
+     gate remains the verification authority; nothing here bypasses it.";
 
 /// The anti-rollback semantics statement (recorded design + UNVERIFIED
 /// label; see the module header).

@@ -66,6 +66,20 @@ time = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-pemfile = { version = "2", default-features = false, features = ["std"] }
 
+# FIM-F12.01 (Wave 6, final implementation milestone; WRITTEN-UNRUN) — the
+# OTA bundle producer's Ed25519 signatures (`ota_signing.rs`) over the
+# domain-separated canonical bytes (`flexcore-ota-update-v1` /
+# `flexcore-ota-metadata-v1`; the Patch B `source_auth.rs` discipline).
+# ed25519-dalek 3 is the EXISTING workspace pin (root Cargo.toml, features
+# rand_core; the committed Cargo.lock resolves 3.0.0 and it is ALREADY a
+# direct dependency of flexcore-postgres-adapter / flexcore-simulator /
+# flexcore-worker), so NO new crate enters the resolution graph (FIM
+# standing decision 1). NO key material ships and none is generated at
+# build time: signing keys arrive as INJECTED 32-byte seeds (deployment
+# configuration); the P18.03 key ceremonies are HUMAN GATES. The in-test
+# seeds are fixed, loudly-labelled TEST-GRADE material.
+ed25519-dalek = { workspace = true }
+
 # Internal crates.
 flexcore-contracts = { workspace = true }
 flexcore-ports = { workspace = true }

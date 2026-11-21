@@ -80,6 +80,31 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
+# ── FIM-F09.02 (ADDITIVE; no behavior change beyond one stderr line) ────
+# Guarded import of the shared stdlib-only OTEL instrumentation module.
+# The recorded fallback: when the shared module is not importable this
+# module runs EXACTLY as before and only the entry-start trace line is
+# degraded to untraced — never a crash, never a fabricated trace id. The
+# OpenTelemetry SDK is OPTIONAL and NOT installed; the no-op fallback is
+# the DEFAULT posture (see ../otel_instrumentation.py honesty header).
+# WRITTEN-UNRUN: a RUNNING Collector and FIRING SLO alerts remain HUMAN
+# GATES (F-09 acceptance criteria 1-3 need live infrastructure).
+try:
+    _OTEL_PY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _OTEL_PY_ROOT not in sys.path:
+        sys.path.insert(0, _OTEL_PY_ROOT)
+    import otel_instrumentation as _otel_instrumentation
+
+    _OTEL_IMPORT_FALLBACK: str | None = None
+except ImportError as _otel_import_error:  # recorded fallback, never a bare pass
+    _otel_instrumentation = None
+    _OTEL_IMPORT_FALLBACK = "otel_instrumentation unavailable: %s" % (
+        _otel_import_error
+    )
+
 # The recorded harness payload cap the `oversize` helper targets
 # (verbatim from `crates/flexcore-research/src/validation.rs`:
 # `pub const MAX_PROPOSAL_PAYLOAD_BYTES: usize = 1024 * 1024;`).
@@ -361,9 +386,23 @@ class FaultInjector:
         self._last_reply = reply
         self._has_last_reply = True
 
-    def _append(self, index: int, fault_entry: Fault, *, target_called: bool, reply=None, error=None) -> None:
+    # FIM-8C.03 (2026-11-21): `_append` gains the keyword-only
+    # `delay_ms: int = 0` forwarding parameter. The `slow_consumer` branch
+    # of `call()` already passed `delay_ms=fault_entry.delay_ms`, but the
+    # signature did not accept it, so `run_self_tests()` crashed at HEAD
+    # with `TypeError: FaultInjector._append() got an unexpected keyword
+    # argument 'delay_ms'` — a pre-existing defect, diagnosed by the F-09
+    # sweep and re-verified against pristine-HEAD copies. The recorded
+    # semantics are decisive (P12.09 record
+    # `docs/phases-11-20/phase-12-backup-dr-resilience/records/
+    # 23_p12_09_fault_injection_expansion.md`): the injected delay travels
+    # as DATA in `CallRecord.delay_ms` (the scaffolding never sleeps), and
+    # the slot is "default 0 — every existing record is unchanged", which
+    # is exactly what this default preserves for every other call site.
+    def _append(self, index: int, fault_entry: Fault, *, target_called: bool, reply=None, error=None, delay_ms: int = 0) -> None:
         self.records.append(
-            CallRecord(index, fault_entry.kind, target_called, reply=reply, error=error)
+            CallRecord(index, fault_entry.kind, target_called, reply=reply, error=error,
+                       delay_ms=delay_ms)
         )
 
     def stats(self) -> dict:
@@ -620,6 +659,14 @@ def run_self_tests() -> list:
     # ---- Test 3: message drop ------------------------------------------
     # HAND CHECK: plan [drop, none] → call 1 raises MessageDropped, target
     # called 0 times; call 2 passes through (target called once).
+    # FIM-8C.03 (2026-11-21): the shared `counting_toy2` counter is RESET
+    # here and before every other test whose hand check asserts a
+    # fresh-sequence reply (tests 3, 5, 6, 7, 9, 19, 20). The counter was
+    # shared across tests while the hand checks describe fresh sequences;
+    # the defect was invisible at HEAD because run_self_tests() crashed
+    # with the _append TypeError before any report was printed (see the
+    # _append comment).
+    state2["n"] = 0
     injector3 = FaultInjector(counting_toy2, [Fault("drop"), Fault("none")])
     dropped = None
     try:
@@ -658,6 +705,7 @@ def run_self_tests() -> list:
     )
 
     # ---- Test 5: crash_before — the target never ran -------------------
+    state2["n"] = 0  # FIM-8C.03 (2026-11-21): fresh sequence, see test 3.
     injector5 = FaultInjector(
         counting_toy2,
         [Fault("crash_before", phase="before"), Fault("none")],
@@ -680,6 +728,7 @@ def run_self_tests() -> list:
     # at call 1 WITHOUT calling the target; the flag travels INSIDE the
     # reply (the injector never fabricates staleness).
     canned = {"value_mw": 2.0, "stale": True}
+    state2["n"] = 0  # FIM-8C.03 (2026-11-21): fresh sequence, see test 3.
     injector6 = FaultInjector(counting_toy2, [Fault("scripted_reply", reply=canned), Fault("none")])
     served = injector6.call()
     normal = injector6.call()
@@ -694,6 +743,7 @@ def run_self_tests() -> list:
     # ---- Test 7: replay_last — a duplicated delivery, no re-execution --
     # HAND CHECK: plan [none, none, replay_last]: call 3 returns call 2's
     # reply (2) WITHOUT calling the target → target called exactly twice.
+    state2["n"] = 0  # FIM-8C.03 (2026-11-21): fresh sequence, see test 3.
     injector7 = FaultInjector(counting_toy2, [Fault("none"), Fault("none"), Fault("replay_last")])
     r1 = injector7.call()
     r2 = injector7.call()
@@ -723,6 +773,7 @@ def run_self_tests() -> list:
     # HAND CHECK: scripted [r1, r2, r3] → delivery order r3, r2, r1; the
     # target is never called while the queue holds; a 4th call passes
     # through (target called once).
+    state2["n"] = 0  # FIM-8C.03 (2026-11-21): fresh sequence, see test 3.
     injector9 = ReorderInjector(counting_toy2, ["r1", "r2", "r3"])
     d1 = injector9.call()
     d2 = injector9.call()
@@ -890,6 +941,7 @@ def run_self_tests() -> list:
     # record 1 (0-indexed) carries delay_ms = 45_000; the helper
     # classifies 45_000 > 30_000 as exceeding the supervision timeout and
     # 29_999 as not. NO sleeping happens anywhere.
+    state2["n"] = 0  # FIM-8C.03 (2026-11-21): fresh sequence, see test 3.
     injector19 = FaultInjector(
         counting_toy2,
         [Fault("none"), Fault("slow_consumer", delay_ms=45_000), Fault("none")],
@@ -912,6 +964,7 @@ def run_self_tests() -> list:
     # NetworkPartitionError (target unreached, fault_kind
     # "network_partition"); call 4 passes (reply 3 — the target count is
     # 3 total).
+    state2["n"] = 0  # FIM-8C.03 (2026-11-21): fresh sequence, see test 3.
     injector20 = PartitionInjector(counting_toy2, open_after_calls=2, closed_for_calls=2)
     replies20 = [injector20.call() for _ in range(2)]
     partition_errors = 0
@@ -1012,6 +1065,11 @@ def run_self_tests() -> list:
 
 
 if __name__ == "__main__":  # pragma: no cover — human-gate entrypoint
+    # FIM-F09.02 (additive): the entry-start trace line (env carrier; this
+    # module processes no message envelope). ONE schema-v1 line on stderr;
+    # the self-test report on stdout is byte-identical.
+    if _otel_instrumentation is not None:
+        _otel_instrumentation.note_worker_start("flexcore-research-drill")
     _records = run_self_tests()
     _failures = [r for r in _records if not r["passed"]]
     for _r in _records:

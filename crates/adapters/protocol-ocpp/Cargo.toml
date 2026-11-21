@@ -21,14 +21,33 @@
 #   shape below carries an UNVERIFIED label naming the implementation-time
 #   check against the OCA specification text.
 #
-# What is deliberately absent: no WebSocket library (tokio-tungstenite-class
-# is NOT added), no TLS stack, no HTTP server framework. The WebSocket/OCPP-J
-# transport is a designed, named UNRUN seam (`csms.rs` `CsmsTransport`), like
-# the P14 adapter transports; implementing it is an implementation-time human
-# gate (decision record 01_p17_01_ocpp_csms_adapter_architecture.md §7). The
-# entire crate is WRITTEN-UNRUN model/skeleton code; no server has ever run,
-# no charge point has ever connected, no OCPP message has ever been exchanged
-# with a real device, and no conformance or certification claim is made.
+# What remains deliberately absent: NO third-party WebSocket library
+# (tokio-tungstenite/tokio-websockets are NOT added) and NO TLS stack. The
+# RFC 6455 server-side transport was implemented under FIM-F02 as a
+# HAND-WRITTEN minimal codec (`src/websocket.rs`), per the FIM standing
+# decision 1 (docs/releases/implementation_ledger/README.md): missing wire
+# protocols are hand-written minimal codecs pinned by tests, each carrying
+# an honesty header — RFC 6455 conformance and real charge-point
+# interoperability are HUMAN LAB GATES, never claimed here. SHA-1 (the
+# RFC 6455 |Sec-WebSocket-Accept| hash) is likewise hand-written and pinned
+# (`src/sha1.rs`); no sha* crate is added. No TLS termination exists
+# anywhere: the transport serves plaintext RFC 6455 in the declared
+# LAB posture with a recorded reason, and Profile 3 mTLS termination is a
+# HUMAN LAB GATE (there is no flag that disables TLS, because no TLS was
+# ever enabled). The entire crate remains WRITTEN-UNRUN; no server has ever
+# run, no charge point has ever connected, no OCPP message has ever been
+# exchanged with a real device, and no conformance or certification claim
+# is made.
+#
+# Dependency additions under FIM-F02 (lock-verified, FIM standing decision
+# 1 — dependencies are limited to crates already resolved in the committed
+# Cargo.lock):
+# - tokio (workspace pin 1.54.1, resolved in Cargo.lock as 1.54.1): the
+#   live transport's bind/serve loop (`transport.rs`); the workspace pin
+#   already carries the features used (net, rt-multi-thread, macros, sync,
+#   io-util, time).
+# - base64 (workspace pin 0.23, resolved in Cargo.lock as 0.23.1): the
+#   RFC 6455 |Sec-WebSocket-Key| / |Sec-WebSocket-Accept| header encoding.
 [package]
 name = "flexcore-ocpp-adapter"
 description = "OCPP CSMS adapter: OCPP-J JSON framing model types and codec, subprotocol negotiation, connection/session state machine, security Profile 3 onboarding types, boot/status/transaction mapping into the domain EVSE registry extension, and the SetChargingProfile payload mapping for the smart-charging composer (P17.01-P17.05)."
@@ -40,3 +59,9 @@ flexcore-protocol-ports = { workspace = true }
 flexcore-domain = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# FIM-F02 (lock-verified): the live RFC 6455 transport's serving loop.
+tokio = { workspace = true }
+# FIM-F02 (lock-verified, lock resolves workspace pin 0.23 -> 0.23.1): the
+# RFC 6455 handshake key encoding (|Sec-WebSocket-Key| decode,
+# |Sec-WebSocket-Accept| encode).
+base64 = { workspace = true }

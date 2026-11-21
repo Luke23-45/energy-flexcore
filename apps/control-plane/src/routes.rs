@@ -112,6 +112,103 @@ pub fn stage1_router(state: AppState) -> Router {
         .with_state(state)
 }
 
+/// FIM Wave 6.5 (Agent A) — the configuration-gated FIM router surfaces.
+///
+/// Mounts a surface ONLY when its service is composed in the state; when
+/// the composition is absent the returned router contributes NO routes at
+/// all (the paths simply do not exist — not a 404 fallback), which is the
+/// recorded fail-closed posture of every FIM surface (`scim.rs` honesty
+/// header: "the fail-closed default: the surface is simply not mounted").
+///
+/// Mounted today:
+/// - SCIM 2.0 (`scim.rs::scim_router`) when `state.scim` is composed AND
+///   the SCIM bearer digest is present — behind
+///   [`scim_bearer_guard`]. The path constants in `scim.rs` already carry
+///   the `/scim/v2` prefix, so the router MERGES at the root (nesting it
+///   under `/scim` would double the prefix).
+/// - FIM Wave 8B (Agent B): the MACHINE-IDENTITY surface
+///   (`machine_identity_routes.rs`) when `state.machine_identity` is
+///   composed — which happens only behind the
+///   `FLEXCORE_MACHINE_IDENTITY_ENABLED` configuration gate — and the
+///   API-KEY surface (`api_key_routes.rs`) when `state.api_keys` is
+///   composed — only behind the `FLEXCORE_API_KEYS_ENABLED` gate. Absent
+///   a gate the service slot stays `None` and the surface contributes NO
+///   routes (the wiring wave left the services unconstructed exactly so).
+///   Both surfaces carry their own documentation of which endpoint
+///   authenticates through which guard.
+///
+/// The composition root merges this router AFTER `stage1_router` and
+/// BEFORE the middleware stack, so mounted surfaces ride the same
+/// metrics/rate-limit/timeout/body-limit layers as every other route.
+pub fn fim_router(state: &AppState) -> Router {
+    let scim = match (&state.scim, state.scim_bearer_digest) {
+        (Some(service), Some(digest)) => crate::scim::scim_router(service.clone()).layer(
+            axum::middleware::from_fn_with_state(digest, scim_bearer_guard),
+        ),
+        // Fail-closed on miscomposition: a SCIM service composed WITHOUT
+        // its guard digest (or a digest without a service) mounts NOTHING
+        // — an unauthenticated provisioning surface is never served.
+        (Some(_), None) | (None, Some(_)) | (None, None) => Router::new(),
+    };
+    // FIM Wave 8B — the machine-identity surface (P13.07 / FIM-F08.01):
+    // mounts ONLY when the service is composed (the wiring wave composes
+    // it only behind `FLEXCORE_MACHINE_IDENTITY_ENABLED`); absent
+    // composition mounts NO routes at all.
+    let machine_identity = match &state.machine_identity {
+        Some(_) => crate::machine_identity_routes::machine_identity_router(state.clone()),
+        None => Router::new(),
+    };
+    // FIM Wave 8B — the API-key surface (P13.08 / FIM-F08.02): mounts ONLY
+    // when the service is composed (the wiring wave composes it only
+    // behind `FLEXCORE_API_KEYS_ENABLED`); absent composition mounts NO
+    // routes at all.
+    let api_keys = match &state.api_keys {
+        Some(_) => crate::api_key_routes::api_key_router(state.clone()),
+        None => Router::new(),
+    };
+    scim.merge(machine_identity).merge(api_keys)
+}
+
+/// The SCIM bearer guard (`scim.rs` honesty header: AUTHORIZATION IS NOT
+/// IN THAT MODULE — the composed deployment mounts the router behind
+/// authentication). A single-purpose guard: the request must carry
+/// `Authorization: Bearer <token>` whose SHA-256 digest equals the
+/// composed digest (the token itself is never held in state — only
+/// `sha256(token)`; comparing fixed-length 32-byte digests narrows any
+/// timing oracle to the digest, the same pattern the signing layer uses
+/// for secret-adjacent comparisons). A missing, malformed, or wrong
+/// credential is a bare 401 with no detail (no oracle about which half
+/// failed).
+///
+/// ASSUMPTION (recorded honestly): the SCIM connection's bearer token is
+/// the deployment's chosen shared credential for its IdP's SCIM push
+/// client (the common IdP provisioning model); per-client OAuth token
+/// validation on this surface is a recorded future step, not composed
+/// here. WRITTEN-UNRUN like every FIM surface.
+pub async fn scim_bearer_guard(
+    axum::extract::State(expected_digest): axum::extract::State<[u8; 32]>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    use crate::webhook_signing::sha256;
+
+    let provided = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|raw| raw.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(|token| sha256(token.as_bytes()));
+    match provided {
+        Some(digest) if digest == expected_digest => next.run(request).await,
+        // Absent, malformed, or wrong: one bare 401 for every refusal
+        // shape (no detail distinguishing them).
+        _ => axum::http::StatusCode::UNAUTHORIZED.into_response(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Request bodies
 // ---------------------------------------------------------------------------

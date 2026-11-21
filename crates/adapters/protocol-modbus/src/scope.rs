@@ -53,8 +53,10 @@ fn reviewed_not_modelled() -> Vec<NotModelled> {
         .expect("valid"),
         NotModelled::new(
             "wire_transport".to_string(),
-            "the Modbus TCP/RTU wire transport is a designed, UNWIRED seam; no device is \
-             reached and no message is exchanged in this program"
+            "the Modbus TCP transport is implemented live under FIM-F03 (WRITTEN-UNRUN; \
+             device interop UNPROVEN — a HUMAN LAB GATE); the RTU serial transport remains \
+             an UNWIRED seam; no device has been reached and no message has been exchanged \
+             by this program"
                 .to_string(),
         )
         .expect("valid"),

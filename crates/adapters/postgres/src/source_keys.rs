@@ -54,8 +54,8 @@ use flexcore_domain::ids::TenantId;
 use flexcore_domain::tenant_context::TenantContext;
 use flexcore_ports::backend_error::BackendError;
 use flexcore_ports::source_auth::{
-    canonical_signing_bytes, SourceAuthError, SourceAuthMode, SourceAuthenticator,
-    VerifiedEnvelope, ENVELOPE_VERSION,
+    canonical_signing_bytes, signable_identifier, SourceAuthError, SourceAuthMode,
+    SourceAuthenticator, VerifiedEnvelope, ENVELOPE_VERSION,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -145,6 +145,17 @@ fn parse_envelope(payload: &[u8]) -> Result<ParsedEnvelope, SourceAuthError> {
     if wire.source_id.is_empty() {
         return Err(malformed("the envelope source_id is empty"));
     }
+    // The typed over-long refusal (V-10, FIM wave 8, written-unrun):
+    // an identifier beyond the u32 length prefix of the canonical signing
+    // bytes has NO signing bytes, so such an envelope can never be signed
+    // or verified — refused here, at the parse gate, as a wrong-shape
+    // field (the existing `MalformedEnvelope` classification; the stable
+    // quarantine reason `1-receive: source-auth: malformed-envelope` is
+    // unchanged), before any signing path runs. This is the caller-side
+    // half of `push_length_prefixed`'s typed error: callers handle it as
+    // a refusal.
+    signable_identifier(&wire.key_id)?;
+    signable_identifier(&wire.source_id)?;
     let tenant_uuid = FlexUuid::parse(&wire.tenant_id)
         .map_err(|_| malformed("the envelope tenant_id is not a UUID"))?;
     let payload_digest = hex_decode::<32>(&wire.payload_digest)

@@ -150,3 +150,21 @@ a crash, and no figure is ever fabricated.
   is made or implied: those are P8.12's measured cells, EMPTY until the
   human/lab gate, on held-out topologies only for any generalization
   statement.
+
+## FIM-F09 instrumentation (additive; WRITTEN-UNRUN)
+
+`gnn_inference_worker.py` imports the shared stdlib-only module
+`../otel_instrumentation.py` (FIM-F09.01) guarded (the torch.load guard
+idiom) and emits ONE schema-v1 worker-start trace line on stderr
+(`flexcore.log.v1`, P11.07) carrying the W3C `traceparent` context
+resolved from the request envelope / the `TRACEPARENT` env var — absent
+context stays EMPTY, never synthesized (P11.05 posture). No behavior
+change beyond that line: the result vocabulary, `assert_proposal_only`,
+and `FORBIDDEN_RESULT_KEYS` are untouched, and the emit-time redaction
+filter covers the P11.08 closed vocabulary plus the proposal-only keys.
+The OpenTelemetry SDK is OPTIONAL and NOT installed; the no-op fallback
+is the DEFAULT posture, and the SDK-present OTLP export path is UNPROVEN
+until a human runs it with the SDK installed. A RUNNING Collector and
+FIRING SLO alerts are HUMAN GATES (F-09 acceptance criteria 1-3 need
+live infrastructure); the Collector config is validated structurally —
+never run — by `../tools_fim/validate_collector_config.py`.

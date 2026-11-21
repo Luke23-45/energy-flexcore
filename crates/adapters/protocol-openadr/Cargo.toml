@@ -1,23 +1,31 @@
 # P14.05 — OpenADR 3.0 VTN adapter models: event/report/registration
-# endpoint DESIGN (a designed seam — no HTTP framework dependency), VEN
-# management, and the event -> PROPOSED command-lifecycle mapping.
+# endpoint DESIGN (a designed seam — the route data), VEN management, the
+# event -> PROPOSED command-lifecycle mapping, and (FIM-F04) the LIVE VTN
+# HTTP endpoint serving over that seam.
 #
 # Dependency policy (tools/check_dependency_rule.py): this is an ADAPTER
 # crate (composition side, like crates/adapters/nats). It carries a minimal
 # dependency set — serde/serde_json for the REST/JSON payload model types,
 # flexcore-contracts for the canonical unit and time types, flexcore-domain
-# for the frozen command-state vocabulary. NO HTTP framework, NO OpenADR
-# stack library, NO async runtime: endpoint serving is a designed seam
-# (record 21) and the wire protocol is never connected in this program.
+# for the frozen command-state vocabulary. NO OpenADR stack library: the
+# wire payloads are the crate's own JSON design shapes (record 21 §5 — the
+# 3.0 specification text stays UNVERIFIED, a human lab gate).
 #
 # flexcore-domain is used only for the frozen 14-state lifecycle vocabulary
 # (`command_state`) and the typed ids — the mapping enters the lifecycle at
 # PROPOSED and can never construct a later state (ADR-010 extended; plan.md
 # §7 note 4).
+#
+# FIM-F04 (live OpenADR 3.0 VTN endpoints; FIM standing decision 1): the
+# serving dependencies below are ALREADY resolved in the committed
+# `Cargo.lock` and each line pins the EXACT resolved version (verified by
+# grep against `Cargo.lock` on 2026-11-19). No new crate enters the
+# resolution graph. The live serving is WRITTEN-UNRUN; VEN interoperability
+# is UNPROVEN and remains a HUMAN LAB GATE (see src/transport.rs).
 
 [package]
 name = "flexcore-openadr-adapter"
-description = "OpenADR 3.0 VTN adapter models: events, VEN registry, endpoint design seam, PROPOSED mapping (P14.05)."
+description = "OpenADR 3.0 VTN adapter: events, VEN registry, endpoint design seam, PROPOSED mapping (P14.05), and the live VTN HTTP endpoint serving (FIM-F04, written-unrun, VEN interop unproven)."
 version.workspace = true
 edition.workspace = true
 
@@ -27,7 +35,53 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 flexcore-contracts = { workspace = true }
 flexcore-domain = { workspace = true }
+# - tokio (workspace = 1.54.1 in the lock): the accept loop and the
+#   current-thread runtime `LiveVtnTransport::serve` blocks on.
+tokio = { workspace = true }
+# - hyper 1.12.0 (lock): the HTTP/1.1 serving layer over the (possibly
+#   TLS-wrapped) streams (`http1` + `server`; no client, no http2) — the
+#   protocol-20305 house pattern.
+hyper = { version = "1.12.0", default-features = false, features = [
+    "http1",
+    "server",
+] }
+# - http 1.5.0 (lock): the wire request/response types of the HTTP mapping.
+http = "1.5.0"
+# - http-body 1.1.0 (lock) + http-body-util 0.1.5 (lock): the body trait
+#   and the `BodyExt::collect` bridge between wire bodies and the designed
+#   payload types.
+http-body = "1.1.0"
+http-body-util = "0.1.5"
+# - bytes 1.12.2 (lock): the response body buffer type (`Full<Bytes>`).
+bytes = "1.12.2"
+# - futures 0.3.34 (lock): `FuturesUnordered` multiplexes the concurrent
+#   connections of one current-thread serving loop.
+futures = "0.3.34"
+# - tokio-rustls 0.26.6 (lock): the optional-by-config mTLS accept loop.
+#   `default-features = false` + `ring` keeps the resolved rustls provider
+#   IDENTICAL to the committed lock graph (ring; aws-lc-rs is not in the
+#   lock and would add a new crate — forbidden by FIM standing decision 1).
+tokio-rustls = { version = "0.26.6", default-features = false, features = [
+    "ring",
+    "tls12",
+] }
+# - rustls 0.23.46 (lock): the fail-closed server TLS configuration
+#   (mandatory client-certificate verifier, trust anchors). Same provider
+#   note as tokio-rustls: ring-only, matching the lock.
+rustls = { version = "0.23.46", default-features = false, features = [
+    "logging",
+    "ring",
+    "std",
+    "tls12",
+] }
+# - rustls-pemfile 2.2.0 (lock): PEM decoding of the composition root's
+#   certificate-chain / private-key / trust-anchor paths (no key material
+#   ever lives in code or in this repository).
+rustls-pemfile = "2.2.0"
 
 [dev-dependencies]
-# The mapping tests (tests/event_mapping.rs) use only the crates above —
-# no additional dev dependency is permitted.
+# The test suites (tests/event_mapping.rs, the in-module suites, and
+# tests/live_transport_gated.rs) use only the crates above (tokio's
+# workspace features already carry `macros`/`rt`; tokio-rustls/rustls/
+# rustls-pemfile are reachable from the regular dependencies for the gated
+# socket-level suite) — no additional dev dependency is permitted.

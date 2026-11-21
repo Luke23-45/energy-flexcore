@@ -11,10 +11,11 @@
 //
 // Role mapping onto the common vocabulary: the uplink adapter is the
 // ACTIVE end — it connects OUT to the broker and publishes — the common
-// CLIENT role. Control scope: MONITOR ONLY (this batch is the uplink
-// option; there is no command path, no subscribe-on-command, nothing that
-// carries a setpoint — the release ladder keeps v0.x adapters
-// read/monitor-first).
+// CLIENT role. Control scope: MONITOR ONLY (under FIM-F05, written-unrun,
+// a command-TOPIC DELIVERY surface delivers received commands into the
+// edge command lifecycle at PROPOSED; there is still no command relay, no
+// dispatch authority, nothing that carries a setpoint through this
+// adapter — the release ladder keeps v0.x adapters read/monitor-first).
 //
 // CAPABILITY VOCABULARY NOTE (recorded honestly, decision record 43 §4):
 // the common `DeclaredCapability` vocabulary (record 01) expresses
@@ -42,16 +43,22 @@ fn reviewed_not_modelled() -> Vec<NotModelled> {
     vec![
         NotModelled::new(
             "no_command_path".to_string(),
-            "no subscribe-on-command, no command relay: this batch is the UPLINK option \
-             (monitor-only); a future command-relay surface is a reviewed scope change \
-             (the release ladder keeps v0.x adapters read/monitor-first)"
+            "no command RELAY, no dispatch authority: under FIM-F05 (written-unrun) a \
+             command-TOPIC DELIVERY surface exists (live.rs subscribes the declared exact \
+             command topic and drains received commands into the edge command lifecycle \
+             at PROPOSED and nowhere else), but nothing here authorizes, dispatches, or \
+             relays a command — the monitor-only control scope and the common relay gate \
+             still stand"
                 .to_string(),
         )
         .expect("valid"),
         NotModelled::new(
             "wire_transport".to_string(),
-            "no MQTT client library, no broker connection, no TLS stack: the wire \
-             transport is a designed, UNWIRED seam (crate::transport)"
+            "FIM-F05 (written-unrun): the wire transport EXISTS as hand-written codecs \
+             (mqtt_wire.rs, sparkplug_wire.rs — no MQTT client crate, no prost) and the \
+             live transport (live.rs, TLS via tokio-rustls), but it has never been \
+             compiled or executed: no broker has ever been reached, and interop is \
+             UNPROVEN — a HUMAN LAB GATE"
                 .to_string(),
         )
         .expect("valid"),

@@ -12,10 +12,11 @@
 # the mapping targets (VersionedNetworkModel / BusSpec / BranchSpec /
 # TransformerSpec / ExternalGridSpec), serde for model serialization.
 #
-# NO XML/RDF parser library, NO CGMES stack: the RDF/XML profile parsing
-# is a designed seam (src/rdf_profile.rs) exactly like the wire transports
-# in the other protocol crates. NO serde_json (the profile is model data,
-# not a JSON exchange surface).
+# NO XML/RDF parser LIBRARY, NO CGMES stack (FIM-F06): the RDF/XML profile
+# parsing is implemented by the hand-written subset pull parser
+# (src/xml_pull.rs, FIM-F06.01) behind the rdf_profile seam — no XML crate
+# enters the dependency line (FIM standing decision 1). NO serde_json (the
+# profile is model data, not a JSON exchange surface).
 
 [package]
 name = "flexcore-cim-adapter"

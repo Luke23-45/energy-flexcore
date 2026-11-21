@@ -108,6 +108,29 @@ import time
 import safety_filter
 import shadow_log
 
+# ── FIM-F09.02 (ADDITIVE; no behavior change beyond one stderr line) ────
+# Guarded import of the shared stdlib-only OTEL instrumentation module
+# (the same guard idiom the guarded framework imports of this file use).
+# The recorded fallback: when the shared module is not importable the
+# worker runs EXACTLY as before and only the worker-start trace line is
+# degraded to untraced — never a crash, never a fabricated trace id. The
+# OpenTelemetry SDK is OPTIONAL and NOT installed; the no-op fallback is
+# the DEFAULT posture (see ../otel_instrumentation.py honesty header).
+# WRITTEN-UNRUN: a RUNNING Collector and FIRING SLO alerts remain HUMAN
+# GATES (F-09 acceptance criteria 1-3 need live infrastructure).
+try:
+    _OTEL_PY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _OTEL_PY_ROOT not in sys.path:
+        sys.path.insert(0, _OTEL_PY_ROOT)
+    import otel_instrumentation as _otel_instrumentation
+
+    _OTEL_IMPORT_FALLBACK: str | None = None
+except ImportError as _otel_import_error:  # recorded fallback, never a bare pass
+    _otel_instrumentation = None
+    _OTEL_IMPORT_FALLBACK = "otel_instrumentation unavailable: %s" % (
+        _otel_import_error
+    )
+
 # The worker-transport protocol tag (the mirror of `flexcore-andes-worker/1`
 # and `flexcore-gnn-worker/1` for the MARL track; validated on every
 # request, fail-closed).
@@ -893,11 +916,22 @@ def main() -> int:
     try:
         request = json.loads(raw)
     except json.JSONDecodeError as error:
+        # FIM-F09.02 (additive): the worker-start trace line, with no
+        # envelope carrier available (env var only). Never changes the
+        # fail-closed refusal below.
+        if _otel_instrumentation is not None:
+            _otel_instrumentation.note_worker_start("flexcore-marl-worker")
         sys.stderr.write(
             "flexcore-marl-worker: request is not a valid JSON document: %s\n"
             % error
         )
         return 2
+    # FIM-F09.02 (additive): the worker-start trace line carrying the
+    # resolved trace context (envelope → env precedence; absent context is
+    # the honest empty outcome, never a synthesized id). ONE schema-v1
+    # line on stderr; stdout keeps EXACTLY one result envelope.
+    if _otel_instrumentation is not None:
+        _otel_instrumentation.note_worker_start("flexcore-marl-worker", envelope=request)
     try:
         validation_probe = validate_request(request)
         del validation_probe  # validation is the gate; run_worker revalidates
@@ -1155,17 +1189,31 @@ def run_self_tests() -> list:
     # ---- Test 7: the composition edge imports NO transport --------------
     # The AST of THIS file must import only stdlib + the two sibling pure
     # modules; ray/gymnasium appear ONLY inside function bodies (guarded).
+    # FIM-F09.02 (additive): `otel_instrumentation` joins the allowed
+    # roots — the shared stdlib-only trace-context module this file's
+    # guarded import block pulls in (one stderr start line; no transport,
+    # no dispatch client, no simulator import — the test's purpose is
+    # unchanged).
     source = inspect.getsource(sys.modules[__name__])
     tree = ast.parse(source)
+    # FIM-8C.01 (2026-11-21): `time` joins the allowed stdlib roots. The
+    # module's own top-level `import time` (used for the wall-clock
+    # latency helper via time.perf_counter, legitimate stdlib usage) was
+    # missing from this allowlist, so the self-test failed at HEAD
+    # (25/26) — a pre-existing defect, diagnosed by the F-09 sweep and
+    # re-verified against pristine-HEAD copies; fixed here by amending
+    # the allowlist, NOT by removing the import.
     allowed_roots = {
         "__future__",
         "json",
         "os",
         "sys",
+        "time",
         "ast",
         "inspect",
         "safety_filter",
         "shadow_log",
+        "otel_instrumentation",
     }
     top_level_roots: list = []
     guarded_roots: list = []

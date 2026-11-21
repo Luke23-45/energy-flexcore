@@ -1,4 +1,9 @@
 // P15.10 — The BESS warranty object model (pure domain records, no I/O).
+// FIM-F11 (Wave 5) adds, ADDITIVELY: headroom computed directly from the
+// MEASURED `MonotonicCounter` outputs of the P15.07 ledger (headroom falls
+// as measured throughput consumes the allowance) and the estimate-based
+// capacity-retention record — the existing `compute_headroom` semantics are
+// unchanged.
 //
 // Decision record:
 // `docs/phases-11-20/phase-15-forecasting-asset-intelligence/records/
@@ -39,8 +44,10 @@
 
 use flexcore_contracts::capability::Provenance;
 
-use crate::bess_degradation::{BessDegradationLedger, DegradationLedgerError};
-use crate::bess_soh::{soh_report_creditable, SohStalenessConfig};
+use crate::bess_degradation::{BessDegradationLedger, DegradationLedgerError, MonotonicCounter};
+use crate::bess_soh::{
+    soh_estimate_creditable, soh_report_creditable, SohEstimate, SohStalenessConfig,
+};
 
 // --- Recorded statements -----------------------------------------------------
 
@@ -129,6 +136,14 @@ pub enum WarrantyError {
     ScheduleMustStartAtYearOne,
     /// A structural error came from the P15.07 ledger.
     LedgerError(DegradationLedgerError),
+    /// The platform SoH estimate supplied for the estimate-based retention
+    /// record is not creditable (stale beyond the configured bound or
+    /// UNKNOWN provenance — P3.02 / P15.09): no record is produced and no
+    /// value is invented.
+    EstimateNotCreditable {
+        /// The recorded reason (audit-safe).
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for WarrantyError {
@@ -168,6 +183,11 @@ impl std::fmt::Display for WarrantyError {
                 write!(f, "the capacity-retention schedule must start at year 1")
             }
             WarrantyError::LedgerError(error) => write!(f, "degradation ledger error: {error}"),
+            WarrantyError::EstimateNotCreditable { reason } => write!(
+                f,
+                "the platform SoH estimate is not creditable for the retention record: \
+                 {reason}"
+            ),
         }
     }
 }
@@ -721,6 +741,190 @@ fn headroom_status(limit: f64, consumed: f64, unit: &'static str) -> HeadroomSta
     }
 }
 
+// --- FIM-F11 additive: headroom from MEASURED counters --------------------------
+//
+// The recorded FIM-F11.04 additions: the same remaining-vs-consumed
+// semantics as `compute_headroom`, exposed over the MonotonicCounter
+// OUTPUTS directly, so the composition root can feed measured counters
+// (per-asset ingestion) without constructing a full ledger, and the
+// capacity-retention record can be computed against the FIM-F11 platform
+// SoH ESTIMATE (advisory — the reported SoH path in `compute_headroom`
+// stays the authority). Nothing here changes `compute_headroom`.
+
+/// The recorded measured-counter headroom statement (visible in records and
+/// exports, not a comment).
+pub const MEASURED_COUNTER_HEADROOM_STATEMENT: &str =
+    "Measured-counter headroom (FIM-F11.04): the remaining allowance computed \
+from the MonotonicCounter outputs of the P15.07 degradation ledger — \
+headroom falls monotonically as measured throughput consumes the \
+allowance. UNKNOWN-provenance counters credit nothing (P3.02: unknown \
+narrows, never widens). A headroom value is a RECORD: never a penalty, a \
+claim, or a dispatch input (ADR-010).";
+
+/// The recorded estimate-based retention statement (visible in records and
+/// exports, not a comment).
+pub const ESTIMATED_RETENTION_HEADROOM_STATEMENT: &str =
+    "Estimated capacity-retention headroom (FIM-F11.03): the retention \
+margin computed against the PLATFORM SoH ESTIMATE — advisory, carrying the \
+estimate's own provenance and staleness bound. A fresh, creditable \
+BMS-reported SoH remains the operative value in `compute_headroom`; this \
+estimate-based record never overrides it, and a negative margin is a \
+RECORD, never a claim or dispatch input (ADR-010).";
+
+/// Headroom for one warranty limit against one measured counter
+/// (FIM-F11.04): the same Within/Exceeded record as `compute_headroom`
+/// produces, gated by the counter's creditability — a counter carrying
+/// UNKNOWN provenance or no observation credits nothing (P3.02).
+pub fn counter_headroom(
+    limit: f64,
+    consumed: &MonotonicCounter,
+    unit: &'static str,
+) -> HeadroomStatus {
+    if !consumed.is_creditable() {
+        return HeadroomStatus::NotCreditable {
+            reason: "the consumed counter carries UNKNOWN provenance or has no \
+                     observation; headroom is not creditable (unknown narrows, \
+                     never widens)"
+                .to_string(),
+        };
+    }
+    headroom_status(limit, consumed.value(), unit)
+}
+
+/// The measured-counter headroom report (FIM-F11.04): the cycle and
+/// throughput dimensions computed from MonotonicCounter outputs. Every
+/// field is a RECORD — never a penalty, a claim, or a dispatch input.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MeasuredCounterHeadroomReport {
+    /// The cycle-limit headroom vs the consumed FEC counter (`NotConfigured`
+    /// when the warranty declares no cycle limit).
+    pub cycles: HeadroomStatus,
+    /// The throughput-limit headroom vs the consumed cumulative-throughput
+    /// counter (`NotConfigured` when the warranty declares no throughput
+    /// limit).
+    pub throughput: HeadroomStatus,
+    /// The consumed FEC value (recorded data).
+    pub consumed_full_equivalent_cycles: f64,
+    /// The consumed cumulative throughput (MWh, recorded data).
+    pub consumed_cumulative_throughput_mwh: f64,
+    /// Whether BOTH counters are creditable (the P3.02 gate).
+    pub counters_creditable: bool,
+    /// The recorded statement ([`MEASURED_COUNTER_HEADROOM_STATEMENT`]).
+    pub statement: &'static str,
+}
+
+/// Computes the measured-counter headroom from MonotonicCounter outputs
+/// (FIM-F11.04): headroom falls monotonically as the measured counters
+/// consume the declared allowances. The limits are validated (finite,
+/// positive) exactly as `WarrantyTerms::new` validates them.
+pub fn compute_measured_counter_headroom(
+    max_full_equivalent_cycles: Option<f64>,
+    max_cumulative_throughput_mwh: Option<f64>,
+    consumed_full_equivalent_cycles: &MonotonicCounter,
+    consumed_cumulative_throughput_mwh: &MonotonicCounter,
+) -> Result<MeasuredCounterHeadroomReport, WarrantyError> {
+    for (field, limit) in [
+        ("max_full_equivalent_cycles", max_full_equivalent_cycles),
+        (
+            "max_cumulative_throughput_mwh",
+            max_cumulative_throughput_mwh,
+        ),
+    ] {
+        if let Some(value) = limit {
+            if !value.is_finite() {
+                return Err(WarrantyError::NonFiniteValue { field, value });
+            }
+            if value <= 0.0 {
+                return Err(WarrantyError::NonPositiveValue { field, value });
+            }
+        }
+    }
+    let cycles = match max_full_equivalent_cycles {
+        None => HeadroomStatus::NotConfigured,
+        Some(limit) => counter_headroom(limit, consumed_full_equivalent_cycles, "cycles"),
+    };
+    let throughput = match max_cumulative_throughput_mwh {
+        None => HeadroomStatus::NotConfigured,
+        Some(limit) => {
+            counter_headroom(limit, consumed_cumulative_throughput_mwh, "MWh")
+        }
+    };
+    Ok(MeasuredCounterHeadroomReport {
+        cycles,
+        throughput,
+        consumed_full_equivalent_cycles: consumed_full_equivalent_cycles.value(),
+        consumed_cumulative_throughput_mwh: consumed_cumulative_throughput_mwh.value(),
+        counters_creditable: consumed_full_equivalent_cycles.is_creditable()
+            && consumed_cumulative_throughput_mwh.is_creditable(),
+        statement: MEASURED_COUNTER_HEADROOM_STATEMENT,
+    })
+}
+
+/// The estimate-based capacity-retention record (FIM-F11.03): the retention
+/// margin of the PLATFORM SoH ESTIMATE against the scheduled minimum —
+/// advisory, with the estimate's own provenance. The reported-SoH path
+/// (`compute_headroom`) stays the authority; this record never overrides it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EstimatedCapacityRetentionHeadroom {
+    /// The retention detail (the same record shape the reported-SoH path
+    /// produces; `observed_soh_fraction` carries the ESTIMATE here).
+    pub detail: CapacityRetentionHeadroom,
+    /// The estimate's merged provenance.
+    pub estimate_provenance: Provenance,
+    /// Always true: the estimate is advisory and never replaces a reported
+    /// value (pinned by a test).
+    pub estimate_is_advisory: bool,
+}
+
+/// Computes the estimate-based capacity-retention headroom at
+/// `now_unix_millis`. The estimate must be creditable (fresh against the
+/// configured staleness bound AND known provenance — P3.02 / P15.09);
+/// otherwise a named error records exactly why, and no value is invented.
+pub fn estimated_capacity_retention_headroom(
+    terms: &WarrantyTerms,
+    estimate: &SohEstimate,
+    now_unix_millis: i64,
+    soh_config: &SohStalenessConfig,
+) -> Result<EstimatedCapacityRetentionHeadroom, WarrantyError> {
+    if !estimate.soh_fraction.is_finite() {
+        return Err(WarrantyError::NonFiniteValue {
+            field: "soh_fraction",
+            value: estimate.soh_fraction,
+        });
+    }
+    if !(0.0..=1.0).contains(&estimate.soh_fraction) {
+        return Err(WarrantyError::ValueOutOfRange {
+            field: "soh_fraction",
+            value: estimate.soh_fraction,
+            lower: 0.0,
+            upper: 1.0,
+        });
+    }
+    if !soh_estimate_creditable(estimate, now_unix_millis, soh_config) {
+        return Err(WarrantyError::EstimateNotCreditable {
+            reason: "the platform SoH estimate is stale beyond the configured maximum age \
+                     or carries UNKNOWN provenance (P3.02 / P15.09); the retention record \
+                     is refused, never invented"
+                .to_string(),
+        });
+    }
+    let elapsed_years = (now_unix_millis - terms.valid_from_unix_ms) as f64
+        / WARRANTY_YEAR_MILLIS as f64;
+    let resolution = terms.resolve_retention(elapsed_years);
+    let margin = estimate.soh_fraction - resolution.min_retention_fraction;
+    Ok(EstimatedCapacityRetentionHeadroom {
+        detail: CapacityRetentionHeadroom {
+            year_index: resolution.year_index,
+            scheduled_minimum_fraction: resolution.min_retention_fraction,
+            observed_soh_fraction: estimate.soh_fraction,
+            margin_fraction: margin,
+            beyond_schedule_coverage: resolution.beyond_schedule_coverage,
+        },
+        estimate_provenance: estimate.provenance,
+        estimate_is_advisory: true,
+    })
+}
+
 // --- Tests ------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -1086,5 +1290,162 @@ mod tests {
         assert!(WARRANTY_REFERENCE_STRUCTURE_STATEMENT.contains("NO conformance"));
         assert!(WARRANTY_REFERENCE_STRUCTURE_STATEMENT.contains("UNVERIFIED"));
         assert!(WARRANTY_HEADROOM_STATEMENT.contains("never asserts a claim"));
+    }
+
+    // --- FIM-F11: measured-counter headroom (additive) -----------------------
+
+    fn measured_cycles(value: f64, provenance: Provenance) -> MonotonicCounter {
+        let mut counter = MonotonicCounter::new();
+        counter.record(value, provenance).unwrap();
+        counter
+    }
+
+    #[test]
+    fn counter_headroom_falls_as_measured_throughput_consumes_the_allowance() {
+        // FIM-F11.04 acceptance: headroom computed from measured counters
+        // falls (monotonically) as throughput consumes the allowance.
+        let mut consumed = MonotonicCounter::new();
+        consumed.record(1_000.0, Provenance::Measured).unwrap();
+        match counter_headroom(6_000.0, &consumed, "cycles") {
+            HeadroomStatus::Within { remaining, unit } => {
+                assert_eq!(unit, "cycles");
+                assert!((remaining - 5_000.0).abs() < 1e-9);
+            }
+            other => panic!("expected Within(cycles), got {other:?}"),
+        }
+        consumed.record(2_000.0, Provenance::Measured).unwrap();
+        match counter_headroom(6_000.0, &consumed, "cycles") {
+            HeadroomStatus::Within { remaining, .. } => {
+                assert!((remaining - 3_000.0).abs() < 1e-9);
+            }
+            other => panic!("expected Within(cycles), got {other:?}"),
+        }
+        consumed.record(10_000.0, Provenance::Measured).unwrap();
+        match counter_headroom(6_000.0, &consumed, "cycles") {
+            HeadroomStatus::Exceeded { overage, unit } => {
+                assert_eq!(unit, "cycles");
+                assert!((overage - 7_000.0).abs() < 1e-9);
+            }
+            other => panic!("expected Exceeded(cycles), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn counter_headroom_credits_nothing_from_unknown_provenance_counters() {
+        let counter = measured_cycles(1_000.0, Provenance::Unknown);
+        assert!(matches!(
+            counter_headroom(6_000.0, &counter, "MWh"),
+            HeadroomStatus::NotCreditable { .. }
+        ));
+        // A counter with no observation at all credits nothing either.
+        assert!(matches!(
+            counter_headroom(6_000.0, &MonotonicCounter::new(), "cycles"),
+            HeadroomStatus::NotCreditable { .. }
+        ));
+    }
+
+    #[test]
+    fn measured_counter_headroom_report_records_dimensions_and_creditability() {
+        let cycles = measured_cycles(1_000.0, Provenance::Measured);
+        let throughput = measured_cycles(20_000.0, Provenance::Measured);
+        let report = compute_measured_counter_headroom(
+            Some(6_000.0),
+            Some(60_000.0),
+            &cycles,
+            &throughput,
+        )
+        .unwrap();
+        assert!(matches!(
+            report.cycles,
+            HeadroomStatus::Within { remaining, unit }
+                if unit == "cycles" && (remaining - 5_000.0).abs() < 1e-9
+        ));
+        assert!(matches!(
+            report.throughput,
+            HeadroomStatus::Within { remaining, unit }
+                if unit == "MWh" && (remaining - 40_000.0).abs() < 1e-9
+        ));
+        assert!(report.counters_creditable);
+        assert!(report.statement.contains("falls monotonically"));
+        // A warranty dimension with no declared limit is NotConfigured, and
+        // a non-positive limit is refused exactly as WarrantyTerms refuses.
+        let partial = compute_measured_counter_headroom(
+            None,
+            Some(60_000.0),
+            &cycles,
+            &throughput,
+        )
+        .unwrap();
+        assert_eq!(partial.cycles, HeadroomStatus::NotConfigured);
+        assert!(matches!(
+            compute_measured_counter_headroom(Some(0.0), None, &cycles, &throughput),
+            Err(WarrantyError::NonPositiveValue {
+                field: "max_full_equivalent_cycles",
+                ..
+            })
+        ));
+    }
+
+    // --- FIM-F11: estimate-based retention record (additive) -------------------
+
+    fn estimate(soh: f64, newest_input_ms: i64, provenance: Provenance) -> SohEstimate {
+        SohEstimate {
+            soh_fraction: soh,
+            provenance,
+            computed_at_unix_ms: newest_input_ms,
+            input_observations: 2,
+            newest_input_event_time_unix_ms: newest_input_ms,
+            method: "RECENCY_BOUNDED_OBSERVATION_COMPOSITION_V1",
+        }
+    }
+
+    #[test]
+    fn the_estimate_based_retention_record_is_advisory_and_records_the_margin() {
+        let terms = terms();
+        // Evaluated at day 30 (inside warranty year 1): the year-1 point
+        // (0.96) applies; the estimate 0.94 gives margin -0.02 — a recorded
+        // below-schedule value, never a claim.
+        let record = estimated_capacity_retention_headroom(
+            &terms,
+            &estimate(0.94, DAY, Provenance::Measured),
+            30 * DAY,
+            &SohStalenessConfig::default(),
+        )
+        .unwrap();
+        assert!(record.estimate_is_advisory, "the estimate never overrides a report");
+        assert_eq!(record.estimate_provenance, Provenance::Measured);
+        assert_eq!(record.detail.year_index, 1);
+        assert!((record.detail.scheduled_minimum_fraction - 0.96).abs() < 1e-12);
+        assert!((record.detail.observed_soh_fraction - 0.94).abs() < 1e-12);
+        assert!((record.detail.margin_fraction - (0.94 - 0.96)).abs() < 1e-12);
+        assert!(!record.detail.beyond_schedule_coverage);
+        assert!(ESTIMATED_RETENTION_HEADROOM_STATEMENT.contains("never overrides"));
+    }
+
+    #[test]
+    fn the_estimate_based_retention_record_refuses_a_stale_or_unknown_estimate() {
+        let terms = terms();
+        let config = SohStalenessConfig::default();
+        // Stale beyond the 7-day default bound (newest input at day 1,
+        // evaluated at day 30): refused, never invented.
+        assert!(matches!(
+            estimated_capacity_retention_headroom(
+                &terms,
+                &estimate(0.94, DAY, Provenance::Measured),
+                30 * DAY,
+                &config,
+            ),
+            Err(WarrantyError::EstimateNotCreditable { .. })
+        ));
+        // UNKNOWN-provenance estimate: fresh but never credited (P3.02).
+        assert!(matches!(
+            estimated_capacity_retention_headroom(
+                &terms,
+                &estimate(0.94, 30 * DAY, Provenance::Unknown),
+                30 * DAY,
+                &config,
+            ),
+            Err(WarrantyError::EstimateNotCreditable { .. })
+        ));
     }
 }

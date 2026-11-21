@@ -125,3 +125,24 @@ before it may record the time synchronisation as verified.
   cross-checks final granted times and step counts across federates, but
   a deeper time-synchronisation audit (message-level timestamps) is a
   future task, not claimed here.
+
+## FIM-F09 instrumentation (additive; WRITTEN-UNRUN)
+
+Every federation entrypoint (`broker.py`, `asset_federate.py`,
+`control_federate.py`, `grid_federate.py`,
+`research_controller_federate.py`) imports the shared stdlib-only module
+`../otel_instrumentation.py` (FIM-F09.01) guarded and emits ONE schema-v1
+federate-start trace line on stderr (`flexcore.log.v1`, P11.07) after the
+federation config loads, carrying the W3C `traceparent` context resolved
+from the config envelope (an OPTIONAL `traceparent` field or `headers`
+object; the closed `flexcore-helics-federation/1` contract does not
+declare these keys today) / the `TRACEPARENT` env var — absent context
+stays EMPTY, never synthesized (P11.05 posture). No behavior change
+beyond that line: the exit-report contract (ONE report document on
+stdout) and every fail-closed path are untouched. The OpenTelemetry SDK
+is OPTIONAL and NOT installed; the no-op fallback is the DEFAULT
+posture; the SDK-present OTLP export path is UNPROVEN until a human runs
+it with the SDK installed. A RUNNING Collector and FIRING SLO alerts are
+HUMAN GATES (F-09 acceptance criteria 1-3); the Collector config is
+validated structurally — never run — by
+`../tools_fim/validate_collector_config.py`.

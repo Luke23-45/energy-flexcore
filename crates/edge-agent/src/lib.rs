@@ -235,8 +235,11 @@ pub mod attestation;
 // digests, size caps, and the device-side monotonic anti-rollback counter
 // register (append-only CRC-32 framing, truncate-and-audit). The
 // strictly-ahead sequence semantics are UNVERIFIED against the TUF/SUIT
-// spec texts (the implemented rule is the strictly-safer reading). No
-// bundle has ever been produced, signed, staged, or applied.
+// spec texts (the implemented rule is the strictly-safer reading).
+// FIM-F12.07 honesty update: the PRODUCING code now exists (see
+// `ota_bundle_produce`, WRITTEN-UNRUN) while the fact stands — no bundle
+// has ever been produced, signed, staged, or applied, and no key material
+// ships (the P18.03 key ceremonies are HUMAN GATES).
 pub mod update_bundle;
 // P18.04 + P18.05 (phase 18, wave 1, Agent A) — the device update FLOW
 // state machine (download → verify → install → health-check → active,
@@ -267,3 +270,73 @@ pub mod update_session;
 // composition only). No command exists; no update has ever been applied;
 // no fleet exists.
 pub mod update_command_interlock;
+// FIM-F12.01 + FIM-F12.02 (Wave 6, final implementation milestone;
+// WRITTEN-UNRUN) — the OTA Ed25519 SIGNING LAYER: the domain-separated
+// signature domains (the Patch B `source_auth.rs` discipline),
+// device-configured trust anchors, the INJECTED-seed release key (never
+// generated at build, never shipped — the P18.03 key ceremonies are HUMAN
+// GATES), and the REAL `UpdateVerifier` behind the P9.34 port
+// (`Ed25519UpdateSignatureVerifier`, ed25519 over trust anchors; the
+// shipped `NoUpdateVerifier` fail-closed default is unchanged, and a
+// verifier with zero anchors refuses everything). The metadata roles are
+// TUF-SHAPED, not TUF-conformant, and the role semantics are UNVERIFIED
+// against the TUF spec text. No bundle has ever been signed.
+pub mod ota_signing;
+// FIM-F12.01 + FIM-F12.02 (Wave 6, final implementation milestone;
+// WRITTEN-UNRUN) — the TUF-SHAPED OTA repository and bundle PRODUCER plus
+// the device-side artifact verification: the root/targets/timestamp/
+// snapshot metadata roles canonically encoded and Ed25519-signed (a
+// FlexCore format — NOT a TUF encoding, no conformance claim, role
+// semantics UNVERIFIED), the bundle assembled in memory with per-payload
+// signatures, the producer-side counters honoring the EXISTING
+// strictly-ahead anti-rollback semantics, and `OtaArtifactVerifier`
+// driving the produced bundle through the UNTOUCHED extended gate (the
+// P9.34 refusal order, audit, no-write structure, and the durable
+// counter advance are the existing code). Signing keys are INJECTED
+// seeds; the P18.03 key ceremonies are HUMAN GATES; no key material
+// ships. No bundle has ever been produced, signed, staged, or applied.
+pub mod ota_bundle_produce;
+// FIM-F12.04 (Wave 6, final implementation milestone; WRITTEN-UNRUN) —
+// the DEVICE-SIDE A/B slots: the download → verify → install →
+// status-report flow per slot composed from the EXISTING P18.04 flow
+// machine, the P9.34 register (the source of truth for the active
+// version, per UPDATE_SLOT_DECISION), and the P9.34 activation/rollback
+// rules. The anti-rollback × A/B rollback resolution is the REGISTER'S
+// ACTUAL POLICY, three-way (recorded in the module): a rollback NEVER
+// re-presents a manifest and the counter NEVER rewinds; when the failed
+// version was never activated (the common A/B case) the register already
+// carries the previous version and no register rollback record exists or
+// is possible — the slot-level boot rollback completes and is reported;
+// when the failed version HAD been activated the register rules run
+// verbatim (floor rule + recorded override); and a never-activated
+// target (the factory slot on a first-ever update) is the honest
+// conflict — recorded and reported as UPDATE_FAILURE_ROLLBACK_FAILED,
+// never weakened. The slot write, boot switch, and health evidence are
+// DEVICE concerns (PENDING PILOT HARDWARE SPEC, P6.34). No device has
+// ever installed anything; no slot exists.
+pub mod ota_slots;
+// FIM-F15 (Wave 6, final implementation milestone; ADDITIVE, WRITTEN-UNRUN)
+// — the FDO-pattern zero-touch onboarding IN-REPO SURFACE (feature F-15;
+// record 22_p18_09): the voucher persistence seam lives ADDITIVELY in
+// `zero_touch` (the `VoucherStore` trait; the EXISTING register is its
+// in-memory DEFAULT — a durable store is the deployment's implementation
+// behind the seam), and this module is the claim composition: the
+// configured rendezvous resolver implementing the EXISTING
+// `RendezvousSeam` (endpoint address/protocol from configuration; the
+// network exchange an injected `RendezvousTransport` port — socket-free,
+// testable; an unreachable CONFIGURED rendezvous is the distinct
+// ZERO_TOUCH_RENDEZVOUS_UNREACHABLE refusal), the opt-in claim service
+// composing voucher + rendezvous + fleet/identity surfaces (the handoff
+// ISSUES NOTHING — the P9.33 ceremony's challenge and platform-side
+// approval gate run unchanged), and the audit trail for every claim
+// attempt through the EXISTING audit shapes (dedicated event names LEAD
+// the detail text; the EdgeAuditKind vocabulary is not widened). THE
+// REFUSE-EVERYTHING DEFAULT IS PRESERVED: zero-touch is opt-in per
+// configuration and OFF by default (every claim refuses with
+// ZERO_TOUCH_ONBOARDING_DISABLED while off), the shipped
+// NoRendezvousConfigured refuses EVERY lookup when unconfigured, and the
+// manual P9.33 enrollment path stays the DEFAULT and the FALLBACK. An
+// external rendezvous service and a voucher-issuance process are
+// HUMAN/INFRA GATES; the claim is reference-equality only (P18-E-2); no
+// device is claimed; no voucher exists.
+pub mod zero_touch_claim;

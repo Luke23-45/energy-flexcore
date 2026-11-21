@@ -107,3 +107,65 @@ The `--self-test` flag runs the in-module `run_self_tests()` (bare
 invocation runs the documented stdin→stdout transport instead); the
 pytest suite carries the same hand-computed cases. Both were WRITTEN,
 never run in this loop.
+
+## FIM-F10 addition (additive): the evaluation harness — `evaluation.py`
+
+Status: **WRITTEN-UNRUN** (FIM-F10; same honesty posture as above). The
+module registers its own entry hook — `python -I
+apps/worker/python/forecast_worker/evaluation.py --self-test` — and its
+own pytest suite (`tests/test_forecast_evaluation.py`); the worker's
+frozen `flexcore-forecast-worker/1` mode vocabulary
+(`baseline_forecast` / `publish_forecast_record`) is UNCHANGED, and no
+logging/OTEL hook is touched (the FIM-F09 instrumentation work stays
+strictly separate). Pure stdlib; no new dependency.
+
+What it carries (mirrors of the Rust single homes, pinned by the same
+hand-computed vectors — two languages, one rule):
+
+| Piece | Rust single home | This module's mirror |
+|---|---|---|
+| MAE / RMSE / skill vs persistence | `crates/flexcore-application/src/forecast_evaluation.rs` | `mean_absolute_error` / `root_mean_squared_error` / `skill_score_vs_persistence` (same refusals: length mismatch, non-finite, non-positive reference) |
+| Exact timestamp join, gap refusal | (evaluation-side contract, FIM-F10.03) | `align_series` — a missing/duplicate/unsorted timestamp is a NAMED refusal, never interpolated or silently dropped |
+| Persistence rule | `forecast_baselines.rs` (`persistence_forecast`) | `persistence_reference` |
+| Artifact digest chain (SHA-256, P15.06 shape) | `apps/worker/src/vendor_ingestion.rs` §8 | `build_artifact_record` / `verify_artifact_chain` / `replay_artifact` — byte-identical canonical rendering, genesis head, and pinned digests |
+| Ingestion-side fallback selection | `apps/worker/src/vendor_ingestion.rs` §9 (`select_ingested_forecast`) | `select_ingested_forecast` — fresh at max-age, fallback at max-age + 1 (the P2.08 convention), labeled synthetic escalation |
+
+**The composition seam (recorded):** no Rust→python runtime seam exists
+(nothing in this workspace invokes a python interpreter from Rust; the
+workers are out-of-process stdin→stdout contracts driven by the
+operator/harness). The fallback composes on the Rust side against the
+single home of the persistence rule; this module mirrors the SAME pure
+selection for the worker side.
+
+**Honesty (binding):** computing a metric over supplied series is
+mathematics, not a claim — vendor feeds and evaluation runs are HUMAN
+GATES (token registration; P15-E-1/E-2 stay OPEN); the P15.05 result
+table stays EMPTY until a real backtesting run completes; no skill is
+claimed anywhere; the synthetic fixture stays the LABELED fallback
+source (P15.16); ADR-010 holds (every output is an INPUT, never a
+command).
+
+## FIM-F09 instrumentation (additive; WRITTEN-UNRUN)
+
+`forecast_baseline_worker.py` imports the shared stdlib-only module
+`../otel_instrumentation.py` (FIM-F09.01) guarded and emits ONE schema-v1
+worker-start trace line on stderr (`flexcore.log.v1`, P11.07) carrying
+the W3C `traceparent` context resolved from the request envelope / the
+`TRACEPARENT` env var — absent context stays EMPTY, never synthesized
+(P11.05 posture). No behavior change beyond that line: the result
+vocabulary, `assert_proposal_only`, and `FORBIDDEN_RESULT_KEYS` are
+untouched; the emit-time redaction filter covers the P11.08 closed
+vocabulary plus the proposal-only keys. The OpenTelemetry SDK is
+OPTIONAL and NOT installed; the no-op fallback is the DEFAULT posture;
+the SDK-present OTLP export path is UNPROVEN until a human runs it with
+the SDK installed. A RUNNING Collector and FIRING SLO alerts are HUMAN
+GATES (F-09 acceptance criteria 1-3); the Collector config is validated
+structurally — never run — by `../tools_fim/validate_collector_config.py`.
+(FIM-8C.02, 2026-11-21: the two pre-existing self-test failures
+`dispatch_permission_never_granted` and `producer_vocabulary_closed` are
+FIXED — they overrode a `permissions` key the canonical request does not
+declare, so the refusal paths never fired; the tests now declare through
+the canonical `permissions_declared` key and the self-test reports 26/26.
+The production dispatch logic was NOT changed: the refusal paths existed
+and are exercised for real now. The defects were pre-existing at HEAD,
+diagnosed by the F-09 sweep.)

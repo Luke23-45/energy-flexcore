@@ -47,3 +47,29 @@ python -I tools/check_dependency_rule.py
 A green (a)/(b) earns a one-line human build/test gate record in
 `20_reproducibility.md`; the measured cells there stay EMPTY until real
 runs and reruns exist.
+
+## FIM-F09 instrumentation (additive; WRITTEN-UNRUN)
+
+The three script entries (`rerun_check.py`, `record_schema.py`,
+`seed_derivation.py`) import the shared stdlib-only module
+`../otel_instrumentation.py` (FIM-F09.01) guarded and emit ONE schema-v1
+entry-start trace line on stderr (`flexcore.log.v1`, P11.07) when run as
+scripts, carrying the W3C `traceparent` resolved from the `TRACEPARENT`
+env var (these modules process no message envelope) — absent context
+stays EMPTY, never synthesized (P11.05 posture). The self-test reports
+on stdout are byte-identical. The OpenTelemetry SDK is OPTIONAL and NOT
+installed; the no-op fallback is the DEFAULT posture; the SDK-present
+OTLP export path is UNPROVEN until a human runs it with the SDK
+installed. A RUNNING Collector and FIRING SLO alerts are HUMAN GATES
+(F-09 acceptance criteria 1-3); the Collector config is validated
+structurally — never run — by
+`../tools_fim/validate_collector_config.py`. (FIM-8C.04, 2026-11-21: the
+pre-existing `minimal_valid_record_zero_findings` self-test failure is
+FIXED — the hand-built minimal record fixture was missing the required
+`benchmark_set_version` field; the fixture now carries
+`flexcore-research-benchmark-set-v1` and the self-test reports 16/16.
+The validator itself was NOT changed: requiring the field on every
+non-dynamic record is the recorded behavior (P8.20 ledger deliverable;
+the dynamic-track exclusion comment; every other self-test and the
+pytest mirror add exactly this field). The defect was pre-existing at
+HEAD, diagnosed by the F-09 sweep.)
